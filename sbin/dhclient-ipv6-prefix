@@ -1,0 +1,438 @@
+#!/bin/bash
+#
+# dhclient-ipv6-prefix v1.0.0 - dhclient script for ipv6 Prefix Delegation
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright 2014 Scott Shambarger.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Instructions for use:
+#
+#   Place somewhere in your dispatcher's PATH, and then touch the
+#   file NMCONF/ipv6-prefix-<wan>.conf, and optionally put the following
+#   setting in it:
+#
+#     WAN_LAN_INTFS=<lan>
+#
+#   See 08-ipv6-prefix for full documentation
+#
+# SELinux note:
+#
+#   This file should be labeled so that the dispatcher and dhclient can
+#   use it.  By default, /usr/sbin is a good location.
+#
+# Also requires:
+#
+#   NMUTILS/general-functions - shared functions
+#   /etc/NetworkManager/dispatcher.d/08-ipv6-prefix - NM trigger script
+#   dhclient - ISC DHCP client
+#   sleep - used to wait for link-local address
+#
+# Supported, but optional:
+#
+#   NMUTILS/ddns-functions - dynamic DNS functions
+#
+# dhclient is expected to setup environment with $interface and $reason,
+#    and conditionally $old_ip6_prefix, $new_ip6_prefix and $new_max_life
+#
+# NOTE: executable paths (see below) may be overriden if needed
+#
+
+# for logging
+NMG_TAG="${NMG_TAG:-ipv6-prefix-dhc}"
+
+# set NMUTILS/NMCONF early, and allow environment to override
+NMUTILS="${NMUTILS:-/etc/nmutils}"
+NMCONF="${NMCONF:-$NMUTILS/conf}"
+
+########## Global defaults (customize in $NMCONF/general.conf)
+
+########## Default paths
+
+RUNDIR="${RUNDIR:-/run/nmutils}"
+LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
+ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/${interface}/accept_ra}"
+
+########## Support programs
+
+DHCLIENT="${DHCLIENT:-dhclient}"
+SLEEP="${SLEEP:-sleep}"
+
+########## SCRIPT START
+
+if [ -z "${interface:-}" ]; then
+  my_err "${0##*/} requires 'interface' in the environment" && exit 4
+fi
+
+# load ddns- or general-functions
+NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
+[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
+  # no DDNS, use general-functions
+  NMDDNS=
+  NMG="${NMG:-$NMUTILS/general-functions}"
+  [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+    echo 1>&2 "Unable to load $NMG" && exit 2
+  }
+}
+
+########## Config/state locations
+
+# override LEASEDIR, not LEASES
+LEASES="$LEASEDIR/ipv6-prefix-${interface}.leases"
+# override RUNDIR, not DHCLIENT_PID
+DHCLIENT_PID="$RUNDIR/dhclient-ipv6-prefix-${interface}.pid"
+
+WAN_CONFIG="${WAN_CONFIG:-$NMCONF/ipv6-prefix-${interface}.conf}"
+WAN_STATE="${WAN_STATE:-$RUNDIR/ipv6-prefix-${interface}.state}"
+DDNS_CONFIG="${DDNS_CONFIG:-$NMCONF/ddns-${interface}-prefix.conf}"
+DDNS_STATE="${DDNS_STATE:-$RUNDIR/ddns-${interface}-prefix-@RREC@.state}"
+
+# NOTE: *_PAT variables must have the @LAN@ keywords
+LAN_CONFIG_PAT="${LAN_CONFIG_PAT:-$NMCONF/ipv6-prefix-@LAN@-from-${interface}.conf}"
+LAN_STATE_PAT="${LAN_STATE_PAT:-$RUNDIR/ipv6-prefix-@LAN@-from-${interface}.state}"
+LAN_DDNS_CONFIG_PAT="${LAN_DDNS_CONFIG_PAT:-$NMCONF/ddns-@LAN@-from-${interface}.conf}"
+LAN_DDNS_STATE_PAT="${LAN_DDNS_STATE_PAT:-$RUNDIR/ddns-@LAN@-from-${interface}-@RREC@.state}"
+
+
+# load WAN config (with defaults)
+WAN_DHCLIENT_OPTIONS= WAN_LAN_INTFS= WAN_REQUIRE_IP4=
+WAN_PREFIX_LEN=64 WAN_SITE=auto WAN_NODE=auto
+nmg_required_config "$WAN_CONFIG"
+
+# check values
+WAN_SITE="${WAN_SITE:-auto}"
+WAN_PREFIX_LEN="${WAN_PREFIX_LEN:-64}"
+
+RADVD_TRIGGER=
+
+function ipv6_ddns() {
+  # <interface> <state-file> <ddns-config> <ddns-state-pat>
+  local intf="$1" state="$2" ddns_config="$3" ddns_state_pat="$4"
+
+  # DDNS available?
+  [ -z "$NMDDNS" ] && return
+
+  # load final state
+  local addr6=
+  [ -f "$state" -a -r "$state" ] && addr6=$(< "$state")
+
+  # check if address is on interface
+  addr6=$(nmg_find_ip6_addrs "$intf" "$addr6")
+
+  # address present determines "up" or "down", not interface state
+  local action="down"
+  [ -n "$addr6" ] && action="up"
+
+  nmddns_spawn_update_all "$action" "$ddns_config" "" "$addr6" "$ddns_state_pat"
+}
+
+function ipv6_wan_ddns() {
+  ipv6_ddns "$interface" "$WAN_STATE" "$DDNS_CONFIG" "$DDNS_STATE"
+}
+
+function ipv6_lan_ddns() {
+  # <interface>
+  ipv6_ddns "$1" "${LAN_STATE_PAT/@LAN@/$1}" "${LAN_DDNS_CONFIG_PAT/@LAN@/$1}" "${LAN_DDNS_STATE_PAT/@LAN@/$1}"
+}
+
+function ipv6_del_addr() {
+  # <interface> <addr/plen>
+  nmg_del_ip6_addr "$1" "$2" && {
+    # flag radvd trigger (for later)
+    [ "$1" = "$interface" ] || RADVD_TRIGGER=1
+  }
+  return 0
+}
+
+function ipv6_add_addr() {
+  # <interface> <addr/plen>
+  nmg_add_ip6_addr "$1" "$2" && {
+    # flag radvd trigger (for later)
+    [ "$1" = "$interface" ] || RADVD_TRIGGER=1
+  }
+  return 0
+}
+
+function ipv6_remove_node() {
+  # <interface> <state-file>
+  local intf="$1" state="$2" addr=
+
+  [ -f "$state" -a -r "$state" ] && addr=$(< "$state")
+
+  # remove state file
+  [ -e "$state" ] && nmg_remove "$state"
+
+  [ -z "$addr" ] && return
+
+  # delete matching addr (if any)
+  ipv6_del_addr "$intf" "$addr"
+}
+
+# sets No_Auto_Site and Lan_Cnt
+function ipv6_create_node() {
+  # <interface> <state-file> <node> <site> <prefix-len>
+  local intf="$1" state="$2" node="$3" site="$4" plen="$5"
+
+  # remove any stale state file
+  [ -e "$state" ] && nmg_remove "$state"
+
+  # any node?
+  [ -z "$node" ] && return
+
+  # check prefix size
+  [ "$plen" -le 64 ] && {
+
+    # check limits
+    [ $((Lan_Cnt + 1<<(64-plen))) -gt $Max_Lans ] && {
+
+      # limit exceeded
+      nmg_info "$intf cannot be configured, not enough prefix space"
+
+      ipv6_remove_node "$intf" "$state"
+
+      return 0
+    }
+
+    # check if prefix disallows automatic site
+    [ $plen -lt 64 -a -z "$No_Auto_Site" ] && No_Auto_Site="$lan"
+  }
+
+  [ "$site" = "auto" ] && {
+
+    # automatic site available?
+    [ -n "$No_Auto_Site" ] && {
+
+      # No_Auto_Site has interface that disallowed it
+      nmg_err "$intf has auto site, but $No_Auto_Site has a prefix < 64"
+
+      ipv6_remove_node "$intf" "$state"
+
+      return 0
+    }
+
+    # auto-site for host addresses is 0 (could be config, but we'd have to
+    # check if it's valid)
+    [ "$plen" -le 64 ] && site=$(nmg_dec_to_hex $Lan_Cnt) || site=0
+  }
+
+  # build address prefix and host parts
+  local addr_prefix= addr_host= new_addr=
+  addr_prefix=$(nmg_create_ip6_prefix "$new_ip6_prefix" "$site" "$plen") || return 0
+  addr_host=$(nmg_create_ip6_host "$intf" "$node") || return 0
+
+  new_addr=$(nmg_create_ip6_addr "$addr_prefix" "$addr_host")/${addr_prefix##*/}
+
+  # use prefix space
+  [ "$plen" -le 64 ] && ((Lan_Cnt+=1<<(64-plen)))
+
+  # write state even if address isn't added (interface may be added later)
+  nmg_write "$state" "$new_addr"
+
+  ipv6_add_addr "$intf" "$new_addr"
+}
+
+function ipv6_read_lan_config() {
+  # <interface>
+
+  # load LAN config (with defaults)
+  local conf="${LAN_CONFIG_PAT/@LAN@/$1}"
+  LAN_PREFIX_LEN=64 LAN_SITE=auto LAN_NODE=auto
+  nmg_read_config "$conf" || :
+
+  # check values (node/site can't be empty)
+  LAN_NODE="${LAN_NODE:-auto}"
+  LAN_SITE="${LAN_SITE:-auto}"
+  LAN_PREFIX_LEN="${LAN_PREFIX_LEN:-64}"
+}
+
+function ipv6_create_lan_node() {
+  # <interface>
+
+  # add LAN address
+  ipv6_read_lan_config "$1"
+
+  ipv6_create_node "$1" "${LAN_STATE_PAT/@LAN@/$1}" "$LAN_NODE" "$LAN_SITE" "$LAN_PREFIX_LEN"
+}
+
+function ipv6_create_wan_node() {
+
+  # add WAN address
+  ipv6_create_node "$interface" "$WAN_STATE" "$WAN_NODE" "$WAN_SITE" "$WAN_PREFIX_LEN"
+}
+
+function ipv6_foreach_lan() {
+  # <callback>
+
+  # call callback [(<intf>)] for each LAN in WAN_LAN_INTFS.
+  local lan=
+  for lan in $WAN_LAN_INTFS; do $1 "$lan"; done
+
+  return 0
+}
+
+function ipv6_flush_nodes() {
+
+  # remove WAN address
+  ipv6_remove_node "$interface" "$WAN_STATE"
+
+  # remove LAN addresses based on state files
+  local lan_pre="${LAN_STATE_PAT%@LAN@*}"
+  local lan_post="${LAN_STATE_PAT##*@LAN@}"
+
+  shopt -s nullglob
+  local state=
+  for state in "$lan_pre"*"$lan_post"; do
+
+    # get wan
+    local wan="${state#$lan_pre}"
+    wan="${wan%$lan_post}"
+    [ -z "$wan" ] && continue
+
+    ipv6_remove_node "$wan" "$state"
+  done
+
+  return 0
+}
+
+function ipv6_setup_nodes() {
+
+  # used by ipv6_create_node
+  local No_Auto_Site= Lan_Cnt=0
+
+  # sanity check
+  local -i plen="${new_ip6_prefix##*/}"
+  [ $plen -eq 0 -o $plen -gt 64 ] && return
+
+  # calc max # lans we can support with this plen less WAN one
+  # (if WAN not using one, it'll credit it back)
+  local -i Max_Lans=$((1<<(64-plen)))
+
+  # SPECIAL CASE: WAN gets host address only
+  if [ $plen -eq 64 -a -n "$WAN_LAN_INTFS" -a "$WAN_NODE" = "auto" ]; then
+    WAN_PREFIX_LEN=128
+  fi
+
+  # assign WAN prefix/address first
+  ipv6_create_wan_node
+
+  # assign LAN prefixes/addresses in order
+  ipv6_foreach_lan ipv6_create_lan_node
+}
+
+ipv6_finish() {
+
+  # update WAN DDNS
+  ipv6_wan_ddns
+
+  # update all LAN DDNS
+  ipv6_foreach_lan ipv6_lan_ddns
+
+  # trigger radvd if we changed any LAN addresses
+  [ -n "$RADVD_TRIGGER" ] && nmg_radvd_trigger
+}
+
+ipv6_start() {
+
+  # is this a prefix delegation?
+  [ -n "$old_ip6_prefix" -o -n "$new_ip6_prefix" ] || return 0
+
+  if [ -n "$old_ip6_prefix" -a "$old_ip6_prefix" != "$new_ip6_prefix" ]; then
+    # flush nodes in WAN/LAN
+    ipv6_flush_nodes
+  fi
+
+  [ -n "$new_ip6_prefix" -a "$new_max_life" -ne "0" ] && ipv6_setup_nodes
+
+  ipv6_finish
+}
+
+ipv6_stop() {
+
+  # flush nodes in WAN/LAN
+  ipv6_flush_nodes
+
+  ipv6_finish
+}
+
+function ipv6_spawn_dhclient() {
+
+  # allow autoconfig on WAN to set default route to ipv6 gateway
+  [ -w "$ACCEPT_RA" ] && nmg_write "$ACCEPT_RA" 2
+
+  # already running?
+  nmg_is_running "$DHCLIENT" "$DHCLIENT_PID" && {
+    nmg_debug "$DHCLIENT already running" && return
+  }
+
+  local idx=0
+  while [ -n "$(nmg_find_ip6_addrs "$interface" "" "scope link tentative")" ]; do
+    [ $idx = 0 ] && nmg_debug "Link address still tentative... sleeping"
+    ((++idx))
+    "$SLEEP" 0.1
+    # 2.5 sec max (or NM will kill us)
+    [ $idx -ge 25 ] && nmg_err "Timed out waiting for link address" && return 1
+  done
+  [ $idx -gt 0 ] && nmg_debug "Link address now active"
+
+  # start dhclient to get prefix
+  nmg_daemon "$DHCLIENT" -P -nw -sf "$0" -pf "$DHCLIENT_PID" -lf "$LEASES" $WAN_DHCLIENT_OPTIONS "$interface"
+}
+
+function ipv6_kill_dhclient() {
+
+  # stop the dhclient if it's running
+  if nmg_is_running "$DHCLIENT" "$DHCLIENT_PID" 1; then
+    nmg_cmd "$DHCLIENT" -x -pf "$DHCLIENT_PID"
+  else
+    ipv6_stop
+  fi
+}
+
+if [ -z "${reason:-}" -a -n "${1:-}" ]; then
+
+  nmg_need_progs "$DHCLIENT" "$SLEEP" || exit
+
+  case "$1" in
+    start)
+      ipv6_spawn_dhclient
+      ;;
+    stop)
+      ipv6_kill_dhclient
+      ;;
+  esac
+  exit 0
+fi
+
+nmg_debug "interface: $interface reason: $reason"
+nmg_debug "old: $old_ip6_prefix new: $new_ip6_prefix life: $new_max_life"
+
+[ -e "$RUNDIR" ] || {
+  nmg_need_progs "$MKDIR" || exit
+  nmg_cmd "$MKDIR" -p "$RUNDIR" || exit
+}
+
+# since we're a child of dhclient (dhcpc_t), we can't write to
+# cgroup_t files (SELinux restriction)
+NMG_DAEMON_CGROUP=
+
+case "$reason" in
+  BOUND6|RENEW6|REBIND6)
+    ipv6_start
+    ;;
+
+  EXPIRE6|RELEASE6|STOP6)
+    ipv6_stop
+    ;;
+esac

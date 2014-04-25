@@ -1,0 +1,16 @@
+#
+# ddns-onboot.service
+#
+# systemd service to trigger ddns-onboot
+# 
+[Unit]
+Description=Set addresses in Bind from interface %I
+After=nss-lookup.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nmddns-helper %i
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

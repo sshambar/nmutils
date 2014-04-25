@@ -1,0 +1,97 @@
+#!/bin/bash
+#
+# Test suite for general-functions and ddns-functions
+#
+
+#nmg_dryrun=0
+
+# override defaults
+NMUTILS="../etc/nmutils"
+NMCONF="hconf"
+
+# normal startup
+
+# load ddns- or general-functions
+NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
+[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
+  # no DDNS, use general-functions
+  NMDDNS=
+  NMG="${NMG:-$NMUTILS/general-functions}"
+  [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+    echo 1>&2 "Unable to read $NMG" && exit 2
+  }
+}
+
+tn=0
+
+test_report() {
+  # <name> <args>
+  local rc=$? name="$1"; shift
+
+  ((tn++))
+  if [ $rc -ne 0 ]; then
+    nmg_info "TEST $tn: $name($*) returned $rc"
+  else
+    nmg_info "TEST $tn: $name($*) succeeded"
+  fi
+
+  return $rc
+}
+
+test_cmd() {
+  nmg_run err "$@"
+  test_report nmg_run "$@"
+}
+
+test_write() {
+  nmg_write "$@"
+  test_report nmg_write "$@"
+}
+
+test_ip6() {
+  nmg_check_ip6_addr "$@"
+  test_report nmg_check_ip6_addr "$@"
+}
+
+test_ip6_host() {
+  echo $(nmg_create_ip6_host "$1" "auto")
+  test_report nmg_check_ip6_host "$1"
+}
+
+test_dns() {
+  nmddns_spawn_update "$cnf" "$@"
+  test_report nmddns_spawn_update "$@"
+}
+
+test_all_dns() {
+  [ -z "$NMDDNS" ] && return
+  local cnf="$NMCONF/ddns-test.conf"
+  test_dns
+  test_dns AAAA 1.2.3.4
+  test_dns A
+  test_dns A 1.2.3.4
+  test_dns A 209.76.109.246
+}
+
+all_tests() {
+
+#  test_write 1 "content" "/tmp/my file"
+
+# test_cmd 1 "cat" - << EOF
+#several lines of test
+#another line
+#EOF
+
+  test_cmd echo a few words
+  test_cmd false
+  test_ip6 fc80::1
+  test_ip6 fc80::1 1
+  test_ip6 ffffff::1 1
+  test_all_dns
+}
+
+
+#test_ip6_host "br0"
+
+all_tests
+

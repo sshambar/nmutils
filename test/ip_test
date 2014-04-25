@@ -1,0 +1,20 @@
+#!/bin/bash
+#
+# Fake ip to test scripts
+#
+
+[ -z "$1" ] && {
+  echo "Usage: ${0##*/} [ <ip-args> ]"
+  echo "Ignores add and del actions"
+  exit 1
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    add|del)
+      exit 0
+      ;;
+  esac
+done
+
+/sbin/ip "$@"

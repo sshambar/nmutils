@@ -1,0 +1,6 @@
+#!/bin/bash
+#
+# Fake nsupdate to test scripts
+#
+[ -n "$nmg_show_debug" ] && cat -
+exit 0

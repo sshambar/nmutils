@@ -1,0 +1,384 @@
+#!/bin/bash
+#
+# 08-ipv6-prefix v1.0.0 - NetworkManager dispatch for ipv6 prefix delegation
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright 2014 Scott Shambarger.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Instructions for use:
+#
+#   Put this script in /etc/NetworkManager/dispatcher.d (or wherever
+#   your distro has these files), and dhclient-ipv6-prefix somewhere in
+#   PATH.
+#
+#   Finally, touch the file NMCONF/ipv6-prefix-<wan>.conf, and optionally
+#   put the following setting in it:
+#
+#     WAN_LAN_INTFS=<lan>
+#
+#   <wan> is your WAN interface, <lan> is your LAN interface.
+#
+#   You will want ipv6 forwarding enabled globally for the prefix to be routed,
+#   ie. /etc/sysctl.d/ipv6.conf should contain "net.ipv6.conf.all.forwarding=1"
+#
+#   For a WAN interface, this dispatcher will start dhclient (for ipv6)
+#   so make sure that NetworkManager isn't already starting one for
+#   ipv6.  (in ifcfg settings, set IPV6INIT="no" for the interface;
+#   keyfile settings, set ipv6.method=ignore for the interface)
+#
+#   For a LAN interface, this dispatcher will attempt to replace a
+#   missing LAN prefix if it comes up after the WAN, or is restarted.
+#
+# Requires:
+#
+#   NMUTILS/general-functions - shared functions
+#   dhclient-ipv6-prefix - dhclient script
+#   dhclient - ISC DHCP client
+#   sleep - used to wait for link-local address
+#
+# Supported, but optional:
+#
+#   NMUTILS/ddns-functions - dynamic DNS functions
+#   NMCONF/ddns-<wan>-prefix.conf - WAN D-DNS config (see ddns-functions)
+#   NMCONF/ddns-<lan>-from-<wan>.conf - LAN D-DNS
+#
+# WAN config location (<wan> is WAN interface):
+#
+#   NMCONF/ipv6-prefix-<wan>.conf
+#
+# LAN config location, optional (<lan> is LAN interface):
+#
+#   NMCONF/ipv6-prefix-<lan>-from-<wan>.conf
+#
+# State files (created by dhclient-ipv6-prefix and this script):
+#
+#   RUNDIR/ipv6-prefix-<wan>.state
+#   RUNDIR/ipv6-prefix-<lan>-from-<wan>.state
+#   RUNDIR/ddns-<wan>-prefix-<rrec>.state
+#   RUNDIR/ddns-<lan>-from-<wan>-<rrec>.state
+#
+# WAN Settings (set in NMCONF/ipv6-prefix-<wan>.conf)
+#
+#   All settings are optional, but file must exist to trigger prefix query!
+#
+#   <ip6_prefix>/<ip6_prefix_len> below are the delegated prefix values.
+#
+#   WAN_DHCLIENT_OPTIONS - any additional dhclient options
+#
+#   WAN_LAN_INTFS - LAN interfaces (space separated) to assign
+#       prefixes to.  See below for optional per-LAN config.  The order
+#       determines which LAN interfaces get sub-prefixes if prefix
+#       space is limited.
+#
+#   WAN_REQUIRE_IP4 - if set, requires valid, public ip4 address on
+#       interface before starting dhclient (useful if modem assigns
+#       private ip4 address when it's offline).  If set to "any", then
+#       even private network addresses are accepted.
+#
+#   WAN_PREFIX_LEN (default: 64) - prefix length to assign to WAN
+#       address.  Anything over delegated <ip6_prefix_len> can be used
+#       for WAN_SITE.  128 sets just an address on the interface.
+#
+#   WAN_SITE (default: auto) - (WAN_PREFIX_LEN - <ip6_prefix_len>)
+#       bits added to create <wan_prefix>.  If auto or unset, defaults
+#       to 0.  May match a LAN_SITE, but then WAN_NODE must differ
+#       from that LAN_NODE, or be auto.
+#
+#   WAN_NODE (default: auto) - <wan_prefix>::WAN_NODE is address
+#       assigned WAN.  If auto then the link-local address's host part
+#       is used.  If set to empty, no address is assigned to the WAN.
+#
+#   SPECIAL CASE: WAN_NODE is auto, WAN_LAN_INTFS set, and
+#       <ip6_prefix_len> is 64, then WAN gets a host addresses only
+#       (no prefix, ie WAN_PREFIX_LEN forced to 128)
+#
+#   NOTE: A default (empty) config will assign a sub-prefix to the WAN.
+#
+# LAN Settings (set in NMCONF/ipv6-prefix-<lan>-from-<wan>.conf)
+#
+#   All LAN settings are optional (file does not need to exist).
+#
+#   LAN_SITE (default: auto) - (LAN_PREFIX_LEN - <ip6_prefix_len>)
+#       bits added <ip6_prefix> to create <lan_prefix>.  Must be
+#       unique among LAN interfaces sharing an <ip6_prefix> (ie. using
+#       same WAN).  If auto or unset then prefixes are created based
+#       on the order the LAN appears WAN_LAN_INTFS (NOTE: WAN_PREFIX_LEN
+#       and all LAN_PREFIX_LENs must be 64 or 128 for auto to work).
+#
+#   LAN_PREFIX_LEN (default: 64) - prefix length to assign to LAN address.
+#       Anything over <ip6_prefix_len> can be used for LAN_SITE.
+#       128 sets just an address on the interface.
+#
+#   LAN_NODE (default: auto) - <lan_prefix>::LAN_NODE is address
+#       assigned.  If auto or unset then the link-local address's host
+#       part is used.
+#
+# NOTE: executable paths (see below) may be overriden if needed
+#
+interface="$1"
+action="$2"
+
+# for logging
+NMG_TAG="ipv6-prefix"
+
+# set NMUTILS/NMCONF early, and allow environment to override
+NMUTILS="${NMUTILS:-/etc/nmutils}"
+NMCONF="${NMCONF:-$NMUTILS/conf}"
+
+########## Global defaults (customize in $NMCONF/general.conf)
+
+########## Default paths
+
+RUNDIR="${RUNDIR:-/run/nmutils}"
+
+########## Support programs
+
+DHSCRIPT="${DHSCRIPT:-dhclient-ipv6-prefix}"
+MKDIR="${MKDIR:-mkdir}"
+
+########## SCRIPT START
+
+# anything for us to do?
+[ -n "$interface" -a -n "$action" ] || exit 0
+
+# load ddns- or general-functions
+NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
+[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
+  # no DDNS, use general-functions
+  NMDDNS=
+  NMG="${NMG:-$NMUTILS/general-functions}"
+  [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+    echo 1>&2 "Unable to load $NMG" && exit 2
+  }
+}
+
+########## Config/state locations
+
+# NOTE: *_PAT variables must have the @WAN@ and @RREC@ keywords
+WAN_CONFIG_PAT="${WAN_CONFIG_PAT:-$NMCONF/ipv6-prefix-@WAN@.conf}"
+
+LAN_STATE_PAT="${LAN_STATE_PAT:-$RUNDIR/ipv6-prefix-${interface}-from-@WAN@.state}"
+LAN_DDNS_CONFIG_PAT="${LAN_DDNS_CONFIG_PAT:-$NMCONF/ddns-${interface}-from-@WAN@.conf}"
+LAN_DDNS_STATE_PAT="${LAN_DDNS_STATE_PAT:-$RUNDIR/ddns-${interface}-from-@WAN@-@RREC@.state}"
+
+nmg_need_progs "$DHSCRIPT" || exit
+
+function ipv6_read_wan_config() {
+  # <wan>
+  local config="${WAN_CONFIG_PAT/@WAN@/$1}"
+
+  # load WAN config (with defaults)
+  WAN_DHCLIENT_OPTIONS= WAN_LAN_INTFS= WAN_REQUIRE_IP4=
+  WAN_PREFIX_LEN=64 WAN_SITE=auto WAN_NODE=auto
+  nmg_read_config "$config" || return
+
+  # check values
+  WAN_SITE="${WAN_SITE:-auto}"
+  WAN_PREFIX_LEN="${WAN_PREFIX_LEN:-64}"
+}
+
+#
+# WAN Functions
+#
+
+function ipv6_wan_check() {
+
+  [ -z "$WAN_REQUIRE_IP4" ] && return
+
+  local priv_ok=
+  [ "$WAN_REQUIRE_IP4" = "any" ] && priv_ok=1
+
+  # if no ip4, fail
+  if [ ${IP4_NUM_ADDRESSES:-0} -eq 0 ]; then
+    nmg_debug "No ip4 addresses available"
+    return 1
+  fi
+
+  # now see if there's a valid address
+  local idx= addrgw=
+  for (( idx=0; idx < $IP4_NUM_ADDRESSES; idx++ )); do
+    addrgw=$(eval echo -n '$'IP4_ADDRESS_$idx)
+    # remove netmask and gateway
+    addrgw=${addrgw%%/*}
+    nmg_check_ip4_addr "$addrgw" "$priv_ok" && return
+  done
+
+  local pub="valid "
+  [ -z "$priv_ok" ] && pub="public "
+  nmg_info "No ${pub}ip4 addresses available"
+
+  return 1
+}
+
+function ipv6_wan_start_dhclient() {
+  export interface
+  nmg_daemon "$DHSCRIPT" "start"
+}
+
+function ipv6_wan_stop_dhclient() {
+  export interface
+  nmg_daemon "$DHSCRIPT" "stop"
+}
+
+function ipv6_wan_start() {
+
+  local rc=0
+  ipv6_read_wan_config "$interface" || rc=$?
+
+  # no file ok
+  [ $rc -eq 1 ] && return 0
+  # other error?
+  [ $rc -ne 0 ] && return $rc
+
+  # start dhclient
+  ipv6_wan_check && ipv6_wan_start_dhclient || ipv6_wan_stop_dhclient
+}
+
+function ipv6_wan_stop() {
+
+  # stop dhclient if we have config
+  ipv6_read_wan_config "$interface" && {
+    ipv6_wan_stop_dhclient
+  }
+
+  return 0
+}
+
+#
+# LAN Functions
+#
+
+# sets Radvd_Trigger
+function ipv6_lan_add_addr() {
+  # <interface> <addr/plen>
+  nmg_add_ip6_addr "$1" "$2" && {
+    # flag radvd trigger (for later)
+    [ "$1" = "$interface" ] || Radvd_Trigger=1
+  }
+  return 0
+}
+
+function ipv6_lan_ddns_from_wan() {
+  # <wan> [<addr6>]
+  local wan="$1" addr6="${2:-}"
+
+  # DDNS available?
+  [ -z "$NMDDNS" ] && return
+
+  # address present determines "up" or "down", not interface state
+  local action="down"
+  [ -n "$addr6" ] && action="up"
+
+  nmddns_spawn_update_all "$action" "${LAN_DDNS_CONFIG_PAT/@WAN@/$wan}" "" "$addr6" "${LAN_DDNS_STATE_PAT/@WAN@/$wan}"
+}
+
+function ipv6_lan_from_wan() {
+  # <wan> <state-file>
+  local wan="$1" state="$2" addr=
+
+  # read address from state
+  [ -f "$state" -a -r "$state" ] && addr=$(< "$state")
+
+  # get WAN_LAN_INTFS
+  ipv6_read_wan_config "$wan" || :
+
+  # this LAN still configured for this WAN?
+  local lan= lan_found=
+  for lan in $WAN_LAN_INTFS; do
+    [ "$lan" = "$interface" ] && {
+      ipv6_lan_add_addr "$lan" "$addr"
+      lan_found=1
+      break
+    }
+  done
+
+  # if LAN's been removed from WAN, reset DDNS
+  [ -z "$lan_found" ] && addr=
+
+  ipv6_lan_ddns_from_wan "$wan" "$addr"
+}
+
+function ipv6_lan_flush() {
+  # <wan>
+
+  # reset DDNS for this WAN
+  ipv6_lan_ddns_from_wan "$1"
+}
+
+function ipv6_lan_foreach_wan() {
+  # <callback>
+
+  # call callback [(<intf> <state>)] for each matching LAN_STATE_PAT.
+  local lan_pre="${LAN_STATE_PAT%@WAN@*}"
+  local lan_post="${LAN_STATE_PAT##*@WAN@}"
+
+  local state=
+  for state in "$lan_pre"*"$lan_post"; do
+
+    # any matches?
+    [ "$state" = "${LAN_STATE_PAT/@WAN@/*}" ] && break
+
+    # get wan
+    local wan="${state#$lan_pre}"
+    wan="${wan%$lan_post}"
+    [ -z "$wan" ] && continue
+
+    $1 "$wan" "$state"
+  done
+
+  return 0
+}
+
+function ipv6_lan_start() {
+
+  local Radvd_Trigger=
+
+  # set address from each WAN
+  ipv6_lan_foreach_wan ipv6_lan_from_wan
+
+  # trigger radvd if prefix(es) added
+  [ -n "$Radvd_Trigger" ] && nmg_radvd_trigger
+}
+
+function ipv6_lan_stop() {
+
+  # reset DDNS for each WAN
+  ipv6_lan_foreach_wan ipv6_lan_flush
+
+  # trigger radvd as prefix(es) removed
+  nmg_radvd_trigger
+}
+
+nmg_debug "interface: $interface action: $action"
+
+[ -e "$RUNDIR" ] || {
+  nmg_need_progs "$MKDIR" || exit
+  nmg_cmd "$MKDIR" -p "$RUNDIR" || exit
+}
+
+case "$action" in
+  up)
+    ipv6_lan_start
+    ipv6_wan_start
+    ;;
+  dhcp4-change)
+    ipv6_wan_start
+    ;;
+  down)
+    ipv6_lan_stop
+    ipv6_wan_stop
+    ;;
+esac

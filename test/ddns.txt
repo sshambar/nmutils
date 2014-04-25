@@ -1,0 +1,21 @@
+
+Value (state set to <value>):
+
+    <value> _VALUE  _PRIVATE  result:
+ A  <any>   *                 <removed>
+ A  <pub>                     <pub>
+ A  <priv>                    _FALLBACK (or <removed>)
+ A  <priv>           1        <priv>
+ A  <any>   <addr>            <addr>
+
+ ?  *       *                 <removed>
+ ?  <val>   <val>             <val>
+
+
+No-value (state removed):
+
+    _FALLBACK_  result:
+ A              <removed>
+ A  <addr>      <addr>
+ ?              <removed>
+ ?  <val>       <val>

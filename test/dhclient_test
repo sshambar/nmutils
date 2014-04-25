@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Fake dhclient to test scripts
+#
+# Set the following in your ipv6-prefix-wan-${interface}.conf file to test:
+#
+#if [ "$reason" = "BOUND6" ]; then
+#  old_ip6_prefix=<ip6-prefix/len>
+#  new_ip6_prefix=<ip6-prefix/len>
+#  new_max_life=100
+#elif [ "$reason" = "STOP6" ]; then
+#  old_ip6_prefix=<ip6-prefix/len>
+#fi
+
+[ -z "$1" ] && {
+  echo "Usage: ${0##*/} [ -sf <script> ] [ -pf <pid> ] <interface>"
+  echo "Usage: ${0##*/} [ -pf <pid> ] sleep"
+  exit 1
+}
+
+script=
+pid=
+for arg in "$@"; do
+  case "$arg" in
+    -sf)
+      script=1
+      ;;
+    -pf)
+      pid=1
+      ;;
+    *)
+      [ "$script" = "1" ] && script="$arg"
+      [ "$pid" = "1" ] && pid="$arg"
+      ;;
+  esac
+done
+
+[ "$arg" = "sleep" ] && {
+  if [ "${pid:-1}" = "1" ]; then
+    "$0" xsleep &
+  else
+    "$0" -pf "$pid" xsleep &
+  fi
+  exit 0
+}
+
+[ "$arg" = "xsleep" ] && {
+  [ -n "$nmg_show_debug" ] && echo "Spawned background dhclient_test [$$]"
+  [ "${pid:-1}" != "1" ] && echo $$ > "$pid"
+  sleep 5
+  exit 0
+}
+
+[ "${script:-1}" = "1" ] && exit 0
+
+export interface="$arg"
+export reason=BOUND6
+
+[ "${pid:-1}" != "1" ] && echo $$ > "$pid"
+
+(exec "$script" </dev/null) &
+exit 0

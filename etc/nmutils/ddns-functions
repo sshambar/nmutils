@@ -1,0 +1,443 @@
+# -*-Shell-script-*-
+#
+# NMDDNS v1.0.0 - Dynamic DNS functions scripts can include and use
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright 2014 Scott Shambarger.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Instructions for use:
+#
+#   Setup a few constants in your NetworkManager dispatcher script, and
+#   include this file, here's an example:
+#
+#       # optional, for logging
+#       NMG_TAG="ddns"
+#
+#       # set NMUTILS/NMCONF early, and allow environment to override
+#       NMUTILS="${NMUTILS:-/etc/nmutils}"
+#       NMCONF="${NMCONF:-$NMUTILS/conf}"
+#
+#       NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
+#       [ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || NMDDNS=
+#
+#   Use of NM* variables above is optional (NMDDNS here indicates
+#   nmddns_* functions were loaded), but the above allows easy
+#   overrides from the environment (and easy testing).  You may also
+#   want to customize some settings in NMCONF/general.conf (see
+#   "Global overrides" below)
+#
+# Requires:
+#
+#   NMUTILS/general-functions - shared functions
+#   nsupdate - for DNS updates
+#   dig - for DNS queries
+#
+# Supported, but optional:
+#
+#   nmddns-helper - asynchronous DDNS updater
+#   flock - used for locking
+#
+# Dynamic DNS functions:
+#
+#   nmddns_read_config(<config-file>) - reset config setting (including
+#     for all resource records) and read <config-file>. Return 1 if not
+#     found or required elements missing.
+#
+#   nmddns_required_config(<config-file>) - same as
+#     nmddns_read_config but exit 0 if not found/required element missing,
+#     or exit with error if other error.
+#
+#   nmddns_update(<rrec> [<value> [<state-pat>]]) - set DNS resource
+#     record <rrec> to <value>, or if <value> empty, set to the
+#     fallback value if not empty (see below), or remove the record.
+#     (DDNS_* values should be set).  If supplied, <state-pat> must
+#     contain the string "@RREC@" and is used to set state for
+#     nmddns-helper [<interface>] to update DDNS in late startup.
+#     NOTE: if <state-pat> is used, A and AAAA addresses should have /<prefix>
+#
+#   nmddns_spawn_update(<config-file> <rrec> [<value> [state-pat>]])
+#     spawn helper to call nmddns_update asynchronously, or read
+#     <config-file> and call it directly if helper can't be used.
+#
+#   nmddns_update_all(<"up"|"down"> <ip4-addr> <ip6-addr> [<state-pat>])
+#     updates for all configured DDNS names (DDNS_* values should be set),
+#     using <ip4-addr> for A and <ip6-addr> for AAAA (if respective
+#     DDNS_RREC_*_VALUEs don't override).  If supplied, <state-pat> must
+#     contain the string "@RREC@" and is used to set state for
+#     nmddns-helper [<interface>] to update DDNS in late startup.
+#     NOTE: if <state-pat> is used, A and AAAA addresses should have /<prefix>
+#
+#   nmddns_spawn_update_all(<"up"|"down"> <config-file> <ip4-addr> <ip6-addr>
+#                           [<state-pat>])
+#     spawn helper to call nmddns_update_all asynchronously, or read
+#     <config-file> and call it directly if helper can't be used.
+#
+# Global overrides (put in NMCONF/general.conf)
+#
+#   DDNS_GLOBAL_LOCKFILE (optional) - flock lockfile used to prevent
+#       races between query and set of records.  Overrides use of config
+#       file with this file for all locking (useful to serialize all DNS
+#       updates).
+#
+#   DDNS_GLOBAL_FLOCK_TIMEOUT (default: 15) - flock timeout in seconds
+#
+#   DDNS_GLOBAL_DIG_TIMEOUT (default: 3) - DNS query timeout
+#
+#   DDNS_GLOBAL_NSUPDATE_TIMEOUT (default: 10) - nsupdate timeout in seconds
+#
+#   DDNS_GLOBAL_NSUPDATE_OPTIONS (optional) - options for nsupdate, to have
+#       it use TCP ("-v") or a keyfile
+#       (eg "-k /etc/Kexample.net.+157+12345.private")
+#
+# Config settings (put in <config-file>, see nmddns_read_config() above):
+#
+#   DDNS_ZONE (required) - zone to update
+#
+#   DDNS_RREC_<rrec>_NAME (one per <rrec>) - name to update for <rrec> record
+#       (<rrec> is A, AAAA, CNAME, TXT etc).  This is generally a
+#       domain or host name, but can be any valid DNS name.
+#
+#   DDNS_RREC_<rrec>_VALUE (optional) -  use this value when interface is up.
+#       If empty, then DDNS_RREC_<rrec>_FALLBACK is used.  If set to "*"
+#       (an asterisk), then FALLBACK is ignored, and the <rrec> is removed
+#       when the interface is up.
+#
+#   DDNS_RREC_<rrec>_FALLBACK (optional) - value to use if a record would
+#       otherwise be removed (empty value); useful to set a value when
+#       interface is down, or an global address is not yet available
+#       on an interface.
+#
+#   DDNS_RREC_<rrec>_PRIVATE (optional) - for A and AAAA only, allow private
+#       interface addresses to be used (otherwise would use FALLBACK)
+#
+#   DDNS_DIG_TIMEOUT (optional) - override global DNS query timeout
+#
+#   DDNS_NSUPDATE_TIMEOUT (optional) - override global nsupdate timeout
+#
+#   DDNS_NSUPDATE_OPTIONS (optional) - override global nsupdate options
+#
+#   DDNS_SERVER (default: 127.0.0.1) - dns server to update
+#
+#   DDNS_TTL (default: 600) - ttl of entry
+#
+#   DDNS_FLOCK_TIMEOUT (optional) - override global flock timeout
+#
+#   DDNS_LOCKFILE (optional) - flock lockfile used to prevent races between
+#       query and update.  Defaults to config file itself.  Set to empty
+#       in a config file to disable locking for just that file.
+#
+# NOTE: executable paths (see below) may be overriden if needed
+#
+
+# set default paths if missing
+NMUTILS="${NMUTILS:-/etc/nmutils}"
+NMCONF="${NMCONF:-$NMUTILS/conf}"
+
+########## Global defaults (customize in $NMCONF/general.conf)
+
+DDNS_GLOBAL_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-}"
+DDNS_GLOBAL_FLOCK_TIMEOUT="${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}"
+DDNS_GLOBAL_DIG_TIMEOUT="${DDNS_GLOBAL_DIG_TIMEOUT:-3}"
+DDNS_GLOBAL_NSUPDATE_TIMEOUT="${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}"
+DDNS_GLOBAL_NSUPDATE_OPTIONS="${DDNS_GLOBAL_NSUPDATE_OPTIONS:-}"
+
+########## Support programs
+
+NMDDNS_HELPER="${NMDDNS_HELPER:-nmddns-helper}"
+NMDDNS_DIG="${NMDDNS_DIG:-dig}"
+NMDDNS_NSUPDATE="${NMDDNS_NSUPDATE:-nsupdate}"
+
+# set NMDDNS_FLOCK to empty to disable all locking
+NMDDNS_FLOCK="${NMDDNS_FLOCK:-flock}"
+
+########## SCRIPT START
+
+# load general-functions
+NMG="${NMG:-$NMUTILS/general-functions}"
+[ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+  echo 1>&2 "Unable to load $NMG" && NMG=
+}
+
+# private
+function nmddns_loaded() {
+
+  # test if general-functions loaded..
+  [ -n "$NMG" ] || return
+
+  # test required programs
+  nmg_need_progs "$NMDDNS_DIG" "$NMDDNS_NSUPDATE" || return
+}
+
+# internal
+function nmddnsi_short_timeouts() {
+  DDNS_GLOBAL_DIG_TIMEOUT=1
+  DDNS_GLOBAL_NSUPDATE_TIMEOUT=2
+  DDNS_GLOBAL_FLOCK_TIMEOUT=1
+}
+
+# internal
+function nmddnsi_update() {
+  # <name> <rrec> <value>
+  local ddns_name="$1" ddns_rrec="$2" ddns_value="$3" cur_value=
+
+  DDNS_SERVER="${DDNS_SERVER:-127.0.0.1}"
+
+  # check if server already has correct entry
+  nmg_debug "Looking up current $ddns_rrec on server $DDNS_SERVER"
+
+  local qtime="${DDNS_DIG_TIMEOUT:-$DDNS_GLOBAL_DIG_TIMEOUT}"
+  cur_value=$("$NMDDNS_DIG" @$DDNS_SERVER +short +retry=0 +time="$qtime" "$ddns_rrec" "$ddns_name")
+  [ $? -ne 0 ] && nmg_info "DNS server $DDNS_SERVER unreachable" && return 25
+
+  if [ "${cur_value}" = "${ddns_value}" ]; then
+    nmg_debug "$ddns_name $ddns_rrec entry current: $cur_value"
+    return
+  fi
+
+  local ddns_cmd=
+  if [ -n "$ddns_value" ]; then
+    nmg_info "Setting $ddns_name $ddns_rrec to $ddns_value"
+    ddns_cmd="update add $ddns_name ${DDNS_TTL:-600} $ddns_rrec $ddns_value"$'\n'"send"
+  else
+    nmg_info "Removing $ddns_name $ddns_rrec"
+    ddns_cmd="send"
+  fi
+
+  # update the entry (15 sec timeout)
+  local timeout="${DDNS_NSUPDATE_TIMEOUT:-$DDNS_GLOBAL_NSUPDATE_TIMEOUT}"
+  local options="${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}"
+  nmg_cmd "$NMDDNS_NSUPDATE" -R /dev/urandom -t "$timeout" $options <<- EOF
+	server $DDNS_SERVER
+	zone $DDNS_ZONE
+	update delete $ddns_name $ddns_rrec
+	$ddns_cmd
+	EOF
+  local rc=$?
+  [ $rc -ne 0 ] && nmg_err "DNS update to server $DDNS_SERVER failed for $ddns_name $ddns_rrec"
+
+  return $rc
+}
+
+function nmddns_read_config() {
+  # <config-file>
+  local config="${1:-}"
+
+  # lockfile defaults to config-file (as it will exist if used)
+  DDNS_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-$config}"
+
+  # clear config
+  DDNS_ZONE= DDNS_SERVER= DDNS_TTL= DDNS_FLOCK_TIMEOUT=
+  DDNS_DIG_TIMEOUT= DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
+  for name in "${!DDNS_RREC_@}"; do
+    eval unset "$name"
+  done
+
+  # read config if any
+  nmg_read_config "$config" || return
+
+  # check required elements
+  [ -n "$DDNS_ZONE" ] || return
+}
+
+function nmddns_required_config() {
+  # <config-file>
+  local rc=0
+  nmddns_read_config "${1:-}" || rc=$?
+
+  # 1 means no file, just exit 0
+  [ $rc -eq 1 ] && exit 0
+  # any other error, exit with it
+  [ $rc -ne 0 ] && exit $rc
+  # no errors, continue...
+  return 0
+}
+
+function nmddns_update() {
+  # <rrec> [<value> [<state-pat>]]
+  local rrec="${1:-}" value="${2:-}" state_pat="${3:-}"
+
+  if [ -z "$rrec" ]; then
+    nmg_err "nmddns_update() requires <rrec> parameter"
+    return 1
+  fi
+
+  # are we configured to update this <rrec>?
+  local ddns_name=$(eval echo -n '${DDNS_RREC_'$rrec'_NAME:-}')
+  [ -z "$ddns_name" ] && return
+
+  # check config
+  if [ -z "${DDNS_ZONE:-}" ]; then
+    nmg_err "Missing required DDNS_ZONE config"
+    return 5
+  fi
+
+  local state="${state_pat/@RREC@/$rrec}"
+  if [ -n "$value" ]; then
+
+    # set state if requested
+    [ -n "$state" ] && nmg_write "$state" "$value"
+
+    # strip "/<prefix>" on A/AAAA values
+    [ "$rrec" = "A" -o "$rrec" = "AAAA" ] && value="${value%%/*}"
+
+    # use DDNS_RREC_*_VALUE, or $value if not set
+    local new_value=$(eval echo -n '${DDNS_RREC_'$rrec'_VALUE:-'$value'}')
+
+    if [ "$new_value" = "$value" ]; then
+
+      # SPECIAL CASE: if A or AAAA (and not changed by _VALUE), make
+      # sure new value is valid
+      local priv_ok=$(eval echo -n '${DDNS_RREC_'$rrec'_PRIVATE:-}')
+      case "$rrec" in
+	"A")
+	  nmg_check_ip4_addr "$value" "$priv_ok" || new_value=
+	  ;;
+	"AAAA")
+	  nmg_check_ip6_addr "$value" "$priv_ok" || new_value=
+	  ;;
+      esac
+    fi
+
+    # use fallback (if any) if <new_value> empty
+    [ -z "$new_value" ] && new_value=$(eval echo -n '${DDNS_RREC_'$rrec'_FALLBACK:-}')
+
+    # new_value of * means remove entry on set (ignoring fallback)
+    [ "$new_value" = "*" ] && value= || value="$new_value"
+  else
+
+    # remove state if requested
+    [ -n "$state" ] && nmg_remove "$state"
+
+    # clearing value, use fallback (if any)
+    [ -z "$value" ] && value=$(eval echo -n '${DDNS_RREC_'$rrec'_FALLBACK:-}')
+  fi
+
+  if [ -n "$DDNS_LOCKFILE" -a -n "$(command -v "$NMDDNS_FLOCK")" ]; then
+    local timeout="${DDNS_FLOCK_TIMEOUT:-$DDNS_GLOBAL_FLOCK_TIMEOUT}"
+    ("$NMDDNS_FLOCK" -w "$timeout" 9
+      [ $? -ne 0 ] && nmg_err "Timeout getting DDNS lock for $rrec" && exit 1
+      nmddnsi_update "$ddns_name" "$rrec" "$value"
+      ) 9<"$DDNS_LOCKFILE"
+  else
+    # no locking
+    [ -n "$DDNS_LOCKFILE" ] && nmg_info "Locking not available for DDNS"
+    nmddnsi_update "$ddns_name" "$rrec" "$value"
+  fi
+}
+
+function nmddns_spawn_update() {
+  # <ddns-file> <rrec> [<value> [<state-pat>]]
+  local config="${1:-}" rrec="${2:-}" state_pat="${4:-}"
+
+  [ -z "$rrec" ] && return
+
+  # check if config exists
+  nmddns_read_config "$config" || return 0
+
+  # check if name configured
+  local ddns_name=$(eval echo -n '${DDNS_RREC_'$rrec'_NAME:-}')
+  [ -z "$ddns_name" ] && return
+
+  # we have a valid config, spawn the helper
+  nmg_daemon "$NMDDNS_HELPER" "update" "$@" && return
+
+  # make timeouts much faster, or NetworkManager will kill us
+  nmddnsi_short_timeout
+
+  # helper not found, or can't be started, update directly.
+  shift 1
+  nmddns_update "$@"
+}
+
+function nmddns_update_all() {
+  # <"up"|"down"> <ip4-addr> <ip6-addr> [<state-pat>]
+  local action="$1" addr4="${2:-}" addr6="${3:-}" state_pat="${4:-}"
+
+  local name=
+  for name in "${!DDNS_RREC_@}"; do
+
+    # DDNS_RREC_<rrec>_NAME is required
+    [[ "$name" = *_NAME ]] || continue
+
+    # parse rrec
+    name="${name#DDNS_RREC_}"
+    local rrec="${name%_NAME}"
+    [ -z "$rrec" ] && continue
+
+    case "$action" in
+      "up")
+	# special case values for A and AAAA
+	case "$rrec" in
+	  "A")
+	    value="$addr4"
+	    ;;
+	  "AAAA")
+	    value="$addr6"
+	    ;;
+	  *)
+	    value="$(eval echo -n '${DDNS_RREC_'$rrec'_VALUE:-}')"
+	    ;;
+	esac
+	;;
+      "down")
+	value=
+	;;
+      *)
+	nmg_err "nmddns_update_all() requires an <action> of 'up' or 'down'"
+	return 1
+	;;
+    esac
+
+    # perform update
+    nmddns_update "$rrec" "$value" "$state_pat"
+  done
+
+  return 0
+}
+
+function nmddns_spawn_update_all() {
+  # <"up"|"down"> <config-file> <ip4-addr> <ip6-addr> <state-pat>
+  local action="${1:-}" config="${2:-}" addr4="${3:-}" addr6="${4:-}" state_pat="${5:-}"
+
+  [ -z "$action" ] && {
+    nmg_err "nmddns_spawn_update_all() requires an <action> of 'up' of 'down'"
+    return 1
+  }
+
+  # check if config exists
+  nmddns_read_config "$config" || return 0
+
+  # check if any names configured
+  local name= name_found=
+  for name in "${!DDNS_RREC_@}"; do
+    # DDNS_RREC_<rrec>_NAME is required
+    [[ "$name" = *_NAME ]] && name_found=1 && break
+  done
+  [ -z "$name_found" ] && return
+
+  # we have a valid config, spawn the helper
+  nmg_daemon "$NMDDNS_HELPER" "$@" && return
+
+  # make timeouts much faster, or NetworkManager will kill us
+  nmddnsi_short_timeout
+
+  # helper not found, or can't be started, update directly.
+  shift 2
+  nmddns_update_all "$action" "$@"
+}
+
+# last, to fail load if any missing components
+nmddns_loaded
