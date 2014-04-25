@@ -1,24 +1,23 @@
-Network Manager Utililty Scripts
+Network Manager Utility Scripts
 ================================
 
 A collection of BASH based utility scripts and support functions for
 use with Gnome's NetworkManager dispatcher.
 
-- [Included Dispatch Scripts](#scripts)
+- [Included Dispatch Scripts](#included-dispatch-scripts)
 - [Setup](#setup)
- - [Prerequisites](#prereq)
- - [Installation](#install)
- - [Configuration](#config)
+ - [Prerequisites](#prerequisites)
+ - [Installation](#installation)
+ - [Configuration](#configuration)
  - [Examples](#examples)
- - [Troubleshooting](#problems)
-- [Support Functions](#functions)
+ - [Troubleshooting](#troubleshooting)
+- [Support Functions](#support-functions)
  - [Usage](#usage)
-- [Documentation](#docs)
-- [Utility Functions](#utility)
+- [Documentation](#documentation)
 - [Support](#support)
 - [License](#license)
 
-Included Dispatch Scripts {#scripts}
+Included Dispatch Scripts
 -------------------------
 
 - **Dynamic DNS** The dispatch script will use `nsupdate` to set
@@ -34,17 +33,17 @@ Included Dispatch Scripts {#scripts}
  creation by interface.  Also supports Dynamic DNS based on prefix
  assignment similar to the interface state DNS script above.
 
-Setup {#setup}
+Setup
 -----
 
-### Prerequisites {#prereq}
+### Prerequisites
 
 - [NetworkManager](https://wiki.gnome.org/Projects/NetworkManager)
 - [Bash](http://www.gnu.org/software/bash/)
 - Basic Command Line Tools: `pgrep rm ip`
 - Optional Tools: `logger radvd dig nsupdate flock dhclient sleep`
 
-### Installation {#install}
+### Installation
 
 To use the included scripts, just install them someplace they can be
 executed by NetworkManager's dispatcher scripts (generally
@@ -60,7 +59,7 @@ general-functions' PATH (eg. `/usr/local/sbin`)
 - `/usr/local/sbin/dhclient-ipv6-prefix`
 - `/usr/local/sbin/nmddns-helper`
 
-### Configuration {#config}
+### Configuration
 
 #### IPv6 Prefix Delegation Configuration
 
@@ -123,14 +122,14 @@ can be installed, and enabled with:
 to perform late boot DDNS setup that may not have been possible during
 system boot.
 
-### Examples {#examples}
+### Examples
 
 There are extensive configuration examples in the source under
 `examples/simple` and `examples/complex`.  In addition, refer
-to the [Documentation](#docs) to see complete descriptions of all
+to the [Documentation](#documentation) to see complete descriptions of all
 the configuration options (there are **lots**).
 
-### Troubleshooting {#problems}
+### Troubleshooting
 
 By default, the scripts log minimal informational messages to syslog
 under the daemon facility (info and error).  To track down problems,
@@ -153,7 +152,7 @@ and logging may be directed to stderr to ease tracing any problems you
 may be encountering.  NOTE: configuration in the `test` directory is
 located in `test/conf`
 
-Support Functions {#functions}
+Support Functions
 -----------------
 
 The included support scripts `general-functions` and `ddns-functions`
@@ -174,7 +173,7 @@ useful in creating additional dispatch scripts.  They include:
 - nsupdate-based Dynamic DNS (optionally asynchronous) and serialized
   with locking
 
-### Usage {#usage}
+### Usage
 
 To use the support functions in your own dispatch scripts, just
 include them; for example add the following to the start of
@@ -194,7 +193,7 @@ file to set new defaults for all scripts (default:
 `/etc/nmutils/conf/general.conf`).  All customization variables and
 their defaults are documented in the scripts.
 
-Documentation {#docs}
+Documentation
 -------------
 
 Each script fully documents all the functions it provides at the
@@ -222,7 +221,7 @@ are are just drivers for the functions provided by the above:
 - Asynchronous DNS update script
 `/usr/local/sbin/nmddns-helper`
 
-Support {#support}
+Support
 -------
 
 nmutils is hosted at [github.com](https://github.com/sshambar/nmutils).
@@ -232,7 +231,7 @@ or want to contribute new features.
 I can be reached via email at:
 "Scott Shambarger" `<devel [at] shambarger [dot] net>`
 
-License {#license}
+License
 -------
 
 nmutils is licensed under the GPL v3
