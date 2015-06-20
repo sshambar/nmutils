@@ -345,6 +345,9 @@ ipv6_finish() {
 
 ipv6_start() {
 
+  # ignore addresses with max_life of 0
+  [ "$new_max_life" = "0" ] && return 0
+
   # is this a prefix delegation?
   [ -n "$old_ip6_prefix" -o -n "$new_ip6_prefix" ] || return 0
 
@@ -359,6 +362,9 @@ ipv6_start() {
 }
 
 ipv6_stop() {
+
+  # ignore EXPIRE6 with a 0 old max life (we wouldn't have added it)
+  [ "$reason" = "EXPIRE6" -a "$old_max_life" = "0" ] && return 0
 
   # flush nodes in WAN/LAN
   ipv6_flush_nodes
