@@ -1,9 +1,9 @@
 # -*-Shell-script-*-
 #
-# NMDDNS v1.0.0 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.1.0 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright 2014 Scott Shambarger.  All rights reserved.
+# Copyright 2014-2015 Scott Shambarger.  All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -94,7 +94,11 @@
 #
 #   DDNS_GLOBAL_FLOCK_TIMEOUT (default: 15) - flock timeout in seconds
 #
-#   DDNS_GLOBAL_DIG_TIMEOUT (default: 3) - DNS query timeout
+#   DDNS_GLOBAL_DIG_TIMEOUT (default: 3) - DNS query (dig) timeout
+#
+#   DDNS_GLOBAL_DIG_OPTIONS (optional) - options for dig, to have
+#       it use TCP ("+tcp") or a keyfile
+#       (eg "-k /etc/Kexample.net.+157+12345.private")
 #
 #   DDNS_GLOBAL_NSUPDATE_TIMEOUT (default: 10) - nsupdate timeout in seconds
 #
@@ -123,7 +127,9 @@
 #   DDNS_RREC_<rrec>_PRIVATE (optional) - for A and AAAA only, allow private
 #       interface addresses to be used (otherwise would use FALLBACK)
 #
-#   DDNS_DIG_TIMEOUT (optional) - override global DNS query timeout
+#   DDNS_DIG_TIMEOUT (optional) - override global DNS query (dig) timeout
+#
+#   DDNS_DIG_OPTIONS (optional) - override global dig options
 #
 #   DDNS_NSUPDATE_TIMEOUT (optional) - override global nsupdate timeout
 #
@@ -151,6 +157,7 @@ NMCONF="${NMCONF:-$NMUTILS/conf}"
 DDNS_GLOBAL_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-}"
 DDNS_GLOBAL_FLOCK_TIMEOUT="${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}"
 DDNS_GLOBAL_DIG_TIMEOUT="${DDNS_GLOBAL_DIG_TIMEOUT:-3}"
+DDNS_GLOBAL_DIG_OPTIONS="${DDNS_GLOBAL_DIG_OPTIONS:-}"
 DDNS_GLOBAL_NSUPDATE_TIMEOUT="${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}"
 DDNS_GLOBAL_NSUPDATE_OPTIONS="${DDNS_GLOBAL_NSUPDATE_OPTIONS:-}"
 
@@ -199,7 +206,8 @@ function nmddnsi_update() {
   nmg_debug "Looking up current $ddns_rrec on server $DDNS_SERVER"
 
   local qtime="${DDNS_DIG_TIMEOUT:-$DDNS_GLOBAL_DIG_TIMEOUT}"
-  cur_value=$("$NMDDNS_DIG" @$DDNS_SERVER +short +retry=0 +time="$qtime" "$ddns_rrec" "$ddns_name")
+  local qopts="${DDNS_DIG_OPTIONS:-$DDNS_GLOBAL_DIG_OPTIONS}"
+  cur_value=$("$NMDDNS_DIG" @$DDNS_SERVER +short +retry=0 +time="$qtime" $qopts "$ddns_rrec" "$ddns_name")
   [ $? -ne 0 ] && nmg_info "DNS server $DDNS_SERVER unreachable" && return 25
 
   if [ "${cur_value}" = "${ddns_value}" ]; then
@@ -240,7 +248,8 @@ function nmddns_read_config() {
 
   # clear config
   DDNS_ZONE= DDNS_SERVER= DDNS_TTL= DDNS_FLOCK_TIMEOUT=
-  DDNS_DIG_TIMEOUT= DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
+  DDNS_DIG_TIMEOUT= DDNS_DIG_OPTIONS=
+  DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
   for name in "${!DDNS_RREC_@}"; do
     eval unset "$name"
   done

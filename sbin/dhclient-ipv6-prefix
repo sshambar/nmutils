@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# dhclient-ipv6-prefix v1.0.0 - dhclient script for ipv6 Prefix Delegation
+# dhclient-ipv6-prefix v1.1.0 - dhclient script for ipv6 Prefix Delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright 2014 Scott Shambarger.  All rights reserved.
@@ -400,10 +400,11 @@ function ipv6_kill_dhclient() {
 
   # stop the dhclient if it's running
   if nmg_is_running "$DHCLIENT" "$DHCLIENT_PID" 1; then
-    nmg_cmd "$DHCLIENT" -x -pf "$DHCLIENT_PID"
-  else
-    ipv6_stop
+    nmg_cmd "$DHCLIENT" -x -sf "$0" -pf "$DHCLIENT_PID" "$interface"
   fi
+  # dhclient -x should call this script with STOP6, but doesn't...
+  # work around it.
+  ipv6_stop
 }
 
 if [ -z "${reason:-}" -a -n "${1:-}" ]; then
