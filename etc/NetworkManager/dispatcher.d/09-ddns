@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 09-nmddns v1.0.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-nmddns v1.0.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright 2014 Scott Shambarger.  All rights reserved.
@@ -34,12 +34,12 @@
 #
 # Requires:
 #
-#   $NMUTILS/ddns-functions - dynamic DNS functions
-#   $NMUTILS/general-functions - shared functions
+#   NMUTILS/ddns-functions - dynamic DNS functions
+#   NMUTILS/general-functions - shared functions
 #
 # Config location:
 #
-#   $NMCONF/ddns-<interface>.conf (see $NMUTILS/ddns-functions for settings)
+#   NMCONF/ddns-<interface>.conf (see $NMUTILS/ddns-functions for settings)
 #
 # State file:
 #
