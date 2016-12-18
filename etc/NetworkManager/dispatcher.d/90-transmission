@@ -1,0 +1,151 @@
+#!/bin/bash
+#
+# 90-transmission v1.0.0 - Transmission dispatcher script
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# This script sets transmissions bind address to the public IP
+# address of the desired interface (required until transmission supports
+# binding to devices).  The script will update transmission's
+# configuration and then start transmission on interface up,
+# and stop transmission on interface down.
+#
+# Copyright 2015 Scott Shambarger.  All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Instructions for use:
+#
+#   Put this script in /etc/NetworkManager/dispatcher.d (or wherever
+#   your distro has these files)
+#
+# Requires:
+#
+#   NMUTILS/general-functions - shared functions
+#
+# Global overrides (put in NMCONF/general.conf)
+#
+#   TR_CONFIG (default: transmission-${interface}.conf}) - existance
+#     of this file identifies the interface transmission should bind to.
+#
+# Config settings (put in TR_CONFIG)
+#
+#   TR_STATE (default: /run/transmission-configured) - state file
+#     created when transmission settings have been configured
+#
+#   TR_HOME (default: transmission user home directory)
+#     default transmission user's home dir (used for default TR_SETTINGS)
+#
+#   TR_SETTINGS (default: "$TR_HOME/.config/transmission-daemon/settings.json")
+#     default location of transmission settings file
+#
+#   TR_UNIT (default: transmission-daemon) - default transmission
+#     systemd service name
+#
+# Config location:
+#
+#   NMCONF/transmission-<interface>.conf
+#
+# State file:
+#
+#   /run/transmission-configured
+#
+interface="$1"
+action="$2"
+
+# for logging
+NMG_TAG="trans-cfg"
+
+# set NMUTILS/NMCONF early, and allow environment to override
+NMUTILS="${NMUTILS:-/etc/nmutils}"
+NMCONF="${NMCONF:-$NMUTILS/conf}"
+
+########## Config/state locations
+
+TR_CONFIG="${TR_CONFIG:-$NMCONF/transmission-${interface}.conf}"
+TR_STATE="/run/transmission-configured"
+
+########## Default paths
+
+# Default transmission user's home dir
+TR_HOME="$(echo ~transmission)"
+# Default transmission settings file
+TR_SETTINGS="$TR_HOME/.config/transmission-daemon/settings.json"
+# Default transmission service name
+TR_UNIT="transmission-daemon"
+
+########## SCRIPT START
+
+# anything for us to do?
+[ -n "$interface" -a -n "$action" ] || exit 0
+
+# load general-functions
+NMG="${NMG:-$NMUTILS/general-functions}"
+[ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+  echo 1>&2 "Unable to load $NMG" && exit 2
+}
+
+# see if we're configured for this interface
+nmg_read_config "$TR_CONFIG" || exit 0
+
+# if no settings yet, bail
+[ -w "$TR_SETTINGS" ] || exit 0
+
+function pub_addr4() {
+
+  [ ${IP4_NUM_ADDRESSES:-0} -eq 0 ] && return 0
+
+  # choose first public address
+  local idx=
+  for (( idx=0; idx < $IP4_NUM_ADDRESSES; idx++ )); do
+    local addrgw=$(eval echo -n '$'IP4_ADDRESS_$idx)
+    # remove netmask and gateway
+    local addr=${addrgw%%/*}
+    nmg_check_ip4_addr "$addr" && echo -n "$addr" && break
+  done
+}
+
+function tr_stop() {
+
+  # stop daemon (to write settings)
+  /bin/systemctl stop "$TR_UNIT"
+  nmg_remove "$TR_STATE"
+}
+
+function tr_start() {
+
+  /bin/systemctl 2>/dev/null -q is-enabled "$TR_UNIT" || return 0
+
+  tr_stop
+
+  local pub_addr="$(pub_addr4)"
+
+  [ -z "$pub_addr" ] && return 0
+
+  # edit file in place
+  sed -i "s|\(.*\"bind-address-ipv4\":\).*|\1 \"$pub_addr\",|" "$TR_SETTINGS" || return 0
+
+  nmg_write "$TR_STATE"
+  /bin/systemctl start "$TR_UNIT"
+}
+
+nmg_debug "interface: $interface action: $action"
+
+case "$action" in
+  up|dhcp4-change)
+    tr_start
+    ;;
+  down)
+    tr_stop
+    ;;
+esac
