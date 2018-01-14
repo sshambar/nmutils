@@ -1,9 +1,9 @@
-# -*-Shell-script-*-
+# vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.2.0 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.0 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright 2014-2015 Scott Shambarger.  All rights reserved.
+# Copyright (C) 2014-2016, 2018 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -96,6 +96,8 @@
 #
 #   DDNS_GLOBAL_DIG_TIMEOUT (default: 3) - DNS query (dig) timeout
 #
+#   DDNS_GLOBAL_DIG_RETRIES (default: 2) - DNS query (dig) retries
+#
 #   DDNS_GLOBAL_DIG_OPTIONS (optional) - options for dig, to have
 #       it use TCP ("+tcp") or a keyfile
 #       (eg "-k /etc/Kexample.net.+157+12345.private")
@@ -129,6 +131,8 @@
 #
 #   DDNS_DIG_TIMEOUT (optional) - override global DNS query (dig) timeout
 #
+#   DDNS_DIG_RETRIES (optional) - override global DNS query (dig) retries
+#
 #   DDNS_DIG_OPTIONS (optional) - override global dig options
 #
 #   DDNS_NSUPDATE_TIMEOUT (optional) - override global nsupdate timeout
@@ -157,6 +161,7 @@ NMCONF="${NMCONF:-$NMUTILS/conf}"
 DDNS_GLOBAL_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-}"
 DDNS_GLOBAL_FLOCK_TIMEOUT="${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}"
 DDNS_GLOBAL_DIG_TIMEOUT="${DDNS_GLOBAL_DIG_TIMEOUT:-3}"
+DDNS_GLOBAL_DIG_RETRIES="${DDNS_GLOBAL_DIG_RETRIES:-2}"
 DDNS_GLOBAL_DIG_OPTIONS="${DDNS_GLOBAL_DIG_OPTIONS:-}"
 DDNS_GLOBAL_NSUPDATE_TIMEOUT="${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}"
 DDNS_GLOBAL_NSUPDATE_OPTIONS="${DDNS_GLOBAL_NSUPDATE_OPTIONS:-}"
@@ -175,8 +180,8 @@ NMDDNS_FLOCK="${NMDDNS_FLOCK:-flock}"
 # load general-functions
 NMG="${NMG:-$NMUTILS/general-functions}"
 [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-  echo 1>&2 "Unable to load $NMG" && NMG=
-}
+    echo 1>&2 "Unable to load $NMG" && NMG=
+  }
 
 # private
 function nmddns_loaded() {
@@ -190,9 +195,11 @@ function nmddns_loaded() {
 
 # internal
 function nmddnsi_short_timeouts() {
-  DDNS_GLOBAL_DIG_TIMEOUT=1
-  DDNS_GLOBAL_NSUPDATE_TIMEOUT=2
-  DDNS_GLOBAL_FLOCK_TIMEOUT=1
+  # fast timeouts with no background helper is available
+  DDNS_DIG_TIMEOUT=1
+  DDNS_DIG_RETRIES=0
+  DDNS_NSUPDATE_TIMEOUT=2
+  DDNS_FLOCK_TIMEOUT=1
 }
 
 # internal
@@ -205,10 +212,19 @@ function nmddnsi_update() {
   # check if server already has correct entry
   nmg_debug "Looking up current $ddns_rrec on server $DDNS_SERVER"
 
-  local qtime="${DDNS_DIG_TIMEOUT:-$DDNS_GLOBAL_DIG_TIMEOUT}"
+  local qtime="${DDNS_DIG_TIMEOUT:-${DDNS_GLOBAL_DIG_TIMEOUT:-3}}"
+  local qretry="${DDNS_DIG_RETRIES:-${DDNS_GLOBAL_DIG_RETRIES:-2}}"
   local qopts="${DDNS_DIG_OPTIONS:-$DDNS_GLOBAL_DIG_OPTIONS}"
-  cur_value=$("$NMDDNS_DIG" @$DDNS_SERVER +short +retry=0 +time="$qtime" $qopts "$ddns_rrec" "$ddns_name")
-  [ $? -ne 0 ] && nmg_info "DNS server $DDNS_SERVER unreachable" && return 25
+  cur_value=$("$NMDDNS_DIG" @$DDNS_SERVER +short +retry="$qretry" +time="$qtime" $qopts "$ddns_rrec" "$ddns_name")
+  [ $? -ne 0 ] && {
+    nmg_info "DNS server $DDNS_SERVER unreachable"
+    if [ -n "$ddns_value" ]; then
+      nmg_err "Update $ddns_name $ddns_rrec to $ddns_value failed"
+    else
+      nmg_err "Removal of $ddns_name $ddns_rrec failed"
+    fi
+    return 25
+  }
 
   if [ "${cur_value}" = "${ddns_value}" ]; then
     nmg_debug "$ddns_name $ddns_rrec entry current: $cur_value"
@@ -225,7 +241,7 @@ function nmddnsi_update() {
   fi
 
   # update the entry (15 sec timeout)
-  local timeout="${DDNS_NSUPDATE_TIMEOUT:-$DDNS_GLOBAL_NSUPDATE_TIMEOUT}"
+  local timeout="${DDNS_NSUPDATE_TIMEOUT:-${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}}"
   local options="${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}"
   nmg_cmd "$NMDDNS_NSUPDATE" -R /dev/urandom -t "$timeout" $options <<- EOF
 	server $DDNS_SERVER
@@ -248,7 +264,7 @@ function nmddns_read_config() {
 
   # clear config
   DDNS_ZONE= DDNS_SERVER= DDNS_TTL= DDNS_FLOCK_TIMEOUT=
-  DDNS_DIG_TIMEOUT= DDNS_DIG_OPTIONS=
+  DDNS_DIG_TIMEOUT= DDNS_DIG_RETRIES= DDNS_DIG_OPTIONS=
   DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
   for name in "${!DDNS_RREC_@}"; do
     eval unset "$name"
@@ -335,11 +351,11 @@ function nmddns_update() {
   fi
 
   if [ -n "$DDNS_LOCKFILE" -a -n "$(command -v "$NMDDNS_FLOCK")" ]; then
-    local timeout="${DDNS_FLOCK_TIMEOUT:-$DDNS_GLOBAL_FLOCK_TIMEOUT}"
+    local timeout="${DDNS_FLOCK_TIMEOUT:-${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}}"
     ("$NMDDNS_FLOCK" -w "$timeout" 9
-      [ $? -ne 0 ] && nmg_err "Timeout getting DDNS lock for $rrec" && exit 1
-      nmddnsi_update "$ddns_name" "$rrec" "$value"
-      ) 9<"$DDNS_LOCKFILE"
+     [ $? -ne 0 ] && nmg_err "Timeout getting DDNS lock for $rrec" && exit 1
+     nmddnsi_update "$ddns_name" "$rrec" "$value"
+    ) 9<"$DDNS_LOCKFILE"
   else
     # no locking
     [ -n "$DDNS_LOCKFILE" ] && nmg_info "Locking not available for DDNS"
@@ -450,3 +466,9 @@ function nmddns_spawn_update_all() {
 
 # last, to fail load if any missing components
 nmddns_loaded
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
