@@ -1,4 +1,5 @@
 #!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
 #
 # 90-transmission v1.0.0 - Transmission dispatcher script
 # Author: Scott Shambarger <devel@shambarger.net>
@@ -9,7 +10,7 @@
 # configuration and then start transmission on interface up,
 # and stop transmission on interface down.
 #
-# Copyright 2015 Scott Shambarger.  All rights reserved.
+# Copyright (C) 2015 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -92,8 +93,8 @@ TR_UNIT="transmission-daemon"
 # load general-functions
 NMG="${NMG:-$NMUTILS/general-functions}"
 [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-  echo 1>&2 "Unable to load $NMG" && exit 2
-}
+    echo 1>&2 "Unable to load $NMG" && exit 2
+  }
 
 # see if we're configured for this interface
 nmg_read_config "$TR_CONFIG" || exit 0
@@ -149,3 +150,9 @@ case "$action" in
     tr_stop
     ;;
 esac
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:

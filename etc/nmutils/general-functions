@@ -1,9 +1,9 @@
-# -*-Shell-script-*-
+# vim:set ft=sh et sw=2 ts=2:
 #
 # NMG v1.0.0 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright 2014 Scott Shambarger.  All rights reserved.
+# Copyright (C) 2014 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -624,7 +624,7 @@ function nmg_create_ip6_addr() {
   p="${p%%/*}"
 
   if [[ "$p" =~ ^[0-9a-f]*:[0-9a-f]*:[0-9a-f]*:[0-9a-f]*::$ ]] \
-    && [[ "$node" =~ ^[0-9a-f]*:[0-9a-f]*:[0-9a-f]*:[0-9a-f]*$ ]]; then
+       && [[ "$node" =~ ^[0-9a-f]*:[0-9a-f]*:[0-9a-f]*:[0-9a-f]*$ ]]; then
     # both prefix and node are 4-quads, remove the ::
     echo "${p%::}:$node"
   else
@@ -650,3 +650,9 @@ function nmg_loaded() {
 
 # last, so load fails if any missing components
 nmg_loaded
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:

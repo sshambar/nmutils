@@ -1,9 +1,10 @@
 #!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
 #
 # 09-nmddns v1.0.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright 2014 Scott Shambarger.  All rights reserved.
+# Copyright (C) 2014, 2016 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -69,8 +70,8 @@ RUNDIR="${RUNDIR:-/run/nmutils}"
 # load ddns-functions
 NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
 [ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
-  echo 1>&2 "Unable to load $NMDDNS" && exit 2
-}
+    echo 1>&2 "Unable to load $NMDDNS" && exit 2
+  }
 
 ########## Config/state locations
 
@@ -135,3 +136,9 @@ case "$action" in
     nmddns_spawn_update "$DDNS_CONFIG" "AAAA" "$(ddns_addr6)" "$DDNS_STATE_PAT"
     ;;
 esac
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
