@@ -1,9 +1,10 @@
 #!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
 #
-# dhclient-ipv6-prefix v1.1.0 - dhclient script for ipv6 Prefix Delegation
+# dhclient-ipv6-prefix v1.2.0 - dhclient script for ipv6 Prefix Delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright 2014 Scott Shambarger.  All rights reserved.
+# Copyright (C) 2014, 2015, 2018 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -64,6 +65,7 @@ NMCONF="${NMCONF:-$NMUTILS/conf}"
 RUNDIR="${RUNDIR:-/run/nmutils}"
 LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
 ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/${interface}/accept_ra}"
+FORWARDING_PAT="${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}"
 
 ########## Support programs
 
@@ -79,13 +81,13 @@ fi
 # load ddns- or general-functions
 NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
 [ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
-  # no DDNS, use general-functions
-  NMDDNS=
-  NMG="${NMG:-$NMUTILS/general-functions}"
-  [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-    echo 1>&2 "Unable to load $NMG" && exit 2
+    # no DDNS, use general-functions
+    NMDDNS=
+    NMG="${NMG:-$NMUTILS/general-functions}"
+    [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
+        echo 1>&2 "Unable to load $NMG" && exit 2
+      }
   }
-}
 
 ########## Config/state locations
 
@@ -159,8 +161,14 @@ function ipv6_del_addr() {
 function ipv6_add_addr() {
   # <interface> <addr/plen>
   nmg_add_ip6_addr "$1" "$2" && {
+
     # flag radvd trigger (for later)
     [ "$1" = "$interface" ] || RADVD_TRIGGER=1
+
+    # NM sets forwarding to 0 if managed and not method=shared, correct that
+    if [ "$Forwarding" = 1 -a -w "${FORWARDING_PAT/@NODE@/$1}" ]; then
+      nmg_write "${FORWARDING_PAT/@NODE@/$1}" 1
+    fi
   }
   return 0
 }
@@ -309,7 +317,7 @@ function ipv6_flush_nodes() {
 function ipv6_setup_nodes() {
 
   # used by ipv6_create_node
-  local No_Auto_Site= Lan_Cnt=0
+  local No_Auto_Site= Lan_Cnt=0 Forwarding=0
 
   # sanity check
   local -i plen="${new_ip6_prefix##*/}"
@@ -322,6 +330,10 @@ function ipv6_setup_nodes() {
   # SPECIAL CASE: WAN gets host address only
   if [ $plen -eq 64 -a -n "$WAN_LAN_INTFS" -a "$WAN_NODE" = "auto" ]; then
     WAN_PREFIX_LEN=128
+  fi
+
+  if [ -r "${FORWARDING_PAT/@NODE@/all}" ]; then
+    Forwarding=$(< "${FORWARDING_PAT/@NODE@/all}")
   fi
 
   # assign WAN prefix/address first
@@ -443,3 +455,9 @@ case "$reason" in
     ipv6_stop
     ;;
 esac
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
