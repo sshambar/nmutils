@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.2.0 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.2.1 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018 Scott Shambarger
@@ -743,7 +743,7 @@ gen_file() {
         elif [[ "$line" =~ ^@prefix@ ]]; then
           verbose "    Found dynamic prefix"
           new_prefix=dynamic end_prefix=1
-        elif [[ $line && ! "$line" =~ \{ ]]; then
+        elif [[ $line && ! "$line" =~ ^\{ ]]; then
           end_prefix=1
         fi
         ;;
@@ -769,7 +769,8 @@ gen_file() {
       if [ "$prefix" = dynamic ]; then
         gen_dynamic "$iface"
         prefix=$new_prefix
-        [[ $prefix ]] || continue # gen_dynamic writes };
+        [[ "$line" =~ ^\}\; && "$state" = interface ]] &&
+          continue # gen_dynamic writes };
       fi
       prefix=$new_prefix
     fi
@@ -778,6 +779,7 @@ gen_file() {
       [ "$prefix" = dynamic ] && continue # don't save @PREFIX@
     fi
     if [ "$prefix" = dynamic ]; then
+      [[ "$line" =~ \{ || "$line" =~ \}\; ]] && continue # don't save braces
       set_prefix_key "$iface" saved "$si" "$orig"
       ((si++))
     else
