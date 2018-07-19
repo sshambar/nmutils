@@ -1,9 +1,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.0.0 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.1.0 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014 Scott Shambarger
+# Copyright (C) 2014,2018 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -154,6 +154,11 @@
 #
 #   NMG_DAEMON_CGROUP (default NetworkManager's) - control group
 #      to add commands passed to nmg_daemon.  Unset to not set cgroup.
+#
+#   NMG_RADVD_TRIGGER (optional) - executable name to use in place
+#      of signalling radvd (for example to create a dynamic radvd.conf)
+#
+#   NMG_RADVD_TRIGGER_ARGS (optional) - args for NMG_RADVD_TRIGGER
 #
 #   NMG_RADVD (default: radvd) - radvd executable name seen by pgrep.
 #      Unset to disable radvd signalling
@@ -633,6 +638,11 @@ function nmg_create_ip6_addr() {
 }
 
 function nmg_radvd_trigger() {
+
+  if [[ $NMG_RADVD_TRIGGER ]] && nmg_need_progs "$NMG_RADVD_TRIGGER"; then
+    nmg_cmd "$NMG_RADVD_TRIGGER" $NMG_RADVD_TRIGGER_ARGS
+    return
+  fi
 
   # signal radvd to advertise new prefix
   if nmg_is_running "$NMG_RADVD" "$NMG_RADVD_PID" 1; then
