@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.2.1 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.2.2 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018 Scott Shambarger
@@ -797,15 +797,20 @@ gen_file() {
 }
 
 signal_radvd() { # "reload" | "reset"
-  local action sig
-  case "$1" in
-    reload) action="reload config"; sig=SIGHUP;;
+  local mode=$1 action sig
+  case "$mode" in
+    reload) action="reload config"; sig=SIGHUP; mode=reload-or-restart;;
     reset) action="reset timers"; sig=SIGUSR1;;
     *) return
   esac
-  if [ -x "$SC_EXE" ] && "$SC_EXE" -q is-active radvd; then
+  if [ -x "$SC_EXE" ] && "$SC_EXE" 2>/dev/null -q is-enabled radvd; then
     verbose "Signaling radvd to $action"
-    "$SC_EXE" kill -s "$sig" radvd
+    "$SC_EXE" -q is-active radvd || mode=restart
+    if [ "$mode" = reset ]; then
+      "$SC_EXE" kill -s "$sig" radvd
+    else
+      "$SC_EXE" "$mode" radvd
+    fi
   elif [ -x "$KILL_EXE" ] && [ -r "$RADVD_PID" ]; then
     verbose "Signaling radvd to $action"
     "$KILL_EXE" -s "$sig" -- "$(< "$RADVD_PID")"
