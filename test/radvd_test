@@ -1,0 +1,17 @@
+#!/bin/bash
+#
+# Fake radvd to test scripts
+#
+# Set the following in your radvd-gen.conf file to test:
+#
+
+[ "$1" = "-h" ] && {
+  echo "Usage: ${0##*/} [ <radvd-gen-args> ]"
+  exit 1
+}
+
+export RADVDGEN_CONF=./conf/radvd-gen.conf
+
+rm -f run/radvd.conf
+../etc/NetworkManager/dispatcher.d/95-radvd-gen "$@" eth0 up
+
