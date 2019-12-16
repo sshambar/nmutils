@@ -1,0 +1,10 @@
+[Unit]
+Description=Activate DDNS after boot
+
+[Timer]
+OnActiveSec=45
+RemainAfterElapse=no
+
+[Install]
+WantedBy=named.service
+

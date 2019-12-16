@@ -10,7 +10,6 @@ After=nss-lookup.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/nmddns-helper %i
-RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target

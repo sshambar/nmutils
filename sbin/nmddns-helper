@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# nmddns-helper v1.0.1 - NMUtils Dynamic DNS helper program
+# nmddns-helper v1.1.0 - NMUtils Dynamic DNS helper program
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014, 2018 Scott Shambarger
+# Copyright (C) 2014-2019 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -65,8 +65,8 @@ NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
 ########## Config locations
 
 # NOTE: *_PAT variables must have @MATCH@ and @RREC@ keywords
-DDNS_CONFIG_PAT="${DDNS_CONFIG_PAT:-$NMCONF/ddns-@MATCH@.conf}"
-DDNS_STATE_PAT="${DDNS_STATE_PAT:-$RUNDIR/ddns-@MATCH@-@RREC@.state}"
+NMDDNS_CONFIG_PAT="${NMDDNS_CONFIG_PAT:-$NMCONF/ddns-@MATCH@.conf}"
+NMDDNS_STATE_PAT="${NMDDNS_STATE_PAT:-$RUNDIR/ddns-@MATCH@-@RREC@.state}"
 
 function ddns_update() {
   # <rrec> [<value>]
@@ -110,8 +110,8 @@ function ddns_interface() {
   # [<interface>]
   local interface="${1:-}" rc=0
 
-  local config_pre="${DDNS_CONFIG_PAT%@MATCH@*}"
-  local config_post="${DDNS_CONFIG_PAT##*@MATCH@}"
+  local config_pre="${NMDDNS_CONFIG_PAT%@MATCH@*}"
+  local config_post="${NMDDNS_CONFIG_PAT##*@MATCH@}"
 
   shopt -s nullglob
   local config=
@@ -122,9 +122,8 @@ function ddns_interface() {
     match="${match%$config_post}"
     [ -z "$match" ] && continue
 
-    # find interface
-    local intf="${match%%.conf}"
-    intf="${intf%%-*}"
+    # find interface (remove any -prefix etc)
+    local intf="${match%%-*}"
 
     # if we have an interface, make sure we filter for it
     [ -z "$interface" -o "$intf" = "$interface" ] || continue
@@ -133,7 +132,7 @@ function ddns_interface() {
     nmddns_read_config "$config" || continue
 
     # get state file pattern
-    local state_pat="${DDNS_STATE_PAT/@MATCH@/$match}"
+    local state_pat="${NMDDNS_STATE_PAT/@MATCH@/$match}"
 
     local name=
     for name in "${!DDNS_RREC_@}"; do
@@ -167,8 +166,7 @@ function ddns_helper_action() {
 }
 
 [ -e "$RUNDIR" ] || {
-  nmg_need_progs "$MKDIR" || exit
-  nmg_cmd "$MKDIR" -p "$RUNDIR" || exit
+  nmg_cmd mkdir -p "$RUNDIR" || exit
 }
 
 if [ -z "${2:-}" ]; then

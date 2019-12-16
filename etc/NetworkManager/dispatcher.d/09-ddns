@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 09-nmddns v1.0.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-nmddns v1.1.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014, 2016 Scott Shambarger
+# Copyright (C) 2014-2019 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ interface="$1"
 action="$2"
 
 # for logging
-NMG_TAG="${NMG_TAG:-ddns}"
+NMG_TAG="${NMG_TAG:-nmddns}"
 
 # set NMUTILS/NMCONF early, and allow environment to override
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -120,9 +120,14 @@ function ddns_action() {
 
 nmg_debug "interface: $interface action: $action"
 
+case "$action" in
+  "up"|"down"|"dhcp4-change"|"dhcp6-change")
+    nmddns_read_config "$DDNS_CONFIG" || exit 0
+    ;;
+esac
+
 [ -e "$RUNDIR" ] || {
-  nmg_need_progs "$MKDIR" || exit
-  nmg_cmd "$MKDIR" -p "$RUNDIR" || exit
+  nmg_cmd mkdir -p "$RUNDIR" || exit
 }
 
 case "$action" in

@@ -1,9 +1,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.0 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.1 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2016, 2018 Scott Shambarger
+# Copyright (C) 2014-2019 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -231,6 +231,7 @@ function nmddnsi_update() {
     return
   fi
 
+  nmg_debug "Old $ddns_name $ddns_rrec value: $cur_value"
   local ddns_cmd=
   if [ -n "$ddns_value" ]; then
     nmg_info "Setting $ddns_name $ddns_rrec to $ddns_value"
@@ -266,9 +267,7 @@ function nmddns_read_config() {
   DDNS_ZONE= DDNS_SERVER= DDNS_TTL= DDNS_FLOCK_TIMEOUT=
   DDNS_DIG_TIMEOUT= DDNS_DIG_RETRIES= DDNS_DIG_OPTIONS=
   DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
-  for name in "${!DDNS_RREC_@}"; do
-    eval unset "$name"
-  done
+  for name in "${!DDNS_RREC_@}"; do unset "$name"; done
 
   # read config if any
   nmg_read_config "$config" || return

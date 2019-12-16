@@ -1,9 +1,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.1.0 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.1.1 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014,2018 Scott Shambarger
+# Copyright (C) 2014-2019 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -248,6 +248,7 @@ function nmg_read_config() {
   [ -z "$file" ] && return 1
   [ -f "$file" -a -r "$file" ] || return 1
   shopt -u sourcepath
+  nmg_debug "Reading config file '${file}'"
   . "$file" || return
 }
 
@@ -270,7 +271,7 @@ function nmg_need_progs() {
 
   for exe in "$@"; do
     [ -z "$(command -v "$exe")" ] && {
-      nmg_err "Where is ${exe}? (locate in $NMCONF/general.conf)"
+      nmg_err "Where is ${exe:-(empty)}? (locate in $NMCONF/general.conf)"
       return 3
     }
   done
@@ -437,13 +438,15 @@ function nmg_check_ip4_addr() {
   # check if have address
   [ -z "$ip4_addr" ] && return 1
 
+  nmg_debug "Checking IP4 address ${ip4_addr}${priv_ok:+ (private ok)}"
+
   # check format
   [ "${ip4_addr//[0-9]*.[0-9]*.[0-9]*.[0-9]*/ok}" = "ok" ] || return 1
 
   [ "${ip4_addr//127.*/priv}" = "priv" ] && return 2
 
   # if we allow private networks, allow all
-  [ -n "$priv_ok" ] && return
+  [ -n "$priv_ok" ] && { nmg_debug "IP4 private address ${ip4_addr} allowed"; return 0; }
 
   # check if a private network address
   [ "${ip4_addr//192.168.*/priv}" = "priv" ] && return 3
@@ -454,6 +457,8 @@ function nmg_check_ip4_addr() {
     n="${n%%.*}"
     [ $n -ge 16 -a $n -le 31 ] && return 3
   fi
+
+  nmg_debug "IP4 address ${ip4_addr} allowed"
 
   return 0
 }
@@ -556,6 +561,8 @@ function nmg_check_ip6_addr() {
   # check if have address
   [ -z "$ip6_addr" ] && return 1
 
+  nmg_debug "Checking IP6 address ${ip6_addr}${priv_ok:+ (private ok)}"
+
   # check format
   [ "${ip6_addr//[0-9a-f:]*/ok}" = "ok" ] || return 1
 
@@ -563,11 +570,13 @@ function nmg_check_ip6_addr() {
   [ "${ip6_addr//fe80*/priv}" = "priv" ] && return 2
 
   # if we allow private networks, allow all
-  [ -n "$priv_ok" ] && return
+  [ -n "$priv_ok" ] && { nmg_debug "IP6 private address ${ip6_addr} allowed"; return 0; }
 
   # check if a rfc4193 local address
   [ "${ip6_addr//fc*/priv}" = "priv" ] && return 3
   [ "${ip6_addr//fd*/priv}" = "priv" ] && return 3
+
+  nmg_debug "IP6 address ${ip6_addr} allowed"
 
   return 0
 }
