@@ -1,7 +1,7 @@
 #!/bin/sh
 # vim:set ft=sh et sw=2 ts=2:
 #
-# interface-dispatcher v1.0 - service restart on interface change
+# interface-dispatcher v1.1 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2015-2019 Scott Shambarger
@@ -78,7 +78,8 @@ function svc_action() {
   local restart="$1" stop="$2"
   if [ -n "$restart" ]; then
     [ -n "$STATE_FILE" ] && nmg_write "$STATE_FILE" "$restart"
-    /usr/bin/systemctl try-reload-or-restart "$SVC_UNIT"
+    /usr/bin/systemctl 2>/dev/null -q is-enabled "$SVC_UNIT" || return 0
+    /usr/bin/systemctl reload-or-restart "$SVC_UNIT"
   elif [ -n "$stop" ]; then
     [ -n "$STATE_FILE" ] && nmg_remove "$STATE_FILE"
     /usr/bin/systemctl stop "$SVC_UNIT"
