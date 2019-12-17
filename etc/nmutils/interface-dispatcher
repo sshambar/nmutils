@@ -1,10 +1,10 @@
 #!/bin/sh
 # vim:set ft=sh et sw=2 ts=2:
 #
-# /etc/nmutils/interface-dispatcher v0.9
+# interface-dispatcher v1.0 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2015 Scott Shambarger
+# Copyright (C) 2015-2019 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,17 +22,17 @@
 # Copy this file to /etc/NetworkManager/dispatcher.d/<##>-<service>
 # (or wherever your distro has these files) where <##> is a 2-digit
 # number, and <service> is a systemd service name.  This dispatcher
-# will then restarts or stop <service> based on interface availability
+# will then restart or stop <service> based on interface availability
 # (ie, if daemon has a UDP listener)
 #
 # Config file required for operation:
-#   /etc/nmutils/conf/<service>-<interface>.conf (config)
+#   /etc/nmutils/conf/ifd-<service>-<interface>.conf (config)
 #
 # Config options are:
 #
-#   RESTART_UP, RESTART_DOWN, RESTART_CHANGE -
+#   RESTART_UP, RESTART_DOWN, RESTART_CHANGE, RESTART_CHANGE6 -
 #     Non-empty values restart service on interface "up", "down" or
-#     ipv4 address changes (respectively).  Only enabled services
+#     ipv4 or ipv6 address changes (respectively).  Only active services
 #     are restarted.
 #
 #   STOP_UP, STOP_DOWN, STOP_CHANGE -
@@ -68,7 +68,7 @@ echo $0 | /bin/grep -q '^.*[0-9][0-9]-'
 SVC_UNIT=$(echo $0 | sed 's/^.*[0-9][0-9]-//')
 [ -z "$SVC_UNIT" ] && nmg_err "Missing service name on $0" && exit 4
 
-SVC_CONFIG="$NMCONF/${SVC_UNIT}-${interface}.conf"
+SVC_CONFIG="$NMCONF/ifd-${SVC_UNIT}-${interface}.conf"
 
 # see if we're configured for this interface
 nmg_read_config "$SVC_CONFIG" || exit 0
@@ -77,12 +77,11 @@ function svc_action() {
   # <restart-value> <stop-value>
   local restart="$1" stop="$2"
   if [ -n "$restart" ]; then
-    /bin/systemctl 2>/dev/null -q is-enabled "$SVC_UNIT" || return 0
     [ -n "$STATE_FILE" ] && nmg_write "$STATE_FILE" "$restart"
-    systemctl reload-or-restart "$SVC_UNIT"
+    /usr/bin/systemctl try-reload-or-restart "$SVC_UNIT"
   elif [ -n "$stop" ]; then
     [ -n "$STATE_FILE" ] && nmg_remove "$STATE_FILE"
-    systemctl stop "$SVC_UNIT"
+    /usr/bin/systemctl stop "$SVC_UNIT"
   fi
 }
 
@@ -95,6 +94,9 @@ case "$action" in
     ;;
   dhcp4-change)
     svc_action "$RESTART_CHANGE" "$STOP_CHANGE"
+    ;;
+  dhcp6-change)
+    svc_action "$RESTART_CHANGE6" "$STOP_CHANGE6"
     ;;
 esac
 
