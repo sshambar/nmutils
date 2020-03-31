@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# dhclient-ipv6-prefix v1.2.0 - dhclient script for ipv6 Prefix Delegation
+# dhclient-ipv6-prefix v1.3.0 - dhclient script for ipv6 Prefix Delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014, 2015, 2018 Scott Shambarger
+# Copyright (C) 2014-2020 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -386,8 +386,15 @@ ipv6_stop() {
 
 function ipv6_spawn_dhclient() {
 
+  local sys
   # allow autoconfig on WAN to set default route to ipv6 gateway
-  [ -w "$ACCEPT_RA" ] && nmg_write "$ACCEPT_RA" 2
+  [ -w "$ACCEPT_RA" ] && {
+    nmg_write "$ACCEPT_RA" 2
+    # update dependent sysctls in case they are off
+    for sys in defrtr pinfo rtr_pref; do
+      [ -w "${ACCEPT_RA}_$sys" ] && nmg_write "${ACCEPT_RA}_$sys" 1
+    done
+  }
 
   # already running?
   nmg_is_running "$DHCLIENT" "$DHCLIENT_PID" && {

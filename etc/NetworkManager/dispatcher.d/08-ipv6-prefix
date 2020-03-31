@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.1.0 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.1.1 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014, 2018 Scott Shambarger
+# Copyright (C) 2014-2020 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@
 #   For a WAN interface, this dispatcher will start dhclient (for ipv6)
 #   so make sure that NetworkManager isn't already starting one for
 #   ipv6.  (in ifcfg settings, set IPV6INIT="no" for the interface;
-#   keyfile settings, set ipv6.method=ignore for the interface)
+#   keyfile settings, set ipv6.method=link-local for the interface)
 #
 #   For a LAN interface, this dispatcher will attempt to replace a
 #   missing LAN prefix if it comes up after the WAN, or is restarted.
