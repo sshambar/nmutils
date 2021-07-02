@@ -1,9 +1,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.1 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.2 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2019 Scott Shambarger
+# Copyright (C) 2014-2021 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -244,7 +244,7 @@ function nmddnsi_update() {
   # update the entry (15 sec timeout)
   local timeout="${DDNS_NSUPDATE_TIMEOUT:-${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}}"
   local options="${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}"
-  nmg_cmd "$NMDDNS_NSUPDATE" -R /dev/urandom -t "$timeout" $options <<- EOF
+  nmg_cmd "$NMDDNS_NSUPDATE" -t "$timeout" $options <<- EOF
 	server $DDNS_SERVER
 	zone $DDNS_ZONE
 	update delete $ddns_name $ddns_rrec
