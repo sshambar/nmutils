@@ -1,10 +1,10 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.3.0 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.4.0 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2018-19 Scott Shambarger
+# Copyright (C) 2018-21 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,7 +28,27 @@
 # TO INSTALL:
 #   copy to /etc/NetworkManager/dispatcher.d/95-radvd-gen
 #   create template in /etc/NetworkManager/radvd.conf.templ
+#   optionally copy /etc/nmutils/ipv6_utils.sh (allows prefix grouping)
 #   optionally override settings with /etc/NetworkManager/radvd-gen.conf
+#
+# Settings (set in /etc/NetworkManager/radvd-gen.conf)
+#
+#   PERDIFF (default: 10) - minimum percentage difference between
+#       valid or preferred lifetimes on interface address and
+#       radvd.conf values to trigger rewriting radvd.conf
+#
+#   RADVD_GROUP (default: radvd) - group allowed to read generated
+#       radvd.conf (set empty to not change)
+#
+#   RESTORECON_EXE (default: restorecon in path, optional)
+#       used to correct SELinux context on radvd.conf (set empty
+#       to not use even if available)
+#
+# Script is triggered on any interface up/down, or dhcp6 address
+# change, but can also be triggered by other scripts, for example:
+#
+#    /etc/nmutils/conf/ipv6-prefix-lan0-from-wan0.conf
+#      NMG_RADVD_TRIGGER="/etc/NetworkManager/dispatcher.d/95-radvd-gen
 #
 # Existing radvd.conf is parsed to discover current settings, and if
 # new settings are not significantly different (similar timeouts within
@@ -44,7 +64,7 @@
 #		AdvAutonomous on;
 #		DecrementLifetimes on;
 #       };
-#       prefix ffdd:1234:1234::1/64 {
+#       prefix ffdd:1234:1234::/64 {
 #		AdvValidLifetime infinity;
 #	};
 # };
@@ -54,7 +74,7 @@
 # Any missing AdvValidLifetime/AdvPreferredLifetime values will be
 # added with current values found from the interface (this appies to
 # both dynamically created prefixes for @PREFIX@, or statically
-# defined prefixes like ffdd:1234:1234::1/64 above).
+# defined prefixes like ffdd:1234:1234::/64 above).
 #
 # @PREFIX@ specific options are optional, just "@PREFIX@" (w/o { }) is ok.
 #
@@ -74,6 +94,10 @@
 # Default config/template locations accessable by dispatcher scripts
 RADVDGEN_CONF=${RADVDGEN_CONF:-/etc/NetworkManager/radvd-gen.conf}
 
+# ipv6_utils (optional)
+ipv6_prefix() { echo -n $1; } # stub
+IPV6_UTILS=${IPV6_UTILS:-/etc/nmutils/ipv6_utils.sh}
+
 # template and config locations
 SRC=/etc/NetworkManager/radvd.conf.templ
 DST=/etc/radvd.conf
@@ -84,10 +108,14 @@ DEBUG=
 
 # percentage difference to trigger new config
 PERDIFF=10
+# group that can read radvd.conf (set empty for default)
+RADVD_GROUP=radvd
 
 # external binaries (IP_EXE/MKTEMP_EXE are required)
 IP_EXE=$(command -v ip)
 MKTEMP_EXE=$(command -v mktemp)
+# restorecon used if availble to correct SELinux context (set empty to skip)
+RESTORECON_EXE=$(command -v restorecon)
 
 SC_EXE=$(command -v systemctl) # set empty to disable
 # use KILL_EXE/PID if SC_EXE not avail/disabled
@@ -96,6 +124,8 @@ KILL_EXE=$(command -v kill) # set empty to disable
 
 # load config, if any
 [ -r "$RADVDGEN_CONF" ] && . "$RADVDGEN_CONF"
+# load ipv6_utils if available
+[ -r "$IPV6_UTILS" ] && . "$IPV6_UTILS"
 
 verbose=
 declare -i debug=0
@@ -346,6 +376,20 @@ get_prefix_keyi() { # <ret> <iface> <prefix> <n>
 }
 
 #
+# IPV6 PREFIX CLEANUP
+#
+
+# Echoes compacted prefix (or original if ipv6_utils not loaded)
+compact_prefix() { # <ip6-addr>/<prefix>
+  local n="${1#*/}" oifs=$IFS
+  [ "$n" == "$1" ] && n=
+  [[ $n ]] || n=64
+  unset IFS
+  echo -n "$(ipv6_prefix "${1%/*}" "$n")/$n"
+  IFS=$oifs
+}
+
+#
 # RADVD.CONF READ/PARSE/WRITE
 #
 
@@ -427,6 +471,7 @@ read_file() { # cur|src <file>
           parse_2nd new_prefix "$line"
           [[ ! $new_prefix ]] &&
             err "Unable to parse prefix in \"$src\":$lno" && return 1
+          new_prefix=$(compact_prefix "$new_prefix")
           verbose "    Found static prefix $new_prefix"
           end_prefix=1
         elif [[ "$line" =~ ^@prefix@ ]]; then
@@ -491,13 +536,35 @@ read_file() { # cur|src <file>
   return 0
 }
 
+# ret=max of <a> and <b> lifetimes
+get_max_lifetime() { # <ret> <a> <b>
+  local a=$2 b=$3
+  if [ "$a" = infinity ] || [ "$b" = infinity ]; then
+    a=infinity
+  else
+    [ $a -lt $b ] && a=$b
+  fi
+  printf -v "$1" %s "$a"
+}
+
+# ret=min of <a> and <b> lifetimes
+get_min_lifetime() { # <ret> <a> <b>
+  local a=$2 b=$3
+  if [ "$a" = infinity ]; then
+    a=$b
+  elif [ "$b" != infinity ]; then
+    [ $a -gt $b ] && a=$b
+  fi
+  printf -v "$1" %s "$a"
+}
+
 # Examines <iface> for prefix addresses
 # Sets the following values
 #   <iface> <prefix> wired 1 - <prefix> found
 #   <iface> <prefix> wired_valid # - valid lifetime (# or infinity)
 #   <iface> <prefix> wired_pref # - pref lifetime (# or infinity)
 get_addrs() { # <iface>
-  local e state=text pfx valid pref iface=$1
+  local e state=text pfx valid pref iface=$1 valid2 pref2
 
   verbose "  Looking for prefixes on interface $iface"
 
@@ -512,7 +579,7 @@ get_addrs() { # <iface>
         ;;
       inet6)
         pfx='' valid='' pref=''
-        [[ "$e" =~ [0-9a-f:]*/64 ]] && pfx=$e
+        [[ "$e" =~ [0-9a-f:]+/[0-9]+ ]] && pfx=$(compact_prefix "$e")
         state=text
         ;;
       valid)
@@ -527,9 +594,21 @@ get_addrs() { # <iface>
     if [[ $pfx && $valid && $pref ]]; then
       verbose "    Found prefix=$pfx valid=$valid pref=$pref"
       set_prefix "$iface" "$pfx"
-      set_prefix_key "$iface" "$pfx" wired 1
-      set_prefix_key "$iface" "$pfx" wired_valid "$valid"
-      set_prefix_key "$iface" "$pfx" wired_pref "$pref"
+      if is_prefix_key "$iface" "$pfx" wired; then
+        verbose "    Merging prefix=$pfx valid=$valid pref=$pref"
+        # compare valid lifetimes
+        get_prefix_key valid2 "$iface" "$pfx" wired_valid
+        get_max_lifetime valid "$valid" "$valid2"
+        set_prefix_key "$iface" "$pfx" wired_valid "$valid"
+        # compare preferred lifetimes
+        get_prefix_key pref2 "$iface" "$pfx" wired_pref
+        get_max_lifetime pref "$pref" "$pref2"
+        set_prefix_key "$iface" "$pfx" wired_pref "$pref"
+      else
+        set_prefix_key "$iface" "$pfx" wired 1
+        set_prefix_key "$iface" "$pfx" wired_valid "$valid"
+        set_prefix_key "$iface" "$pfx" wired_pref "$pref"
+      fi
       if ! is_prefix_key "$iface" "$pfx" src; then
         # not in source, mark as decrementing if dynamic prefix decrements
         is_prefix_key "$iface" dynamic decr && set_decr_iface "$iface" "$pfx"
@@ -679,15 +758,28 @@ gen_line() {
 # Echos missing lifetime entries for prefix, if not defined in <source>
 gen_missing_lifetimes() { # <iface> <source> <prefix>
   debug "$@"
-  local iface=$1 source=$2 prefix=$3
+  local iface=$1 source=$2 prefix=$3 svalid spref valid pref
 
-  if ! is_prefix_key "$iface" "$source" src_valid; then
-    get_new_lifetime val "$iface" "$prefix" valid
-    gen_line "\\t\\tAdvValidLifetime %s;\\n" "$val"
+  if is_prefix_key "$iface" "$source" src_valid; then
+    get_prefix_key svalid "$iface" "$prefix" src_valid
   fi
-  if ! is_prefix_key "$iface" "$source" src_pref; then
-    get_new_lifetime val "$iface" "$prefix" pref
-    gen_line "\\t\\tAdvPreferredLifetime %s;\\n" "$val"
+  if is_prefix_key "$iface" "$source" src_pref; then
+    get_prefix_key spref "$iface" "$prefix" src_pref
+  fi
+  if [[ $spref ]]; then
+    [[ $svalid ]] && return # both set
+    get_new_lifetime valid "$iface" "$prefix" valid
+    get_max_lifetime valid "$valid" "$spref"
+    gen_line "\\t\\tAdvValidLifetime %s;\\n" "$valid"
+  elif [[ $svalid ]]; then
+    get_new_lifetime pref "$iface" "$prefix" pref
+    get_min_lifetime pref "$pref" "$svalid"
+    gen_line "\\t\\tAdvPreferredLifetime %s;\\n" "$pref"
+  else
+    get_new_lifetime valid "$iface" "$prefix" valid
+    gen_line "\\t\\tAdvValidLifetime %s;\\n" "$valid"
+    get_new_lifetime pref "$iface" "$prefix" pref
+    gen_line "\\t\\tAdvPreferredLifetime %s;\\n" "$pref"
   fi
 }
 
@@ -772,6 +864,7 @@ gen_file() { # <template> <config>
           parse_2nd new_prefix "$line"
           [[ ! $new_prefix ]] &&
             fatal "Unable to parse prefix in \"$src\":$lno"
+          new_prefix=$(compact_prefix "$new_prefix")
           verbose "    Found static prefix $new_prefix"
           end_prefix=1
         elif [[ "$line" =~ ^@prefix@ ]]; then
@@ -823,7 +916,11 @@ gen_file() { # <template> <config>
     fi
   done < "$src" >> "$TMPFILE"
 
-  if ! cp "$TMPFILE" "$dst"; then
+  if cp "$TMPFILE" "$dst"; then
+    chmod u+rw "$dst"
+    [[ $RADVD_GROUP ]] && { chgrp "$RADVD_GROUP" "$dst" && chmod g+r "$dst"; }
+    [[ $RESTORECON_EXE ]] && "$RESTORECON_EXE" -F "$dst"
+  else
     rc=1 && err "Unable to copy \"$TMPFILE\" to \"$dst\""
   fi
 
@@ -840,7 +937,7 @@ signal_radvd() { # reload|reset
     *) return
   esac
   if [ -x "$SC_EXE" ] && "$SC_EXE" 2>/dev/null -q is-enabled radvd; then
-    verbose "Signaling radvd to $action"
+    verbose "Signaling radvd.service to $action"
     "$SC_EXE" -q is-active radvd || mode=restart
     if [ "$mode" = reset ]; then
       "$SC_EXE" kill -s "$sig" radvd
