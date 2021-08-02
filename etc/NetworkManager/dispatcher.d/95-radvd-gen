@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.4.0 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.4.1 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018-21 Scott Shambarger
@@ -227,6 +227,15 @@ _ds_ret() { # <var> <value>
   [[ $1 ]] && printf 2>/dev/null -v "$1" %s "$2"
   [[ $2 ]]
 }
+
+if [ $debug -gt 1 ]; then
+  _ds_ret() { # <var> <value>
+    [[ $1 ]] && printf 2>/dev/null -v "$1" %s "$2" && debug2 " $1 => ${!1}"
+    [[ $2 ]] && { [[ $1 ]] || debug2 " => <true>"; return 0; } || {
+      [[ $1 ]] || debug2 " => <false>"; return 1; }
+  }
+fi
+
 
 #
 # DS USER FUNCTIONS
@@ -760,12 +769,9 @@ gen_missing_lifetimes() { # <iface> <source> <prefix>
   debug "$@"
   local iface=$1 source=$2 prefix=$3 svalid spref valid pref
 
-  if is_prefix_key "$iface" "$source" src_valid; then
-    get_prefix_key svalid "$iface" "$prefix" src_valid
-  fi
-  if is_prefix_key "$iface" "$source" src_pref; then
-    get_prefix_key spref "$iface" "$prefix" src_pref
-  fi
+  get_prefix_key svalid "$iface" "$source" src_valid
+  get_prefix_key spref "$iface" "$source" src_pref
+
   if [[ $spref ]]; then
     [[ $svalid ]] && return # both set
     get_new_lifetime valid "$iface" "$prefix" valid
@@ -831,7 +837,7 @@ gen_file() { # <template> <config>
     return 1
   fi
 
-  local iface prefix orig line IFS=$'\n' state=text
+  local iface prefix orig line IFS=$'\n' state=text add_close
   local sub_state=error end_state=error end_prefix new_prefix
   local -i lno
 
@@ -866,6 +872,10 @@ gen_file() { # <template> <config>
             fatal "Unable to parse prefix in \"$src\":$lno"
           new_prefix=$(compact_prefix "$new_prefix")
           verbose "    Found static prefix $new_prefix"
+          if is_prefix_key "$iface" "$new_prefix" wired && [[ "$line" =~ \; ]]; then
+            orig="${orig/;/} {" line="${line/;/}"
+            add_close=1
+          fi
           end_prefix=1
         elif [[ "$line" =~ ^@prefix@ ]]; then
           verbose "    Found dynamic prefix"
@@ -898,8 +908,10 @@ gen_file() { # <template> <config>
         prefix=$new_prefix
         [[ "$line" =~ ^\}\; && "$state" = interface ]] &&
           continue # gen_dynamic writes };
-      else
+      elif is_prefix_key "$iface" "$prefix" wired; then
         gen_missing_lifetimes "$iface" "$prefix" "$prefix"
+        [[ $add_close ]] && gen_line "\t};\\n"
+        add_close=
       fi
       prefix=$new_prefix
     fi
