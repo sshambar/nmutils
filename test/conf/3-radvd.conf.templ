@@ -1,0 +1,16 @@
+interface eth0
+{
+	AdvSendAdvert on;
+	MinRtrAdvInterval 30;
+	# should match 2 additional
+	@PREFIX@
+};
+interface eth1
+{
+	AdvSendAdvert on;
+	MinRtrAdvInterval 30;
+	# prefix wired, no options
+	prefix fdac:3741:50f8::/48;
+	# should match 1 additional
+	@PREFIX@;
+};

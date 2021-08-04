@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Fake dhclient to test scripts
+# dhclient-mock for test scripts
 #
 # Set the following in your ipv6-prefix-wan-${interface}.conf file to test:
 #

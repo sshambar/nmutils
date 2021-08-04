@@ -10,8 +10,9 @@
   exit 1
 }
 
-export RADVDGEN_CONF=./conf/radvd-gen.conf
+# sane defaults
+export SRC_ROOT=${SRC_ROOT-..}
+export RADVDGEN_CONF=${RADVDGEN_CONF-conf/radvd-gen.conf}
 
-rm -f run/radvd.conf
-../etc/NetworkManager/dispatcher.d/95-radvd-gen "$@" eth0 up
+bash "$SRC_ROOT/etc/NetworkManager/dispatcher.d/95-radvd-gen" "$@" eth0 up
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 
-# ip v0.1.0 - ip command wrapper/replacement for testing
+# ip-mock v0.2.0 - ip command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -20,7 +20,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-STATE_FILE=${STATE_FILE:-./interface-addrs}
+IP_MOCK_ADDRS=${IP_MOCK_ADDRS:-conf/ip-mock-addrs}
 
 usage() {
   err "Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }"
@@ -42,6 +42,8 @@ fail() {
   err "$@"
   exit $rc
 }
+
+[[ $MOCK_ECHO ]] && err "${0##*/} $*"
 
 # State file format:
 #  dev <device> [ <mtu> [ <state> ] ]
@@ -214,7 +216,7 @@ verbose DEV=$DEV SCOPE=$SCOPE
 
 case $OBJECT in
   addr)
-    read_addr_state "$STATE_FILE"
+    read_addr_state "$IP_MOCK_ADDRS"
     case "$COMMAND" in
       add|change|replace) ;; # no-op
       del|delete) ;; # no-op

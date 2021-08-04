@@ -1,0 +1,24 @@
+interface eth0
+{
+	AdvSendAdvert on;
+	MinRtrAdvInterval 30;
+	# prefix not wired
+	prefix fda5:0000:2bc7:203d::/64;
+	# prefix match wired
+	prefix fda5:3d6f:2bc7:203d::/64 {
+		route fddd:1000:0:1234/64 {
+			RemoveRoute on;
+		};
+		AdvAutonomous off;
+		AdvPreferredLifetime 600;
+	};
+	# should match 1 additional
+	@PREFIX@ {
+		DNSSL example.com {
+			AdvDNSSLLifetime 60;
+		};
+		AdvPreferredLifetime 300;
+	        AdvValidLifetime 100;
+	};
+};
+# end?

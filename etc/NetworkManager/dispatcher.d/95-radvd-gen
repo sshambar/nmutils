@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.4.1 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.5.0 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018-21 Scott Shambarger
@@ -101,10 +101,6 @@ IPV6_UTILS=${IPV6_UTILS:-/etc/nmutils/ipv6_utils.sh}
 # template and config locations
 SRC=/etc/NetworkManager/radvd.conf.templ
 DST=/etc/radvd.conf
-
-# verbose/debug triggers
-VERBOSE=
-DEBUG=
 
 # percentage difference to trigger new config
 PERDIFF=10
@@ -434,6 +430,61 @@ set_prefix_vals() { # <mode> <iface> <prefix> <valid> <pref> <decr> <has_decr>
   fi
 }
 
+# parse { }; and ; in $line (used in read_file and gen_file)
+parse_braces() {
+  save_prefix=
+  if [[ $line =~ \{ ]]; then
+    case $state in
+      interface|prefix) state=${state}-opts;;
+      child-opts) err "Parse depth error in file \"$src\":$lno"; return 1;;
+      *) parent=$state state=child-opts;;
+    esac
+  elif [[ $line =~ \}\; ]]; then
+    case $state in
+      prefix-opts) state=interface-opts save_prefix=$prefix prefix=;;
+      interface-opts) state=global iface=;;
+      child-opts) state=$parent parent=;;
+      *) err "Parse nesting error in file \"$src\":$lno"; return 1;;
+    esac
+  elif [[ $line =~ \; ]]; then
+    case $state in
+      interface) state=global iface=;;
+      prefix) state=interface-opts save_prefix=$prefix prefix=;;
+    esac
+  fi
+
+  return 0
+}
+
+# parse global radvd.conf section
+parse_global() {
+  [[ ! $line =~ ^interface ]] && return 0
+
+  state=interface
+  parse_2nd iface "$line"
+  [[ ! $iface ]] &&
+    err "Unable to parse interface in \"$src\":$lno" && return 1
+  verbose "  Found interface $iface"
+
+  return 0
+}
+
+# parse interface radvd.conf section
+parse_interface() {
+  if [[ $line =~ ^prefix ]]; then
+    state=prefix
+    parse_2nd prefix "$line"
+    [[ ! $prefix ]] &&
+      err "Unable to parse prefix in \"$src\":$lno" && return 1
+    prefix=$(compact_prefix "$prefix")
+    verbose "    Found static prefix $prefix"
+  elif [[ $line =~ ^@prefix@ ]]; then
+    state=prefix prefix=dynamic
+    verbose "    Found dynamic prefix"
+    [[ $line =~ \{ || $line =~ \; ]] || line+=";"
+  fi
+}
+
 # Parses <file> to determine interface and prefix settings
 # Sets the following values based <mode> ("cur" for existing, or "src"):
 #   <iface> <mode> 1 - if interface exists in that file
@@ -452,96 +503,64 @@ read_file() { # cur|src <file>
 
   verbose "Parsing $mode file \"$src\""
 
-  local iface prefix line val IFS=$'\n' state=text valid pref decr has_decr
-  local sub_state=error end_state=error end_prefix new_prefix
-  local -i lno
+  local line iface prefix val valid pref decr has_decr save_prefix
 
+  local -i lno=0
+  local IFS=$'\n' state=global parent=
   while read -r line || [[ $line ]]; do
-    debug2 "state=$state prefix=$prefix sub=$sub_state end=$end_state"
+    debug2 "state=$state parent=$parent iface=$iface prefix=$prefix"
     lstrip line "$line"
     ((lno++))
+
     [[ "$line" =~ ^# ]] && continue
-    end_prefix='' new_prefix=''
+
     case $state in
-      text)
-        if [[ "$line" =~ ^interface ]]; then
-          sub_state=interface end_state=error
-          parse_2nd iface "$line"
-          [[ ! $iface ]] &&
-            err "Unable to parse interface in \"$src\":$lno" && return 1
-          verbose "  Found interface $iface"
+      global)
+        parse_global || return 1
+        if [ $state = interface ]; then
           set_iface "$iface"
           set_iface_key "$iface" "$mode" 1
         fi
         ;;
-      interface)
-        sub_state=int_option end_state=text
-        if [[ "$line" =~ ^prefix ]]; then
-          parse_2nd new_prefix "$line"
-          [[ ! $new_prefix ]] &&
-            err "Unable to parse prefix in \"$src\":$lno" && return 1
-          new_prefix=$(compact_prefix "$new_prefix")
-          verbose "    Found static prefix $new_prefix"
-          end_prefix=1
-        elif [[ "$line" =~ ^@prefix@ ]]; then
-          if [ "$mode" != src ]; then
-            err "@PREFIX@ found in \"$src\":$lno!"
-          else
-            verbose "    Found dynamic prefix"
-          fi
-          new_prefix=dynamic end_prefix=1
-        elif [[ $line && ! "$line" =~ ^\{ ]]; then
-          end_prefix=1
+      interface-opts)
+        parse_interface || return 1
+        if [ "$prefix" = dynamic ] && [ "$mode" != src ]; then
+          err "@PREFIX@ found in \"$src\":$lno!" && return 1
         fi
         ;;
-      int_option)
-        sub_state=sub_option end_state=interface
-        if [[ $prefix ]]; then
-          parse_2nd val "$line"
-          if [[ "$line" =~ ^advvalidlifetime ]]; then
-            verbose "      Found valid-life $val"
-            valid=$val
-          elif [[ "$line" =~ ^advpreferredlifetime ]]; then
-            verbose "      Found pref-life $val"
-            pref=$val
-          elif [[ "$line" =~ ^decrementlifetimes ]]; then
-            verbose "      Found decrement $val"
-            [[ "$val" =~ ^on ]] && decr=1 || decr=
-            has_decr=1
-          fi
+      prefix-opts)
+        parse_2nd val "$line"
+        if [[ $line =~ ^advvalidlifetime ]]; then
+          verbose "      Found valid-life $val"
+          valid=$val
+        elif [[ $line =~ ^advpreferredlifetime ]]; then
+          verbose "      Found pref-life $val"
+          pref=$val
+        elif [[ $line =~ ^decrementlifetimes ]]; then
+          verbose "      Found decrement $val"
+          [[ $val =~ ^on ]] && decr=1 || decr=
+          has_decr=1
         fi
-        ;;
-      sub_option)
-        sub_state=error end_state=int_option
-        ;;
-      error)
-        ((lno--))
-        err "Parse error in $mode file \"$src\":$lno" && return 1
         ;;
     esac
-    if [[ "$line" =~ \{ && $sub_state ]]; then
-      end_state=$state state=$sub_state
-    fi
-    if [[ "$line" =~ \}\; && $end_state ]]; then
-      [ "$state" = int_option ] && end_prefix=1
-      state=$end_state end_state=error sub_state=error
-    fi
-    if [[ $end_prefix && $prefix ]]; then
-      if [ "$mode" = src ] || [ "$prefix" != dynamic ]; then
-        if [ "$prefix" != dynamic ]; then
-          set_prefix "$iface" "$prefix"
-          set_prefix_key "$iface" "$prefix" "$mode" 1
+
+    parse_braces || return 1
+
+    if [[ $save_prefix ]]; then
+      if [ "$mode" = src ] || [ "$save_prefix" != dynamic ]; then
+        if [ "$save_prefix" != dynamic ]; then
+          set_prefix "$iface" "$save_prefix"
+          set_prefix_key "$iface" "$save_prefix" "$mode" 1
         fi
-        set_prefix_vals "$mode" "$iface" "$prefix" "$valid" "$pref" "$decr" "$has_decr"
+        set_prefix_vals "$mode" "$iface" "$save_prefix" "$valid" "$pref" "$decr" "$has_decr"
       fi
-      prefix=''
-    fi
-    if [[ $new_prefix ]]; then
-      prefix=$new_prefix valid='' pref='' decr='' has_decr=''
+      valid= pref= decr= has_decr=
     fi
   done < "$src"
-  [ "$state" != text ] &&
+
+  [ "$state" != global ] &&
     err "Parse error in $mode file \"$src\":$lno" && return 1
+
   return 0
 }
 
@@ -577,7 +596,7 @@ get_addrs() { # <iface>
 
   verbose "  Looking for prefixes on interface $iface"
 
-  for e in $("$IP_EXE" 2>/dev/null -6 addr show dev "$iface" scope global); do
+  for e in $("$IP_EXE" -6 addr show dev "$iface" scope global); do
     case "$state" in
       text)
         case "$e" in
@@ -822,30 +841,27 @@ gen_cleanup() {
   [ -f "$TMPFILE" ] && verbose "Cleaning up \"$TMPFILE\"" && rm -f "$TMPFILE"
 }
 
+# cleanup tmpfiles on exit
+trap gen_cleanup EXIT INT TERM
+
 gen_file() { # <template> <config>
   local src=$1 dst=$2
-  local -i si rc=0
 
   verbose "Generating \"$dst\" from \"$src\""
 
-  trap gen_cleanup EXIT INT TERM
-
   TMPFILE=$("$MKTEMP_EXE")
-  if [ ! -w "$TMPFILE" ]; then
-    err "Unable to create temp file"
-    gen_cleanup
-    return 1
-  fi
+  [ ! -w "$TMPFILE" ] && fatal "Unable to create temp file '$TMPFILE'"
 
-  local iface prefix orig line IFS=$'\n' state=text add_close
-  local sub_state=error end_state=error end_prefix new_prefix
-  local -i lno
+  local orig line iface prefix save_prefix add_close
 
+  local -i lno=0 si=0
+  local IFS=$'\n' state=global parent=
   while read -r orig || [[ $orig ]]; do
-    debug2 "state=$state prefix=$prefix sub=$sub_state end=$end_state"
+    debug2 "state=$state parent=$parent iface=$iface prefix=$prefix"
     lstrip line "$orig"
     ((lno++))
-    if [[ "$line" =~ ^# ]]; then
+
+    if [[ $line =~ ^# ]]; then
       if [ "$prefix" = dynamic ]; then
         set_prefix_key "$iface" saved "$si" "$orig"
         ((si++))
@@ -854,73 +870,35 @@ gen_file() { # <template> <config>
       fi
       continue
     fi
-    end_prefix='' new_prefix=''
+
     case $state in
-      text)
-        if [[ "$line" =~ ^interface ]]; then
-          sub_state=interface end_state=error
-          parse_2nd iface "$line"
-          [[ ! $iface ]] && fatal "Unable to parse interface in \"$src\":$lno"
-          verbose "  Found interface $iface"
-        fi
-        ;;
-      interface)
-        sub_state=int_option end_state=text
-        if [[ "$line" =~ ^prefix ]]; then
-          parse_2nd new_prefix "$line"
-          [[ ! $new_prefix ]] &&
-            fatal "Unable to parse prefix in \"$src\":$lno"
-          new_prefix=$(compact_prefix "$new_prefix")
-          verbose "    Found static prefix $new_prefix"
-          if is_prefix_key "$iface" "$new_prefix" wired && [[ "$line" =~ \; ]]; then
-            orig="${orig/;/} {" line="${line/;/}"
-            add_close=1
-          fi
-          end_prefix=1
-        elif [[ "$line" =~ ^@prefix@ ]]; then
-          verbose "    Found dynamic prefix"
-          new_prefix=dynamic end_prefix=1
-        elif [[ $line && ! "$line" =~ ^\{ ]]; then
-          end_prefix=1
-        fi
-        ;;
-      int_option)
-        sub_state=sub_option end_state=interface
-        ;;
-      sub_option)
-        sub_state=error end_state=int_option
-        ;;
-      error)
-        ((lno--))
-        fatal "Parse error in $mode file \"$src\":$lno"
-        ;;
+      global) parse_global || exit 1;;
+      interface-opts) parse_interface || exit 1;;
     esac
-    if [[ "$line" =~ \{ && $sub_state ]]; then
-      end_state=$state state=$sub_state
-    fi
-    if [[ "$line" =~ \}\; && $end_state ]]; then
-      [ "$state" = int_option ] && end_prefix=1
-      state=$end_state end_state=error sub_state=error
-    fi
-    if [[ $end_prefix && $prefix ]]; then
-      if [ "$prefix" = dynamic ]; then
+
+    parse_braces || exit 1
+    [ $state = global ] && si=0
+
+    if [[ $save_prefix ]]; then
+      if [ "$save_prefix" = dynamic ]; then
         gen_dynamic "$iface"
-        prefix=$new_prefix
-        [[ "$line" =~ ^\}\; && "$state" = interface ]] &&
-          continue # gen_dynamic writes };
-      elif is_prefix_key "$iface" "$prefix" wired; then
-        gen_missing_lifetimes "$iface" "$prefix" "$prefix"
-        [[ $add_close ]] && gen_line "\t};\\n"
-        add_close=
+        [[ $line =~ \}\; ]] && continue # gen_dynamic includes '};'
+        [[ $line =~ ^@prefix@ ]] && continue; # don't write @PREFIX@
+      elif is_prefix_key "$iface" "$save_prefix" wired; then
+        # add brackets if none in orig
+        if [[ ! $line =~ \}\; ]]; then
+          gen_line "%s\\n" "${orig/;/ \{}"
+          add_close=1
+        fi
+        gen_missing_lifetimes "$iface" "$save_prefix" "$save_prefix"
+        [[ $add_close ]] && { orig="	};" add_close=; }
       fi
-      prefix=$new_prefix
     fi
-    if [[ $new_prefix ]]; then
-      prefix=$new_prefix si=0
-      [ "$prefix" = dynamic ] && continue # don't save @PREFIX@
-    fi
+
     if [ "$prefix" = dynamic ]; then
-      [[ "$line" =~ \{ || "$line" =~ \}\; ]] && continue # don't save braces
+      # don't save braces
+      [ $state = prefix-opts ] && [[ $line =~ \{ ]] && continue;
+      [ $state = interface-opts ] && [[ $line =~ \}\; ]] && continue
       set_prefix_key "$iface" saved "$si" "$orig"
       ((si++))
     else
@@ -928,17 +906,16 @@ gen_file() { # <template> <config>
     fi
   done < "$src" >> "$TMPFILE"
 
-  if cp "$TMPFILE" "$dst"; then
-    chmod u+rw "$dst"
-    [[ $RADVD_GROUP ]] && { chgrp "$RADVD_GROUP" "$dst" && chmod g+r "$dst"; }
-    [[ $RESTORECON_EXE ]] && "$RESTORECON_EXE" -F "$dst"
-  else
-    rc=1 && err "Unable to copy \"$TMPFILE\" to \"$dst\""
-  fi
+  [ "$state" != global ] &&
+    err "Parse error in file \"$src\":$lno" && return 1
 
-  gen_cleanup
+  cp "$TMPFILE" "$dst" || fatal "Unable to copy \"$TMPFILE\" to \"$dst\""
 
-  return $rc
+  chmod u+rw "$dst"
+  [[ $RADVD_GROUP ]] && { chgrp "$RADVD_GROUP" "$dst" && chmod g+r "$dst"; }
+  [[ $RESTORECON_EXE ]] && "$RESTORECON_EXE" -F "$dst"
+
+  return 0
 }
 
 signal_radvd() { # reload|reset
