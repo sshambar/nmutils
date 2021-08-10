@@ -43,7 +43,7 @@ help:
 	@echo "  radvd-test-#      - run radvd test # (1, 2, etc)"
 	@echo "  bless-radvd-test  - replace a test results (prompts for #)"
 
-all-radvd: radvd-test-1 radvd-test-2 radvd-test-3
+all-radvd: radvd-test-1 radvd-test-2 radvd-test-3 radvd-test-4
 
 $(TEST_OUT):
 	@mkdir -p "$(TEST_OUT)"
@@ -64,6 +64,8 @@ RADVDGEN_CONF := $(TEST_CONF)/radvd-gen.conf
 
 $(TEST_OUT)/%-radvd.conf: $(TEST_EXPECT)/%-radvd.conf
 	@echo "Running radvd-gen test $(TEST_NUM)"
+	@[ -f "$(TEST_CONF)/$(TEST_NUM)-radvd.conf" ] && \
+	 cp "$(TEST_CONF)/$(TEST_NUM)-radvd.conf" "$@" || :
 	@VERBOSE=$(VERBOSE) $(TEST_ROOT)/radvd-test
 	@diff >/dev/null "$<" "$@" || { \
 	   echo "FAIL: $< $@ differ:"; diff "$<" "$@"; }

@@ -1,0 +1,8 @@
+dev eth0 9000
+addr 192.168.10.4/24 8600sec 2400sec
+addr6 fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64 3600sec 1800sec global noprefixroute
+addr6 fe80::a00:27ff:fe1b:ff9a/64 forever forever link
+dev eth1
+addr 10.0.10.12/24 forever forever
+addr6 fdac:3741:50f8:f623::1/48 86400sec 14400sec global
+addr6 fe80::31fd:68fd:ed8b:4d77/64 forever forever link
