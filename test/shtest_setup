@@ -463,7 +463,7 @@ shtest::_handle_exit() {
 shtest::strict() { # [ "trace" ]
   [[ ${1-} == trace ]] && _SHTEST_STATE[6]=1
   [[ ${_SHTEST_STATE[2]} ]] && return 0
-  _SHTEST_STATE[2]=$(mktemp -u -t "shtest-strict") || :
+  _SHTEST_STATE[2]=$(mktemp -u -t "shtest-strict-XXXXXX") || :
   [[ ${_SHTEST_STATE[2]} ]] ||
     shtest::fatal "shtest::strict(): Unable to setup tmpfile"
   trap shtest::_handle_err ERR
