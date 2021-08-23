@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.1.1 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.1.2 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2020 Scott Shambarger
+# Copyright (C) 2014-2021 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -133,6 +133,7 @@ interface="$1"
 action="$2"
 
 # for logging
+# shellcheck disable=SC2034
 NMG_TAG="ipv6-prefix"
 
 # set NMUTILS/NMCONF early, and allow environment to override
@@ -154,18 +155,18 @@ MKDIR="${MKDIR:-mkdir}"
 ########## SCRIPT START
 
 # anything for us to do?
-[ -n "$interface" -a -n "$action" ] || exit 0
+[[ ${interface} && ${action} ]] || exit 0
 
 # load ddns- or general-functions
-NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
-[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
-    # no DDNS, use general-functions
-    NMDDNS=
-    NMG="${NMG:-$NMUTILS/general-functions}"
-    [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-        echo 1>&2 "Unable to load $NMG" && exit 2
-      }
-  }
+NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
+# shellcheck source=/dev/null
+{ [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
+  # no DDNS, use general-functions
+  NMDDNS='' NMG="${NMG:-${NMUTILS}/general-functions}"
+  # shellcheck source=/dev/null
+  { [[ -r ${NMG} ]] && . "${NMG}"; } || {
+    echo 1>&2 "Unable to read ${NMG}" && exit 2; }
+}
 
 ########## Config/state locations
 
@@ -176,20 +177,22 @@ LAN_STATE_PAT="${LAN_STATE_PAT:-$RUNDIR/ipv6-prefix-${interface}-from-@WAN@.stat
 LAN_DDNS_CONFIG_PAT="${LAN_DDNS_CONFIG_PAT:-$NMCONF/ddns-${interface}-from-@WAN@.conf}"
 LAN_DDNS_STATE_PAT="${LAN_DDNS_STATE_PAT:-$RUNDIR/ddns-${interface}-from-@WAN@-@RREC@.state}"
 
-nmg_need_progs "$DHSCRIPT" || exit
-
 function ipv6_read_wan_config() {
   # <wan>
   local config="${WAN_CONFIG_PAT/@WAN@/$1}"
 
   # load WAN config (with defaults)
-  WAN_DHCLIENT_OPTIONS= WAN_LAN_INTFS= WAN_REQUIRE_IP4=
-  WAN_PREFIX_LEN=64 WAN_SITE=auto WAN_NODE=auto
+  WAN_LAN_INTFS='' WAN_REQUIRE_IP4=''
+  WAN_PREFIX_LEN=64 WAN_SITE=auto
+  # shellcheck disable=SC2034
+  WAN_DHCLIENT_OPTIONS='' WAN_NODE=auto
   nmg_read_config "$config" || return
 
   # check values
   WAN_SITE="${WAN_SITE:-auto}"
   WAN_PREFIX_LEN="${WAN_PREFIX_LEN:-64}"
+
+  nmg_need_progs "${DHSCRIPT}" || exit
 }
 
 #
@@ -198,29 +201,28 @@ function ipv6_read_wan_config() {
 
 function ipv6_wan_check() {
 
-  [ -z "$WAN_REQUIRE_IP4" ] && return
+  [[ ${WAN_REQUIRE_IP4} ]] || return 0
 
-  local priv_ok=
-  [ "$WAN_REQUIRE_IP4" = "any" ] && priv_ok=1
+  local priv_ok=''
+  [[ ${WAN_REQUIRE_IP4} == any ]] && priv_ok=1
 
   # if no ip4, fail
-  if [ ${IP4_NUM_ADDRESSES:-0} -eq 0 ]; then
+  if [[ ${IP4_NUM_ADDRESSES:-0} == 0 ]]; then
     nmg_debug "No ip4 addresses available"
     return 1
   fi
 
   # now see if there's a valid address
-  local idx= addrgw=
-  for (( idx=0; idx < $IP4_NUM_ADDRESSES; idx++ )); do
-    addrgw=$(eval echo -n '$'IP4_ADDRESS_$idx)
-    # remove netmask and gateway
-    addrgw=${addrgw%%/*}
-    nmg_check_ip4_addr "$addrgw" "$priv_ok" && return
+  local idx vname
+  for (( idx=0; idx < IP4_NUM_ADDRESSES; idx++ )); do
+    vname="IP4_ADDRESS_${idx}"
+    # check addr (remove netmask and gateway)
+    nmg_check_ip4_addr "${!vname%%/*}" "${priv_ok}" && return
   done
 
-  local pub="valid "
-  [ -z "$priv_ok" ] && pub="public "
-  nmg_info "No ${pub}ip4 addresses available"
+  local pub="valid"
+  [[ ${priv_ok} ]] || pub="public"
+  nmg_info "No ${pub} ip4 addresses available"
 
   return 1
 }
@@ -241,12 +243,16 @@ function ipv6_wan_start() {
   ipv6_read_wan_config "$interface" || rc=$?
 
   # no file ok
-  [ $rc -eq 1 ] && return 0
+  [[ $rc == 1 ]] && return 0
   # other error?
-  [ $rc -ne 0 ] && return $rc
+  [[ $rc != 0 ]] && return $rc
 
   # start dhclient
-  ipv6_wan_check && ipv6_wan_start_dhclient || ipv6_wan_stop_dhclient
+  if ipv6_wan_check; then
+    ipv6_wan_start_dhclient
+  else
+    ipv6_wan_stop_dhclient
+  fi
 }
 
 function ipv6_wan_stop() {
@@ -269,10 +275,10 @@ function ipv6_lan_add_addr() {
   nmg_add_ip6_addr "$1" "$2" && {
 
     # flag radvd trigger (for later)
-    [ "$1" = "$interface" ] || Radvd_Trigger=1
+    [[ $1 == "${interface}" ]] || Radvd_Trigger=1
 
     # NM sets forwarding to 0 if managed and not method=shared, correct that
-    if [ "$Forwarding" = 1 -a -w "${FORWARDING_PAT/@NODE@/$1}" ]; then
+    if [[ ${Forwarding} == 1 && -w ${FORWARDING_PAT/@NODE@/$1} ]]; then
       nmg_write "${FORWARDING_PAT/@NODE@/$1}" 1
     fi
   }
@@ -284,29 +290,29 @@ function ipv6_lan_ddns_from_wan() {
   local wan="$1" addr6="${2:-}"
 
   # DDNS available?
-  [ -z "$NMDDNS" ] && return
+  [[ ${NMDDNS} ]] || return 0
 
   # address present determines "up" or "down", not interface state
   local action="down"
-  [ -n "$addr6" ] && action="up"
+  [[ ${addr6} ]] && action="up"
 
-  nmddns_spawn_update_all "$action" "${LAN_DDNS_CONFIG_PAT/@WAN@/$wan}" "" "$addr6" "${LAN_DDNS_STATE_PAT/@WAN@/$wan}"
+  nmddns_spawn_update_all "${action}" "${LAN_DDNS_CONFIG_PAT/@WAN@/$wan}" "" "$addr6" "${LAN_DDNS_STATE_PAT/@WAN@/$wan}"
 }
 
 function ipv6_lan_from_wan() {
   # <wan> <state-file>
-  local wan="$1" state="$2" addr=
+  local wan="$1" state="$2" addr=''
 
   # read address from state
-  [ -f "$state" -a -r "$state" ] && addr=$(< "$state")
+  [[ -r ${state} ]] && addr=$(< "$state")
 
   # get WAN_LAN_INTFS
   ipv6_read_wan_config "$wan" || :
 
   # this LAN still configured for this WAN?
-  local lan= lan_found=
+  local lan lan_found=''
   for lan in $WAN_LAN_INTFS; do
-    [ "$lan" = "$interface" ] && {
+    [[ ${lan} == "${interface}" ]] && {
       ipv6_lan_add_addr "$lan" "$addr"
       lan_found=1
       break
@@ -314,7 +320,7 @@ function ipv6_lan_from_wan() {
   done
 
   # if LAN's been removed from WAN, reset DDNS
-  [ -z "$lan_found" ] && addr=
+  [[ ${lan_found} ]] || addr=
 
   ipv6_lan_ddns_from_wan "$wan" "$addr"
 }
@@ -337,14 +343,14 @@ function ipv6_lan_foreach_wan() {
   for state in "$lan_pre"*"$lan_post"; do
 
     # any matches?
-    [ "$state" = "${LAN_STATE_PAT/@WAN@/*}" ] && break
+    [[ ${state} == "${LAN_STATE_PAT/@WAN@/*}" ]] && break
 
     # get wan
     local wan="${state#$lan_pre}"
     wan="${wan%$lan_post}"
-    [ -z "$wan" ] && continue
+    [[ ${wan} ]] || continue
 
-    $1 "$wan" "$state"
+    $1 "${wan}" "${state}"
   done
 
   return 0
@@ -353,17 +359,16 @@ function ipv6_lan_foreach_wan() {
 function ipv6_lan_start() {
 
   # used by ipv6_lan_add_addr
-  local Radvd_Trigger= Forwarding=0
+  local Radvd_Trigger='' Forwarding=0
 
-  if [ -r "${FORWARDING_PAT/@NODE@/all}" ]; then
+  [[ -r ${FORWARDING_PAT/@NODE@/all} ]] &&
     Forwarding=$(< "${FORWARDING_PAT/@NODE@/all}")
-  fi
 
   # set address from each WAN
   ipv6_lan_foreach_wan ipv6_lan_from_wan
 
   # trigger radvd if prefix(es) added
-  [ -n "$Radvd_Trigger" ] && nmg_radvd_trigger
+  [[ ${Radvd_Trigger} ]] && nmg_radvd_trigger
 }
 
 function ipv6_lan_stop() {
@@ -377,12 +382,12 @@ function ipv6_lan_stop() {
 
 nmg_debug "interface: $interface action: $action"
 
-[ -e "$RUNDIR" ] || {
-  nmg_need_progs "$MKDIR" || exit
-  nmg_cmd "$MKDIR" -p "$RUNDIR" || exit
+[[ -e ${RUNDIR} ]] || {
+  nmg_need_progs "${MKDIR}" || exit
+  nmg_cmd "${MKDIR}" -p "${RUNDIR}" || exit
 }
 
-case "$action" in
+case "${action}" in
   up)
     ipv6_lan_start
     ipv6_wan_start

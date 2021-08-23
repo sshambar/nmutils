@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 90-transmission v1.0.0 - Transmission dispatcher script
+# 90-transmission v1.1.0 - Transmission dispatcher script
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # This script sets transmissions bind address to the public IP
@@ -10,7 +10,7 @@
 # configuration and then start transmission on interface up,
 # and stop transmission on interface down.
 #
-# Copyright (C) 2015 Scott Shambarger
+# Copyright (C) 2015-2021 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,6 +53,14 @@
 #   TR_UNIT (default: transmission-daemon) - default transmission
 #     systemd service name
 #
+#   TR_IGNORE_V4 (default: empty) - non-empty, ipv4 is ignored
+#
+#   TR_PRIVATE_V4 (default: empty) - non-empty, allow private ipv4 addrs
+#
+#   TR_IGNORE_V6 (default: empty) - non-empty, ipv6 is ignored
+#
+#   TR_PRIVATE_V6 (default: empty) - non-empty, allow private ipv6 addrs
+#
 # Config location:
 #
 #   NMCONF/transmission-<interface>.conf
@@ -65,6 +73,7 @@ interface="$1"
 action="$2"
 
 # for logging
+# shellcheck disable=SC2034
 NMG_TAG="trans-cfg"
 
 # set NMUTILS/NMCONF early, and allow environment to override
@@ -79,76 +88,161 @@ TR_STATE="/run/transmission-configured"
 ########## Default paths
 
 # Default transmission user's home dir
-TR_HOME="$(echo ~transmission)"
+TR_HOME=~transmission
 # Default transmission settings file
 TR_SETTINGS="$TR_HOME/.config/transmission-daemon/settings.json"
 # Default transmission service name
 TR_UNIT="transmission-daemon"
+# default: no private ip
+TR_PRIVATE_V4=''
+TR_PRIVATE_V6=''
+# default: don't ignore addrs
+TR_IGNORE_V4=''
+TR_IGNORE_V6=''
 
 ########## SCRIPT START
 
 # anything for us to do?
-[ -n "$interface" -a -n "$action" ] || exit 0
+[[ ${interface} && ${action} ]] || exit 0
 
 # load general-functions
-NMG="${NMG:-$NMUTILS/general-functions}"
-[ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-    echo 1>&2 "Unable to load $NMG" && exit 2
-  }
+NMG="${NMG:-${NMUTILS}/general-functions}"
+# shellcheck disable=SC1090
+{ [[ -r ${NMG} ]] && . "${NMG}"; } || {
+  echo 1>&2 "Unable to load $NMG" && exit 2; }
 
 # see if we're configured for this interface
-nmg_read_config "$TR_CONFIG" || exit 0
+nmg_read_config "${TR_CONFIG}" || exit 0
 
 # if no settings yet, bail
-[ -w "$TR_SETTINGS" ] || exit 0
+[[ -w ${TR_SETTINGS} ]] || exit 0
 
-function pub_addr4() {
+function get_addr4() { # <varname>
 
-  [ ${IP4_NUM_ADDRESSES:-0} -eq 0 ] && return 0
+  local idx vname addr priv_ok=''
+
+  [[ ${IP4_NUM_ADDRESSES:-0} == 0 ]] && return 0
+  [[ ${TR_IGNORE_V4} ]] && return 0
+  [[ ${TR_PRIVATE_V4} ]] && priv_ok=1
+
+  vname=$1
+  [[ ${!vname} ]] && return 0
 
   # choose first public address
-  local idx=
-  for (( idx=0; idx < $IP4_NUM_ADDRESSES; idx++ )); do
-    local addrgw=$(eval echo -n '$'IP4_ADDRESS_$idx)
-    # remove netmask and gateway
-    local addr=${addrgw%%/*}
-    nmg_check_ip4_addr "$addr" && echo -n "$addr" && break
+  for (( idx=0; idx < IP4_NUM_ADDRESSES; idx++ )); do
+    vname="IP4_ADDRESS_${idx}"
+    addr=${!vname%%/*}
+    # check addr (remove netmask and gateway)
+    nmg_check_ip4_addr "${addr}" "${priv_ok}" || continue
+
+    if [[ $(nmg_find_ip4_addrs "${interface}" "^${addr}" \
+                               "scope global tentative") ]]; then
+      nmg_debug "Address ${addr} still tentative"
+    elif [[ $(nmg_find_ip4_addrs "${interface}" "^${addr}" \
+                                 "scope global") ]]; then
+      nmg_debug "Selecting ${addr}"
+      printf -v "$1" "%s" "${addr}"
+      return 0
+    fi
   done
+
+  # still waiting...
+  return 1
+}
+
+function get_addr6() { # <varname>
+
+  local idx vname addr priv_ok=''
+
+  [[ ${IP6_NUM_ADDRESSES:-0} == 0 ]] && return 0
+  [[ ${TR_IGNORE_V6} ]] && return 0
+  [[ ${TR_PRIVATE_V6} ]] && priv_ok=1
+
+  # if addr selected... skip loop
+  vname=$1
+  [[ ${!vname} ]] && return 0
+
+  # choose first allowed address
+  for (( idx=0; idx < IP6_NUM_ADDRESSES; idx++ )); do
+    vname="IP6_ADDRESS_${idx}"
+    addr=${!vname%%/*}
+    # check addr (remove netmask and gateway)
+    nmg_check_ip6_addr "${addr}" "${priv_ok}" || continue
+
+    if [[ $(nmg_find_ip6_addrs "${interface}" "^${addr}" \
+                               "scope global tentative") ]]; then
+      nmg_debug "Address ${addr} still tentative"
+    elif [[ $(nmg_find_ip6_addrs "${interface}" "^${addr}" \
+                                 "scope global") ]]; then
+      nmg_debug "Selecting ${addr}"
+      printf -v "$1" "%s" "${addr}"
+      return 0
+    fi
+  done
+
+  # still waiting...
+  return 1
 }
 
 function tr_stop() {
 
   # stop daemon (to write settings)
-  /bin/systemctl stop "$TR_UNIT"
-  nmg_remove "$TR_STATE"
+  /bin/systemctl stop "${TR_UNIT}"
+  nmg_remove "${TR_STATE}"
 }
 
 function tr_start() {
 
-  /bin/systemctl 2>/dev/null -q is-enabled "$TR_UNIT" || return 0
+  local addr4='' addr6='' change=''
 
-  tr_stop
+  /bin/systemctl 2>/dev/null -q is-enabled "${TR_UNIT}" || return 0
 
-  local pub_addr="$(pub_addr4)"
+  # loop over all addresses until one passes DAD, or 2.5sec timeout
+  for (( cnt=0; cnt<=5; cnt++ )); do
+    # get addresses
+    [[ $cnt -ne 0 ]] && sleep 0.5
+    get_addr4 "addr4" && get_addr6 "addr6" && break
+  done
 
-  [ -z "$pub_addr" ] && return 0
+  [[ ${addr4} || ${addr6} ]] || return 0
 
-  # edit file in place
-  sed -i "s|\(.*\"bind-address-ipv4\":\).*|\1 \"$pub_addr\",|" "$TR_SETTINGS" || return 0
+  # check if any changes
+  if [[ ${addr4} ]]; then
+    grep -q "\"bind-address-ipv4\":[[:space:]]*\"${addr4}\"" "${TR_SETTINGS}" || change=1
+  fi
+  if [[ ${addr6} ]]; then
+    grep -q "\"bind-address-ipv6\":[[:space:]]*\"${addr6}\"" "${TR_SETTINGS}" || change=1
+  fi
 
-  nmg_write "$TR_STATE"
-  /bin/systemctl start "$TR_UNIT"
+  if [[ ${change} ]]; then
+
+    nmg_debug "Updating settings and restarting daemon"
+
+    # stop transmission so it doesn't overwrite setting changes
+    tr_stop
+
+    # edit file in place
+    if [[ ${addr4} ]]; then
+      sed -i "s|\(.*\"bind-address-ipv4\":\).*|\1 \"${addr4}\",|" "${TR_SETTINGS}" || return 0
+    fi
+    if [[ ${addr6} ]]; then
+      sed -i "s|\(.*\"bind-address-ipv6\":\).*|\1 \"${addr6}\",|" "${TR_SETTINGS}" || return 0
+      if grep -q "\"rpc-bind-address\":[[:space:]]*\"0.0.0.0\"" "${TR_SETTINGS}"; then
+        # add rpc-bind-address=:: if 0.0.0.0 to enable ipv6
+        sed -i "s|\(.*\"rpc-bind-address\":\).*|\1 \"::\",|" "${TR_SETTINGS}" || return 0
+      fi
+    fi
+  fi
+
+  nmg_write "${TR_STATE}"
+  /bin/systemctl start "${TR_UNIT}"
 }
 
-nmg_debug "interface: $interface action: $action"
+nmg_debug "interface: ${interface} action: ${action}"
 
-case "$action" in
-  up|dhcp4-change)
-    tr_start
-    ;;
-  down)
-    tr_stop
-    ;;
+case "${action}" in
+  up|dhcp4-change|dhcp6-change) tr_start ;;
+  down) tr_stop ;;
 esac
 # Local Variables:
 # mode: sh
