@@ -10,9 +10,16 @@
   exit 1
 }
 
-# sane defaults
-export SRC_ROOT=${SRC_ROOT-..}
-export RADVDGEN_CONF=${RADVDGEN_CONF-conf/radvd-gen.conf}
+fail() {
+  echo >&2 "$*"
+  exit 1
+}
+
+# load common.sh
+TEST_COMMON=${TEST_COMMON:-conf/common.sh}
+[ -r "$TEST_COMMON" ] && . "$TEST_COMMON" || fail "Unable to load common.sh"
+
+# radvd-gen.conf loads general.conf for program overrides
+export RADVDGEN_CONF=${RADVDGEN_CONF-$TEST_CONF/radvd-gen.conf}
 
 bash "$SRC_ROOT/etc/NetworkManager/dispatcher.d/95-radvd-gen" "$@" eth0 up
-

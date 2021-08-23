@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.0.0 - Shell script testing functions
+# shtest v1.1.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -44,8 +44,9 @@
 #
 #     my_command -v var "a value"
 #     shtest::check_result T1 t "with -v, returns true"
-#     shtest::check_var T2 "a value" "\$var assigned 'a value'"
-#     shtest::check_value othervar T3 "zzz" "\$othervar assigned 'zzz'"
+#     shtest::check_var T2 "a value" "\$var == 'a value'"
+#     shtest::check_value T3 othervar "zzz" "\$othervar == 'zzz'"
+#     shtest::check_array T4 avar aref "array avar matches aref"
 #
 #     shtest::whitelist "my_command"
 #     var=$(my_command 2>&1 "fail arg")
@@ -55,7 +56,7 @@
 #
 #   Display final report
 #
-#     shtest::check_env myenv ENV "check environment"
+#     shtest::check_env ENV myenv "check environment"
 #     shtest::final_report
 #
 #   Reset and counters/options for a new run
@@ -83,6 +84,9 @@
 #       Runs a bash parse test of <file>, displays errors to stderr,
 #       returns true/false
 #
+#     shtest::cleanup
+#       Removes all global environment variables and traps set by shtest
+#
 #     shtest::fatal [ <msg> [ <backtrace-skip> ] ]
 #       Exits 1 with text <msg>, optionally printing backtrace skipping
 #       <backtrace-skip> calls
@@ -101,13 +105,18 @@
 #       Displayes "<id> OK", or "<id> FAIL | <desciption>" if failure,
 #       including expected vs actual results.
 #
-#     shtest::check_value <varname> <id> [ <ref> [ <desc> ] ]
+#     shtest::check_value <id> <varname> [ <ref> [ <desc> ] ]
 #       Checks value of variable named <varname> against <ref>, and
 #       displays "<id> OK" or "<id> FAIL | <description>" including
 #       expected vs actual value.
 #
 #     shtest::check_var <id> [ <ref> [ <desc> ] ]
-#       Shortcut for shtest::check_value "var" <id>...
+#       Shortcut for shtest::check_value <id> "var"...
+#
+#     shtest::check_array <id> <varname> <refname> [ <desc> ]
+#       Checks value of array elements in array named <aname> with those in
+#       array named <refname>, displays "<id> OK" or
+#       "<id> FAIL | <description>" including expected vs actual value.
 #
 #     shtest::last_check_ok
 #       Returns true/false based on the result of the last shtest:check_*
@@ -124,7 +133,7 @@
 #     shtest::save_env <varname>
 #       Store current shell variable names in <varname>
 #
-#     shtest::check_env <varname> <id> [ <desc> ]
+#     shtest::check_env <id> <varname> [ <desc> ]
 #       Checks shell variables against those stored in <varname>, and
 #       displays "<id> OK" or "<id> FAIL | <description>" including
 #       a list of new variables added to the environment.
@@ -156,7 +165,7 @@
 #
 # shellcheck shell=bash
 
-shtest::_cleanup() {
+shtest::cleanup() {
   # reset any traps used by strict mode
   set +eu
   trap - EXIT ERR
@@ -181,7 +190,7 @@ shtest::_init_globals() {
 }
 
 shtest::_init() {
-  shtest::_cleanup
+  shtest::cleanup
   shtest::_init_globals
 }
 
@@ -229,7 +238,7 @@ shtest::_backtrace() { # <skip>
     func=${FUNCNAME[${i}]}
     lno=${BASH_LINENO[(( i - 1 ))]}
     src=${BASH_SOURCE[${i}]}
-    shtest::_fmtlog "    %s %s %s" "${func}()" "${src-(no file)}" "${lno}"
+    shtest::_fmtlog "      %s %s %s" "${func}()" "${src-(no file)}" "${lno}"
   done
 }
 
@@ -241,10 +250,10 @@ shtest::fatal() { # <msg> [ <backtrace-skip> ]
   if [[ ${1-} ]]; then
     shtest::_log "FATAL: $1"
   else
-    shtest::_log "Fatal error:, quitting..."
+    shtest::_log "Fatal error, quitting..."
   fi
   [[ ${2-} ]] && shtest::_backtrace "$2"
-  shtest::_cleanup
+  shtest::cleanup
   exit 1
 }
 
@@ -253,7 +262,7 @@ shtest::_log_ok() { # <id> <description>
   # shellcheck disable=SC2034
   _SHTEST_STATE[7]=1
   [[ ${_SHTEST_STATE[3]} ]] && desc="${2:+   | ${_SHTEST_STATE[5]}}${2:-}"
-  shtest::_fmtlog "%3s OK%s" "$1" "${desc}"
+  shtest::_fmtlog " %-4s OK%s" "$1" "${desc}"
   return 0
 }
 
@@ -261,12 +270,12 @@ shtest::last_check_ok() { [[ ${_SHTEST_STATE[7]} ]]; }
 
 shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
   local id=${1-} desc="${2:+ | ${_SHTEST_STATE[5]}}${2:-}"
-  shtest::_fmtlog "%3s FAIL%s" "${id}" "${desc}"
+  shtest::_fmtlog " %-4s FAIL%s" "${id}" "${desc}"
   if [[ ${3+set} && ${4+set} ]]; then
-    shtest::_log "    expected: ${3-}"
-    shtest::_log "       found: ${4-}"
+    shtest::_log "      expected: ${3-}"
+    shtest::_log "         found: ${4-}"
   elif [[ ${3+set} ]]; then
-    shtest::_log "      reason: ${3-}"
+    shtest::_log "        reason: ${3-}"
   fi
   ((_SHTEST_STATE[1]++)) || :
   return 0
@@ -314,31 +323,61 @@ shtest::check_result() { # <id> <ref> [ <desc> ] - OK if <ref> == $?, else FAIL
   return 0
 }
 
-shtest::check_value() { # <varname> <id> [ <ref> [ <desc> ] ]
-  local varname=${1-} id=${2-} ref=${3-} desc=${4-}
+shtest::check_value() { # <id> <varname> [ <ref> [ <desc> ] ]
+  local id=${1-} varname=${2-} ref=${3-} desc=${4-}
   [[ ${varname} && ${id} ]] || {
     if [[ ${varname} == var ]]; then
       shtest::fatal "Usage: shtest::check_var <id> [ <value> [ <desc> ] ]" 4
     else
-      shtest::fatal "Usage: shtest::check_value <varname> <id> [ <value> [ <desc> ] ]" 3
+      shtest::fatal "Usage: shtest::check_value <id> <varname> [ <value> [ <desc> ] ]" 3
     fi
   }
 
   shtest::_check_entry "${id}" "${desc}" || return 0
 
-  # shellcheck disable=SC2154
-  if [[ ${!varname+set} != set ]]; then
-    shtest::_log_fail "${id}" "${desc}" "variable \$$varname is unset!"
+  if [[ ${varname//[a-zA-Z0-0_]/} ]]; then
+    shtest::_log_fail "${id}" "${desc}" "invalid <varname> '${varname}'"
+  elif [[ ${!varname+set} != set ]]; then
+    shtest::_log_fail "${id}" "${desc}" "<varname> '${varname}' is not set"
   elif [[ ${ref} == "${!varname}" ]]; then
     shtest::_log_ok "${id}" "${desc}"
   else
-    shtest::_log_fail "${id}" "${desc}" "'${ref}'" "'${!varname}'"
+    shtest::_log_fail "${id}" "${desc}" "\"${ref}\"" "\"${!varname}\""
   fi
   return 0
 }
 
 shtest::check_var() { # <id> [ <ref> [ <desc> ] ]
-  shtest::check_value var "$@"
+  shtest::check_value "${1-}" var "${@:2}"
+}
+
+shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
+  local id=${1-} an=${2-} rn=${3-} desc=${4-} list1 list2 irn ian i
+  if ! [[ $an && $id && $rn ]]; then
+    shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 3
+  fi
+  # check valid variable names
+  if [[ ${an//[a-zA-Z0-0_]/} || ${rn//[a-zA-Z0-0_]/} ]]; then
+    shtest::fatal "shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 3
+  fi
+  shtest::_check_entry "${id}" "${desc}" || return 0
+
+  # get list of set items (bash3+ compat)
+  eval list1="\${!${rn}[*]}" list2="\${!${an}[*]}"
+  [[ ${list1} == "${list2}" ]] || {
+    shtest::_log_fail "${id}" "${desc}" "set items in $an differ from $rn"
+    return 0
+  }
+  for i in ${list1}; do
+    irn=${rn}[${i}] ian=${an}[${i}]
+    [[ ${!irn} != "${!ian}" ]] && {
+      shtest::_log_fail "${id}" "${desc}" "${rn}[$i]=\"${!irn}\"" \
+                        "${an}[$i]=\"${!ian}\""
+      return 0
+    }
+  done
+  shtest::_log_ok "${id}" "${desc}"
+  return 0
 }
 
 shtest::save_env() { # <varname>
@@ -347,13 +386,13 @@ shtest::save_env() { # <varname>
   return 0
 }
 
-shtest::check_env() { # <varname> <id> [ <desc> ]
+shtest::check_env() { # <id> <varname> [ <desc> ]
   [[ ${1-} && ${2-} ]] ||
-    shtest::fatal "Usage: shtest::check_env <varname> <id> [ <desc> ]" 3
+    shtest::fatal "Usage: shtest::check_env <id> <varname> [ <desc> ]" 3
 
-  shtest::_check_entry "$2" "${3-}" || return 0
+  shtest::_check_entry "$1" "${3-}" || return 0
 
-  local _SHTEST_NAME _SHTEST_ENV="${1}[@]" _SHTEST_NEWVARS=()
+  local _SHTEST_NAME _SHTEST_ENV="${2}[@]" _SHTEST_NEWVARS=()
   for _SHTEST_NAME in $(compgen -v); do
     [[ ${_SHTEST_NAME} =~ ^_SHTEST_(NEWVARS|NAME|ENV)$ ]] && continue
     [[ ${_SHTEST_NAME} =~ ^BASH_* ]] && continue
@@ -361,9 +400,9 @@ shtest::check_env() { # <varname> <id> [ <desc> ]
       _SHTEST_NEWVARS+=("${_SHTEST_NAME}")
   done
   if [[ ${#_SHTEST_NEWVARS[*]} -eq 0 ]]; then
-    shtest::_log_ok "$2" "${3-}"
+    shtest::_log_ok "$1" "${3-}"
   else
-    shtest::_log_fail "$2" "${3-}" "New variables: ${_SHTEST_NEWVARS[*]}"
+    shtest::_log_fail "$1" "${3-}" "New variables: ${_SHTEST_NEWVARS[*]}"
   fi
   return 0
 }
@@ -386,7 +425,7 @@ shtest::final_report() {
   [[ ${_SHTEST_STATE[1]} -ne 0 ]] &&
     shtest::_log "   TEST FAILED: ${_SHTEST_STATE[1]}"
   shtest::_log ""
-  shtest::_cleanup
+  shtest::cleanup
 }
 
 shtest::_handle_err() {
@@ -417,7 +456,7 @@ shtest::_handle_exit() {
   fi
   # always show backtrace on unexpected exit
   shtest::_backtrace 2
-  shtest::_cleanup
+  shtest::cleanup
   exit ${rc}
 }
 

@@ -4,5 +4,5 @@
 /test/conf/ddns-*.conf
 /test/conf/ipv6-*.conf
 /test/conf/misc-*.conf
-/test/hconf/ddns-*.conf
+/test/run/
 /test/results/
