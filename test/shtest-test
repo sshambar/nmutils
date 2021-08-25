@@ -13,7 +13,7 @@ ztest::err() {
 }
 
 ztest::fail() {
-  xtest::err "$*"
+  ztest::err "$*"
   exit 1
 }
 
@@ -23,18 +23,31 @@ ztest::fail() {
 ZTEST_PREFIX=''
 ZTEST_COUNT=0
 ZTEST_FAILED=0
+ZTEST_LIST=()
 
 ztest::prefix() { # <prefix>
   ZTEST_PREFIX=${1-}
 }
 
-ztest::log_ok() { # <test> <id>
+ztest::log_common() { # <id>
+  local tid id=${1-}
   (( ZTEST_COUNT++ )) || :
+  if [[ ${ZTEST_LIST[*]-} =~ ${id} ]]; then # quicktest
+    for tid in "${ZTEST_LIST[@]}"; do
+      [[ ${id} == "${tid}" ]] && ztest::fail "Duplicate ztest '${id}'"
+    done
+  fi
+  ZTEST_LIST+=("${id}")
+}
+
+ztest::log_ok() { # <test> <id>
+  ztest::log_common "${2-}"
   printf " %-4s OK   | %s\n" "${2-}" "${ZTEST_PREFIX}${1-}"
 }
 
 ztest::log_fail() { # <test> <id> [ <reason > | <expected> <actual>
-  (( ZTEST_COUNT++, ZTEST_FAILED++ )) || :
+  ztest::log_common "${2-}"
+  (( ZTEST_FAILED++ )) || :
   printf " %-4s FAIL | %s\n" "${2-}" "${ZTEST_PREFIX}${1-}"
   if [[ ${3+set} && ${4+set} ]]; then
     echo "         expected: \"$3\""
@@ -132,7 +145,7 @@ ztest::run_tests() {
   ztest::fail_test "(<false> != t)" "R2" \
                    "expected: <true>"$'\n'"found: <false>" "${out}"
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "R3" f)"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "R3" f)"
   ztest::fail_test "(<true> != f)" "R3" "expected: <false>"$'\n'"found: <true>" "${out}"
 
   { read -r -d '' out || :; } \
@@ -148,7 +161,7 @@ ztest::run_tests() {
   ztest::ok_test "(2 == f)" "R6" "${out}"
 
   { read -r -d '' out || :; } \
-    <<< "$(: && shtest::check_result 2>&1 "R7" t)"
+    <<< "$(:; shtest::check_result 2>&1 "R7" t)"
   ztest::ok_test "(<true> == t)" "R7" "${out}"
 
   ztest::prefix "shtest::check_value"
@@ -214,14 +227,14 @@ ztest::run_tests() {
 
   avar=("test 1" "test 2" "test 3")
   { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A4" "avar" "aref")"
-  ztest::fail_test "(a > b)" "A4" "reason: set items in avar differ from aref" "${out}"
+  ztest::fail_test "(a > b)" "A4" "reason: set items in avar (0 1 2) differ from aref (0 1)" "${out}"
 
   { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A5" "aref" "avar")"
-  ztest::fail_test "(a < b)" "A5" "reason: set items in aref differ from avar" "${out}"
+  ztest::fail_test "(a < b)" "A5" "reason: set items in aref (0 1) differ from avar (0 1 2)" "${out}"
 
   avar=()
   { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A6" "avar" "aref")"
-  ztest::fail_test "('' != b)" "A6" "reason: set items in avar differ from aref" "${out}"
+  ztest::fail_test "('' != b)" "A6" "reason: set items in avar () differ from aref (0 1)" "${out}"
 
   aref=()
   { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A7" "avar" "aref")"
@@ -236,15 +249,15 @@ ztest::run_tests() {
 
   shtest::verbose
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "L1" t "test desc")"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L1" t "test desc")"
   ztest::cmp_test "(<desc>)" "L1" "L1   OK   | test desc" "${out}"
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "L2" t)"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L2" t)"
   ztest::cmp_test "(<no desc>)" "L2" "L2   OK" "${out}"
 
   shtest::verbose 0
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "L3" t "test desc")"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L3" t "test desc")"
   ztest::cmp_test "(<desc>) - off" "L3" "L3   OK" "${out}"
 
   ztest::prefix "shtest::prefix"
@@ -252,21 +265,28 @@ ztest::run_tests() {
   shtest::prefix "ztest prefix: "
   shtest::verbose
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "L4" t "desc")"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L4" t "desc")"
   ztest::cmp_test "(<prefix>)" "L4" "L4   OK   | ztest prefix: desc" "${out}"
 
   shtest::prefix
 
-  { read -r -d '' out || :; } <<< "$(: && shtest::check_result 2>&1 "L5" t "desc")"
+  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L5" t "desc")"
   ztest::cmp_test "(<no prefix>)" "L5" "L5   OK   | desc" "${out}"
 
   shtest::verbose 0
 
+  ztest::prefix "duplicate test"
+
+  { read -r -d '' out || :; } <<< "$(
+   shtest::check_result 2>&1 "XX" t "desc"
+   shtest::check_result "XX" t "desc2")"
+  ztest::cmp_test "" "D1" "XX   OK"$'\n'"FATAL: Duplicate test <id> 'XX'" \
+                  "${out}"
+
   ztest::prefix "shtest::last_check_ok"
 
   { read -r -d '' out || :; } <<< "$(
-   true
-   shtest::check_result &>/dev/null "O1" t
+   :; shtest::check_result &>/dev/null "O1" t
    out="<false>"; shtest::last_check_ok && out="<true>"
    echo "${out}")"
   ztest::cmp_test "(<true>)" "O1" "<true>" "${out}"
@@ -317,6 +337,7 @@ ztest::run_tests
 
 if [[ ${ZTEST_FAILED} -eq 0 ]]; then
   echo -e "\n==== Re-run in strict mode ====\n"
+  ZTEST_COUNT=0 ZTEST_LIST=()
   shtest::strict
   ztest::run_strict
   ztest::run_tests

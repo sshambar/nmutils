@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.1.0 - Shell script testing functions
+# shtest v1.2.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -50,8 +50,8 @@
 #
 #     shtest::whitelist "my_command"
 #     var=$(my_command 2>&1 "fail arg")
-#     shtest::check_result T4 2 "with 'fail arg', returns 2"
-#     shtest::check_var T5 "command failed" "stderr contains 'command failed'"
+#     shtest::check_result T5 2 "with 'fail arg', returns 2"
+#     shtest::check_var T6 "command failed" "stderr contains 'command failed'"
 #     shtest::last_check_ok && more_tests
 #
 #   Display final report
@@ -143,6 +143,8 @@
 #   o All output is printed to stderr using file descriptor 88, so it's best
 #     not to use that in your tests
 #
+#   o All test <id>'s must be unique... duplicates cause the test to exit.
+#
 #   o Aliases are useful to ease typing, eg:
 #
 #       shopt -s expand_aliases
@@ -173,7 +175,7 @@ shtest::cleanup() {
   [[ ${_SHTEST_STATE[2]-} && -f "${_SHTEST_STATE[2]}" ]] &&
     rm -f "${_SHTEST_STATE[2]}"
   [[ ${_SHTEST_STATE[4]-} ]] && exec 88>&-
-  unset _SHTEST_STATE
+  unset _SHTEST_STATE _SHTEST_TESTLIST
   unset _SHTEST_WHITELIST _SHTEST_GLOBAL_WHITELIST
 }
 
@@ -185,8 +187,8 @@ shtest::_init_globals() {
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK
   _SHTEST_STATE=(0 0 '' '' '' '' '' '')
 
-  # strict mode whitelists
-  _SHTEST_WHITELIST=() _SHTEST_GLOBAL_WHITELIST=()
+  # strict mode lists
+  _SHTEST_TESTLIST=() _SHTEST_WHITELIST=() _SHTEST_GLOBAL_WHITELIST=()
 }
 
 shtest::_init() {
@@ -196,8 +198,7 @@ shtest::_init() {
 
 # returns 1 if strict mode failed
 shtest::_reset_state() {
-  _SHTEST_STATE[7]=
-  _SHTEST_WHITELIST=()
+  _SHTEST_STATE[7]='' _SHTEST_WHITELIST=()
   # if strict handled err, re-enable
   if [[ ${_SHTEST_STATE[2]} ]]; then
     [[ $- =~ e ]] || set -eEu
@@ -293,9 +294,16 @@ shtest::prefix() { # <description-prefix>
 }
 
 shtest::_check_entry() { # <id> [ <desc> ]
+  local tid id=$1 desc=${2-}
   ((_SHTEST_STATE[0]++)) || :
+  if [[ ${_SHTEST_TESTLIST[*]-} =~ ${id} ]]; then # quicktest
+    for tid in "${_SHTEST_TESTLIST[@]}"; do
+      [[ ${id} == "${tid}" ]] && shtest::fatal "Duplicate test <id> '${id}'"
+    done
+  fi
+  _SHTEST_TESTLIST+=("${id}")
   shtest::_reset_state && return 0
-  shtest::_log_fail "${1-}" "${2-}" "strict mode failure"
+  shtest::_log_fail "${id}" "${desc}" "strict mode failure"
   return 1
 }
 
@@ -352,7 +360,7 @@ shtest::check_var() { # <id> [ <ref> [ <desc> ] ]
 }
 
 shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
-  local id=${1-} an=${2-} rn=${3-} desc=${4-} list1 list2 irn ian i
+  local id=${1-} an=${2-} rn=${3-} desc=${4-} alist rlist irn ian i
   if ! [[ $an && $id && $rn ]]; then
     shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 3
   fi
@@ -363,12 +371,12 @@ shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
   shtest::_check_entry "${id}" "${desc}" || return 0
 
   # get list of set items (bash3+ compat)
-  eval list1="\${!${rn}[*]}" list2="\${!${an}[*]}"
-  [[ ${list1} == "${list2}" ]] || {
-    shtest::_log_fail "${id}" "${desc}" "set items in $an differ from $rn"
+  eval rlist="\${!${rn}[*]}" alist="\${!${an}[*]}"
+  [[ ${rlist} == "${alist}" ]] || {
+    shtest::_log_fail "${id}" "${desc}" "set items in ${an} (${alist}) differ from ${rn} (${rlist})"
     return 0
   }
-  for i in ${list1}; do
+  for i in ${rlist}; do
     irn=${rn}[${i}] ian=${an}[${i}]
     [[ ${!irn} != "${!ian}" ]] && {
       shtest::_log_fail "${id}" "${desc}" "${rn}[$i]=\"${!irn}\"" \
