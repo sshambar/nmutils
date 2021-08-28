@@ -24,6 +24,12 @@ ZTEST_PREFIX=''
 ZTEST_COUNT=0
 ZTEST_FAILED=0
 ZTEST_LIST=()
+ZTEST_ENV=()
+ZTEST_NEXTEXITTRAP=''
+ZTEST_EXITLVL=${BASH_SUBSHELL}
+ZTEST_OUTPUT=''
+ZTEST_TESTFILE=''
+ZTEST_TESTFILE2=''
 
 ztest::prefix() { # <prefix>
   ZTEST_PREFIX=${1-}
@@ -45,7 +51,7 @@ ztest::log_ok() { # <test> <id>
   printf " %-4s OK   | %s\n" "${2-}" "${ZTEST_PREFIX}${1-}"
 }
 
-ztest::log_fail() { # <test> <id> [ <reason > | <expected> <actual>
+ztest::log_fail() { # <test> <id> [ <reason > | <ref> <actual>
   ztest::log_common "${2-}"
   (( ZTEST_FAILED++ )) || :
   printf " %-4s FAIL | %s\n" "${2-}" "${ZTEST_PREFIX}${1-}"
@@ -57,7 +63,7 @@ ztest::log_fail() { # <test> <id> [ <reason > | <expected> <actual>
   fi
 }
 
-ztest::cmp_test() { # <test> <id> <expected> <actual>
+ztest::cmp_test() { # <test> <id> <ref> <actual>
   if [[ ${3-} == "${4-}" ]]; then
     ztest::log_ok "$@"
   else
@@ -84,7 +90,8 @@ ztest::fail_test() { # <test> <id> <ref> <actual>
     ztest::log_fail "${name}" "${id}" "${id} FAIL" "${out[0]}"
   elif (( nout != (nref+1) )); then
     ztest::strip tout "${out[*]:1}"
-    ztest::log_fail "${name}" "${id}" "${ref[*]-}" "${tout}"
+    ztest::log_fail "${name} (exp $((nref+1)) lines, found ${nout})" \
+                    "${id}" "${ref[*]-}" "${tout}"
   else
     for (( i=1; i<=nref; i++ )); do
       ztest::strip tout "${out[${i}]}"; tref=${ref[${i}-1]}
@@ -115,200 +122,348 @@ ztest::ok_test() { # <test> <id> <out>
   return 0
 }
 
-ztest::run_tests() {
-  local out='' aref=() avar=() var=''
-  # shellcheck disable=SC2034
-  local test_env val="value a"
+ztest::read_file() { # <filename> [ <rdelim> ] - sets $out or returns 1
+  [[ -r "${1-}" ]] || return 1
+  { read -r -d "${2-}" out || :; } < "${1-}"
+  # if out set, read worked
+  [[ ${out+set} == set ]] || return 1
+  return 0
+}
 
-  shtest::save_env "test_env"
+ztest::ok_ftest() { # <test> <id> <filename> [ <first-only> ]
+  local name=${1-} id=${2-} out
+  if ztest::read_file "${3-}" "${4:+$'\n'}"; then
+    ztest::ok_test "${name}" "${id}" "${out}"
+  else
+    ztest::log_fail "${name}" "${id}" "<file unreadable> '${3-}'"
+  fi
+}
 
+ztest::expect_ok() { # <test> <id> [ <first-only> ]
+  ztest::ok_ftest "${1-}" "${2-}" "${ZTEST_OUTPUT}" "${4-}"
+}
+
+ztest::fail_ftest() { # <test> <id> <ref> <filename> [ <first-only> ]
+  local name=${1-} id=${2-} ref=${3-} out
+  if ztest::read_file "${4-}" "${5:+$'\n'}"; then
+    ztest::fail_test "${name}" "${id}" "${ref}" "${out}"
+  else
+    ztest::log_fail "${name}" "${id}" "<file unreadable> '${4-}'"
+  fi
+}
+
+ztest::expect_fail() { # <test> <id> <ref> [ <first-only> ]
+  ztest::fail_ftest "${1-}" "${2-}" "${3-}" "${ZTEST_OUTPUT}" "${4-}"
+}
+
+ztest::cmp_ftest() { # <test> <id> <ref> <filename> [ <first-only> ]
+  local name=${1-} id=${2-} ref=${3-} out
+  if ztest::read_file "${4-}" "${5:+$'\n'}"; then
+    ztest::cmp_test "${name}" "${id}" "${ref}" "${out}"
+  else
+    ztest::log_fail "${name}" "${id}" "<file unreadable> '${4-}'"
+  fi
+}
+
+ztest::expect_output() { # <test> <id> <ref> [ <first-only> ]
+  ztest::cmp_ftest "${1-}" "${2-}" "${3-}" "${ZTEST_OUTPUT}" "${4-}"
+}
+
+# wrappers for shtest functions with 88 redirect
+zwrap::fatal() {
+  (shtest::fatal 88>"${ZTEST_OUTPUT}" "$@") || :
+}
+
+zwrap::check_result() {
+  shtest::check_result 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+zwrap::check_value() {
+  shtest::check_value 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+zwrap::check_var() {
+  shtest::check_var 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+zwrap::check_array() {
+  shtest::check_array 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+zwrap::check_file() {
+  shtest::check_file 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+zwrap::check_reg_files() {
+  shtest::check_reg_files 88>"${ZTEST_OUTPUT}" "$@"
+}
+
+ztest::fatal_tests() {
   ztest::prefix "shtest::fatal"
 
-  { read -r -d '' out || :; } <<< "$(shtest::fatal 2>&1)"
-  ztest::cmp_test "(<no args>)" "F1" "Fatal error, quitting..." "${out}"
+  zwrap::fatal
+  ztest::expect_output "(<no args>)" X1 "Fatal error, quitting..."
 
-  { read -r -d '' out || :; } <<< "$(shtest::fatal 2>&1 "ztest message")"
-  ztest::cmp_test "(<msg>)" "F2" "FATAL: ztest message" "${out}"
+  zwrap::fatal "ztest message"
+  ztest::expect_output "(<msg>)" X2 "FATAL: ztest message"
+}
 
-  { read -r -d '' out || :; } <<< "$(shtest::title 2>&1 "ztest title")"
-  ztest::cmp_test "(<title>)" "F3" "===== ztest title =====" "${out}"
-
+ztest::check_result_tests() {
   ztest::prefix "shtest::check_result"
 
+  (zwrap::check_result) || :
   # skip backtrace
-  { read -r out || :; } <<< "$(shtest::check_result 2>&1)"
-  ztest::cmp_test "(<no args>)" "R1" \
-                  "FATAL: Usage: shtest::check_result <id> <t | f | #> [ <desc> ]" "${out}"
+  ztest::expect_output "(<no args>)" R1 "FATAL: Usage: shtest::check_result <id> <t | f | #> [ <desc> ]" 1
 
-  { read -r -d '' out || :; } \
-    <<< "$(false || shtest::check_result 2>&1 "R2" t)"
-  ztest::fail_test "(<false> != t)" "R2" \
-                   "expected: <true>"$'\n'"found: <false>" "${out}"
+  false || zwrap::check_result R2 t
+  ztest::expect_fail "(<false> != t)" R2 "expected: <true>"$'\n'"found: <false>"
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "R3" f)"
-  ztest::fail_test "(<true> != f)" "R3" "expected: <false>"$'\n'"found: <true>" "${out}"
+  :; zwrap::check_result R3 f
+  ztest::expect_fail "(<true> != f)" R3 "expected: <false>"$'\n'"found: <true>"
 
-  { read -r -d '' out || :; } \
-    <<< "$( (exit 3) || shtest::check_result 2>&1 "R4" 2)"
-  ztest::fail_test "(3 != 2)" "R4" "expected: 2"$'\n'"found: 3" "${out}"
+  (exit 3) || zwrap::check_result R4 2
+  ztest::expect_fail "(3 != 2)" R4 "expected: 2"$'\n'"found: 3"
 
-  { read -r -d '' out || :; } \
-    <<< "$( (exit 2) || shtest::check_result 2>&1 "R5" 2)"
-  ztest::ok_test "(2 == 2)" "R5" "${out}"
+  (exit 2) || zwrap::check_result R5 2
+  ztest::expect_ok "(2 == 2)" R5
 
-  { read -r -d '' out || :; } \
-    <<< "$( (exit 2) || shtest::check_result 2>&1 "R6" f)"
-  ztest::ok_test "(2 == f)" "R6" "${out}"
+  (exit 2) || zwrap::check_result R6 f
+  ztest::expect_ok "(2 == f)" R6
 
-  { read -r -d '' out || :; } \
-    <<< "$(:; shtest::check_result 2>&1 "R7" t)"
-  ztest::ok_test "(<true> == t)" "R7" "${out}"
+  :; zwrap::check_result R7 t
+  ztest::expect_ok "(<true> == t)" R7
+}
 
+ztest::check_value_tests() {
+  # shellcheck disable=SC2034
+  local val="value a"
   ztest::prefix "shtest::check_value"
 
+  (zwrap::check_value) || :
   # skip backtrace
-  { read -r out || :; } <<< "$(shtest::check_value 2>&1)"
-  ztest::cmp_test "(<no args>)" "V1" \
-                  "FATAL: Usage: shtest::check_value <id> <varname> [ <value> [ <desc> ] ]" "${out}"
+  ztest::expect_output "(<no args>)" V1 "FATAL: Usage: shtest::check_value <id> <varname> [ <value> [ <desc> ] ]" 1
 
   local unset_var; unset unset_var
-  { read -r -d '' out || :; } \
-    <<< "$(shtest::check_value 2>&1 "V2" "unset_var")"
-  ztest::fail_test "(unset_var)" "V2" \
-                   "reason: <varname> 'unset_var' is not set" "${out}"
+  zwrap::check_value V2 "unset_var"
+  ztest::expect_fail "(unset_var)" V2 "reason: <varname> 'unset_var' is not set"
 
-  { read -r -d '' out || :; } <<< "$(shtest::check_value 2>&1 "V3" "bad#name")"
-  ztest::fail_test "(bad#name)" "V3" "reason: invalid <varname> 'bad#name'" \
-                   "${out}"
+  zwrap::check_value V3 "bad#name"
+  ztest::expect_fail "(bad#name)" V3 "reason: invalid <varname> 'bad#name'"
 
-  { read -r -d '' out || :; } \
-    <<< "$(shtest::check_value 2>&1 "V4" "val" "value b")"
-  ztest::fail_test "(a != b)" "V4" \
-                   "expected: \"value b\""$'\n'"found: \"value a\"" "${out}"
+  zwrap::check_value V4 "val" "value b"
+  ztest::expect_fail "(a != b)" V4 \
+                   "expected: \"value b\""$'\n'"found: \"value a\""
 
-  { read -r -d '' out || :; } \
-    <<< "$(shtest::check_value 2>&1 "V5" "val" "value a")"
-  ztest::ok_test "(a == b)" "V5" "${out}"
+  zwrap::check_value V5 "val" "value a"
+  ztest::expect_ok "(a == b)" V5
+}
 
+ztest::check_var_tests() {
+  local var=''
   ztest::prefix "shtest::check_var"
 
+  (zwrap::check_var) || :
   # skip backtrace
-  { read -r out || :; } <<< "$(shtest::check_var 2>&1)"
-  ztest::cmp_test "(<no args>)" "V6" \
-                  "FATAL: Usage: shtest::check_var <id> [ <value> [ <desc> ] ]" "${out}"
+  ztest::expect_output "(<no args>)" V6 "FATAL: Usage: shtest::check_var <id> [ <value> [ <desc> ] ]" 1
 
   unset var
-  { read -r -d '' out || :; } <<< "$(shtest::check_var 2>&1 "V7" "no value")"
-  ztest::fail_test "(<unset>)" "V7" "reason: <varname> 'var' is not set" \
-                   "${out}"
+  zwrap::check_var V7 "no value"
+  ztest::expect_fail "(<unset>)" V7 "reason: <varname> 'var' is not set"
 
-  # shellcheck disable=SC2034
-  local var="x value"
-  { read -r -d '' out || :; } <<< "$(shtest::check_var 2>&1 "V8" "y value")"
-  ztest::fail_test "(a != b)" "V8" "expected: \"y value\""$'\n'"found: \"x value\"" "${out}"
+  var="x value"
+  zwrap::check_var V8 "y value"
+  ztest::expect_fail "(a != b)" V8 "expected: \"y value\""$'\n'"found: \"x value\""
 
-  { read -r -d '' out || :; } <<< "$(shtest::check_var 2>&1 "V9" "x value")"
-  ztest::ok_test "(a == b)" "V9" "${out}"
+  zwrap::check_var V9 "x value"
+  ztest::expect_ok "(a == b)" V9
+}
 
+ztest::check_array_tests() {
+  local aref=() avar=()
   ztest::prefix "shtest::check_array"
 
+  (zwrap::check_array) || :
   # skip backtrace
-  { read -r out || :; } <<< "$(shtest::check_array 2>&1)"
-  ztest::cmp_test "(<no args>)" "A1" "FATAL: Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" "${out}"
+  ztest::expect_output "(<no args>)" A1 "FATAL: Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 1
 
+  (zwrap::check_array A2 "bad#name" "bad#ref") || :
   # skip backtrace
-  { read -r out || :; } <<< "$(shtest::check_array 2>&1 "A2" "bad#name" "bad#ref")"
-  ztest::cmp_test "(bad#name)" "A2" "FATAL: shtest::check_array var-names must contain only 'a-zA-Z0-9_'" "${out}"
+  ztest::expect_output "(bad#name)" A2 "FATAL: shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 1
 
-  # shellcheck disable=SC2034
   avar=("test 1" "test 2") aref=("test 1" "test 2")
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A3" "avar" "aref")"
-  ztest::ok_test "(a == b)" "A3" "${out}"
+  zwrap::check_array A3 "avar" "aref"
+  ztest::expect_ok "(a == b)" A3
 
   avar=("test 1" "test 2" "test 3")
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A4" "avar" "aref")"
-  ztest::fail_test "(a > b)" "A4" "reason: set items in avar (0 1 2) differ from aref (0 1)" "${out}"
+  zwrap::check_array A4 "avar" "aref"
+  ztest::expect_fail "(a > b)" A4 "reason: set items in avar (0 1 2) differ from aref (0 1)"
 
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A5" "aref" "avar")"
-  ztest::fail_test "(a < b)" "A5" "reason: set items in aref (0 1) differ from avar (0 1 2)" "${out}"
+  zwrap::check_array A5 "aref" "avar"
+  ztest::expect_fail "(a < b)" A5 "reason: set items in aref (0 1) differ from avar (0 1 2)"
 
   avar=()
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A6" "avar" "aref")"
-  ztest::fail_test "('' != b)" "A6" "reason: set items in avar () differ from aref (0 1)" "${out}"
+  zwrap::check_array A6 "avar" "aref"
+  ztest::expect_fail "('' != b)" A6 "reason: set items in avar () differ from aref (0 1)"
 
   aref=()
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A7" "avar" "aref")"
-  ztest::ok_test "('' == '')" "A7" "${out}"
+  zwrap::check_array A7 "avar" "aref"
+  ztest::expect_ok "('' == '')" A7
 
   # shellcheck disable=SC2034
   avar=("a value" "b value") aref=("a value" "b diff")
-  { read -r -d '' out || :; } <<< "$(shtest::check_array 2>&1 "A8" "avar" "aref")"
-  ztest::fail_test "(a != b)" "A8" "expected: aref[1]=\"b diff\""$'\n'"found: avar[1]=\"b value\"" "${out}"
+  zwrap::check_array A8 "avar" "aref"
+  ztest::expect_fail "(a != b)" A8 "expected: aref[1]=\"b diff\""$'\n'"found: avar[1]=\"b value\""
+}
 
+ztest::check_file_tests() {
+  local var=''
+
+  ztest::prefix "shtest::check_file"
+
+  rm -f "${ZTEST_TESTFILE}"
+  var="error text"$'\n'"second line"
+  echo "${var}" > "${ZTEST_TESTFILE}"
+
+  zwrap::check_file F1 "${ZTEST_TESTFILE}" "${var}"
+  ztest::expect_ok "(a == b)" F1
+
+  zwrap::check_file F2 "${ZTEST_TESTFILE}" "diff content"
+  ztest::expect_fail "(a != b)" F2 "expected: diff content"$'\n'"found: error text"$'\n'"second line"
+
+  (zwrap::check_file) || :
+  # skip backtrace
+  ztest::expect_output "(<empty filename>)" F3 "FATAL: Usage: shtest::check_file <id> <filename> <contents> [ <desc> ]" 1
+
+  zwrap::check_file F4 "nofile" ""
+  ztest::expect_fail "(<no file>)" F4 "reason: File \"nofile\" not found"
+
+  chmod a-r "${ZTEST_TESTFILE}"
+  zwrap::check_file F5 "${ZTEST_TESTFILE}" ""
+  ztest::expect_fail "(<read prot>)" F5 "reason: File \"${ZTEST_TESTFILE}\" unreadable"
+  rm -f "${ZTEST_TESTFILE}"
+}
+
+ztest::check_reg_files_tests() {
+
+  ztest::prefix "shtest::check_reg_files"
+
+  # no files registered
+  (zwrap::check_reg_files) || :
+  ztest::expect_output "(<no args>)" M1 "FATAL: Usage: shtest::check_reg_files <id> <desc> [ <fileX_contents>... ]" 1
+
+  zwrap::check_reg_files M2
+  ztest::expect_ok "(<no reg>)" M2
+
+  # try dereg w/o reg
+  shtest::dereg_file "${ZTEST_TESTFILE}"
+
+  shtest::reg_file >"${ZTEST_OUTPUT}"
+  ztest::expect_output "(<reg-empty>)" M3 ""
+
+  # reg test file
+  shtest::reg_file "${ZTEST_TESTFILE}"
+
+  # populate file
+  rm -f "${ZTEST_TESTFILE}"
+  echo "test content" >"${ZTEST_TESTFILE}"
+
+  # confirm ok
+  zwrap::check_reg_files M4 "(<match 1>)" "test content"
+  ztest::expect_ok "(<match 1>)" M4
+
+  # confirm fail
+  zwrap::check_reg_files M5 "(<miss 1>)" "wrong content"
+  ztest::expect_fail "(<miss 1>)" M5 "expected: wrong content"$'\n'"found: test content"
+
+  # reg second file
+  shtest::reg_file "${ZTEST_TESTFILE2}"
+
+  # populate file
+  rm -f "${ZTEST_TESTFILE2}"
+  echo "test2 content" >"${ZTEST_TESTFILE2}"
+
+  # confirm multi-ok
+  zwrap::check_reg_files M6 "(<match 2>)" "test content" "test2 content"
+  ztest::expect_ok "(<match 2>)" M6
+
+  # confirm multi-fail
+  zwrap::check_reg_files M7 "(<miss A>)" "wrong content" "test2 content"
+  ztest::expect_fail "(<miss 2>)" M7 "expected: wrong content"$'\n'"found: test content"
+
+  zwrap::check_reg_files M8 "(<miss B>)" "test content" "wrong2 content"
+  ztest::expect_fail "(<miss 2>)" M8 "expected: wrong2 content"$'\n'"found: test2 content"
+
+  # missing test arg
+  zwrap::check_reg_files M9 "(<short test>)" "test content"
+  ztest::expect_fail "(<short test>)" M9 "expected:"$'\n'"found: test2 content"
+
+  # remove reg
+  shtest::dereg_file "${ZTEST_TESTFILE2}"
+
+  # should ignore extra arg
+  zwrap::check_reg_files M10 "(<dereg>)" "test content" "wrong2 content"
+  ztest::expect_ok "(<dereg>)" M10
+
+  # re-reg file
+  shtest::reg_file "${ZTEST_TESTFILE2}"
+
+  zwrap::check_reg_files M11 "(<re-reg>)" "test content" "test2 content"
+  ztest::expect_ok "(<re-reg>)" M11
+
+  shtest::reg_file >"${ZTEST_OUTPUT}"
+  ztest::expect_output "(<reg-list>)" M12 "${ZTEST_TESTFILE}"$'\n'"${ZTEST_TESTFILE2}"
+}
+
+ztest::misc_tests() {
+  local out=''
   ztest::prefix "shtest::verbose"
 
   shtest::verbose
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L1" t "test desc")"
-  ztest::cmp_test "(<desc>)" "L1" "L1   OK   | test desc" "${out}"
+  :; zwrap::check_result L1 t "test desc"
+  ztest::expect_output "(<desc>)" L1 "L1   OK   | test desc"
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L2" t)"
-  ztest::cmp_test "(<no desc>)" "L2" "L2   OK" "${out}"
+  :; zwrap::check_result L2 t
+  ztest::expect_output "(<no desc>)" L2 "L2   OK"
 
   shtest::verbose 0
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L3" t "test desc")"
-  ztest::cmp_test "(<desc>) - off" "L3" "L3   OK" "${out}"
+  :; zwrap::check_result L3 t "test desc"
+  ztest::expect_output "(<desc>) - off" L3 "L3   OK"
 
   ztest::prefix "shtest::prefix"
 
   shtest::prefix "ztest prefix: "
   shtest::verbose
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L4" t "desc")"
-  ztest::cmp_test "(<prefix>)" "L4" "L4   OK   | ztest prefix: desc" "${out}"
+  :; zwrap::check_result L4 t "desc"
+  ztest::expect_output "(<prefix>)" L4 "L4   OK   | ztest prefix: desc"
 
   shtest::prefix
 
-  { read -r -d '' out || :; } <<< "$(:; shtest::check_result 2>&1 "L5" t "desc")"
-  ztest::cmp_test "(<no prefix>)" "L5" "L5   OK   | desc" "${out}"
+  :; zwrap::check_result L5 t "desc"
+  ztest::expect_output "(<no prefix>)" L5 "L5   OK   | desc"
 
   shtest::verbose 0
 
-  ztest::prefix "duplicate test"
+  ztest::prefix
 
-  { read -r -d '' out || :; } <<< "$(
-   shtest::check_result 2>&1 "XX" t "desc"
-   shtest::check_result "XX" t "desc2")"
-  ztest::cmp_test "" "D1" "XX   OK"$'\n'"FATAL: Duplicate test <id> 'XX'" \
-                  "${out}"
+  (:; zwrap::check_result XX t "desc"
+   :; zwrap::check_result XX t "desc2") || :
+  ztest::expect_output "duplicate test" D1 "FATAL: Duplicate test <id> 'XX'"
 
   ztest::prefix "shtest::last_check_ok"
 
-  { read -r -d '' out || :; } <<< "$(
-   :; shtest::check_result &>/dev/null "O1" t
-   out="<false>"; shtest::last_check_ok && out="<true>"
-   echo "${out}")"
-  ztest::cmp_test "(<true>)" "O1" "<true>" "${out}"
+  :; zwrap::check_result O1 t
+  out="<false>"; shtest::last_check_ok && out="<true>"
+  ztest::cmp_test "(<true>)" O1 "<true>" "${out}"
 
-  { read -r -d '' out || :; } <<< "$(
-    false || shtest::check_result &>/dev/null "O2" t
-    out="<false>"; shtest::last_check_ok && out="<true>"
-    echo "${out}")"
-  ztest::cmp_test "(<false>)" "O2" "<false>" "${out}"
-
-  ztest::prefix "shtest::check_env"
-
-  { read -r -d '' out || :; } <<< "$(shtest::check_env 2>&1 "E1" "test_env")"
-  ztest::ok_test "(<ok>)" "E1" "${out}"
-
-  # shellcheck disable=SC2034
-  local bogus_var=''
-  { read -r -d '' out || :; } <<< "$(shtest::check_env 2>&1 "E2" "test_env")"
-  ztest::fail_test "(<fail>)" "E2" "reason: New variables: bogus_var" "${out}"
+  false || zwrap::check_result O2 t
+  out="<false>"; shtest::last_check_ok && out="<true>"
+  ztest::cmp_test "(<false>)" O2 "<false>" "${out}"
 }
 
-ztest::fail_strict() {
+ztest::fail_strict() { # 1 - unset var, otherwise just calls false
   [[ ${1-} ]] && {
     local unset_var; unset unset_var
     echo "${unset_var}"
@@ -318,19 +473,143 @@ ztest::fail_strict() {
   return 0
 }
 
-ztest::run_strict() {
+ztest::strict_tests() {
   local out
   ztest::prefix "shtest::strict"
 
-  { read -r -d '' out || :; } <<< "$(ztest::fail_strict 1 2>&1)"
-  ztest::cmp_test "(<unbound>)" "S1" "unbound variable" "${out##*unset_var: }"
+  { read -r -d '' out || :; } <<< "$(ztest::fail_strict 1 88>&1 2>&1; echo "err ignored")"
+  ztest::cmp_test "(<unbound>)" S1 "unbound variable" "${out##*unset_var: }"
 
   shtest::strict trace
 
-  # skip backtrace
-  { read -r out || :; } <<< "$(ztest::fail_strict 2>&1)"
-  ztest::cmp_test "(<backtrace>)" "S2" "Backtrace:" "${out}"
+  (ztest::fail_strict 88>"${ZTEST_OUTPUT}"; echo "err ignored">>"${ZTEST_OUTPUT}")
+  # skip backtrace details
+  ztest::expect_output "(<backtrace>)" S2 "Backtrace:" 1
+
+  ztest::prefix "shtest::whitelist"
+
+  shtest::whitelist ztest::fail_strict
+  (ztest::fail_strict 88>"${ZTEST_OUTPUT}"; echo "err ignored">>"${ZTEST_OUTPUT}")
+  # skip backtrace details
+  ztest::expect_output "(<err ignored)" S3 "err ignored"
+
+  # this should clear whitelist
+  shtest::check_result S4 t 88>/dev/null
+  (ztest::fail_strict 88>"${ZTEST_OUTPUT}"; echo "err ignored">>"${ZTEST_OUTPUT}")
+  # skip backtrace details
+  ztest::expect_output "(<reset)" S4 "Backtrace:" 1
 }
+
+ztest::run_tests() { # [ strict ]
+
+  # shellcheck disable=SC2034
+  local test_env
+
+  [[ ${1-} == strict ]] && shtest::strict
+
+  shtest::save_env "test_env"
+
+  [[ ${1-} == strict ]] && ztest::strict_tests
+
+  ztest::fatal_tests
+
+  ztest::prefix "shtest::title"
+
+  shtest::title 88>"${ZTEST_OUTPUT}" "ztest title"
+  ztest::expect_output "(<title>)" T3 "===== ztest title ====="
+
+  ztest::check_result_tests
+
+  ztest::check_value_tests
+
+  ztest::check_var_tests
+
+  ztest::check_array_tests
+
+  ztest::check_file_tests
+
+  ztest::check_reg_files_tests
+
+  ztest::misc_tests
+
+  ztest::prefix "shtest::check_env"
+
+  shtest::check_env 88>"${ZTEST_OUTPUT}" E1 "test_env"
+  ztest::expect_ok "(<ok>)" E1
+
+  # shellcheck disable=SC2034
+  local bogus_var=''
+  shtest::check_env 88>"${ZTEST_OUTPUT}" E2 "test_env"
+  ztest::expect_fail "(<fail>)" E2 "reason: New variables: bogus_var"
+}
+
+ztest::save_ztest_env() {
+  # save pre-reset env
+  ZTEST_ENV=()
+  { read -r -a "ZTEST_ENV" -d '' || :; } <<< "$(compgen -v)"
+}
+
+ztest::check_ztest_env() {
+  local zname znewvars=()
+  for zname in $(compgen -v); do
+    [[ ${zname} =~ ^(zname|znewvars)$ ]] && continue
+    [[ ${zname} =~ ^BASH_* ]] && continue
+    [[ ${ZTEST_ENV[*]} =~ (^| )"${zname}"($| ) ]] || znewvars+=("${zname}")
+  done
+  ztest::prefix "checking env"
+  if [[ ${#znewvars[*]} -eq 0 ]]; then
+    ztest::log_ok "" "ENV"
+  else
+    ztest::log_fail "" "ENV" "New variables: ${znewvars[*]}"
+  fi
+}
+
+ztest::remove_files() { # <file>...
+  local file
+  for file in "$@"; do
+    [[ ${file} && -f "${file}" ]] && rm -f "${file}"
+  done
+}
+
+ztest::cleanup() {
+  shtest::cleanup
+  ztest::remove_files "${ZTEST_OUTPUT-}" "${ZTEST_TESTFILE-}" \
+                      "${ZTEST_TESTFILE2-}"
+}
+
+ztest::handle_exit() { # <$?>
+  local _ztest_rc=${1-0}
+  # avoid any recursion...
+  [[ ${ZTEST_EXITLVL} ]] || return "${_ztest_rc}"
+  # only cleanup files if at toplevel
+  if [[ ${BASH_SUBSHELL} == "${ZTEST_EXITLVL}" ]]; then
+    # display contents of error file, then remove it
+    if [[ ${ZTEST_OUTPUT-} && -f "${ZTEST_OUTPUT}" ]]; then
+      ztest::err "=== Error file contents ==="
+      cat "${ZTEST_OUTPUT}"
+    fi
+    ztest::cleanup
+  fi
+  ZTEST_EXITLVL=''
+  [[ ${ZTEST_NEXTEXITTRAP} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
+    eval "${BASH_REMATCH[1]//\$?/\${_ztest_rc}}" || _ztest_rc=$?
+  }
+
+  return $_ztest_rc
+}
+
+ZTEST_NEXTEXITTRAP=''$(trap -p EXIT)
+trap 'ztest::handle_exit $?' EXIT
+
+ZTEST_OUTPUT=$(mktemp -u -t "ztest-log-XXXXXX") || :
+[[ ${ZTEST_OUTPUT} ]] ||
+  shtest::fail "Unable to create log tmpfile"
+ZTEST_TESTFILE=$(mktemp -u -t "ztest-test-XXXXXX") || :
+[[ ${ZTEST_TESTFILE} ]] ||
+  shtest::fail "Unable to create test tmpfile"
+ZTEST_TESTFILE2=$(mktemp -u -t "ztest-test-XXXXXX") || :
+[[ ${ZTEST_TESTFILE2} ]] ||
+  shtest::fail "Unable to create test tmpfile"
 
 echo -e "\n==== Run in normal mode ====\n"
 ztest::run_tests
@@ -338,16 +617,26 @@ ztest::run_tests
 if [[ ${ZTEST_FAILED} -eq 0 ]]; then
   echo -e "\n==== Re-run in strict mode ====\n"
   ZTEST_COUNT=0 ZTEST_LIST=()
-  shtest::strict
-  ztest::run_strict
-  ztest::run_tests
-fi
 
-shtest::cleanup
+  # cleanup and save environment
+  shtest::cleanup
+  ztest::save_ztest_env
+
+  # reset shtest, and re-run with strict enabled
+  shtest::reset
+  ztest::run_tests strict
+
+  # now cleanup and check for stray variables
+  shtest::cleanup
+  ztest::check_ztest_env
+fi
 
 echo -e "\n==== FINAL REPORT ====\n"
 echo "     TESTS RUN: ${ZTEST_COUNT}"
 echo "  TESTS PASSED: $(( ZTEST_COUNT - ZTEST_FAILED ))"
 [[ ${ZTEST_FAILED} -ne 0 ]] && echo "   TEST FAILED: ${ZTEST_FAILED}"
 echo
+
+ztest::cleanup
+
 exit 0
