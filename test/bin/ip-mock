@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 
-# ip-mock v0.2.0 - ip command wrapper/replacement for testing
+# ip-mock v0.3.0 - ip command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -218,8 +218,7 @@ case $OBJECT in
   addr)
     read_addr_state "$IP_MOCK_ADDRS"
     case "$COMMAND" in
-      add|change|replace) ;; # no-op
-      del|delete) ;; # no-op
+      add|change|replace|del|delete) echo "ip $@" ;;
       show) addr_show;;
       *) fail 1 "Command \"$COMMAND\" not implemented"
     esac
