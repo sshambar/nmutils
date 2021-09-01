@@ -3,95 +3,909 @@
 # Test suite for general-functions and ddns-functions
 #
 
-#nmg_dryrun=0
+# if desired, export nmg_show_debug as we use in some test programs
+#export nmg_show_debug=1
 
-# override defaults
-NMUTILS="../etc/nmutils"
-NMCONF="hconf"
+xtest::err() {
+  echo >&2 "$*"
+}
+
+xtest::fail() {
+  xtest::err "$*"
+  exit 1
+}
+
+# load common.sh
+TEST_COMMON=${TEST_COMMON:-conf/common.sh}
+# shellcheck source=/dev/null
+{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
+  xtest::fail "Unable to load common.sh"
+
+# shellcheck source=/dev/null
+. "${TEST_ROOT-.}/shtest_setup" ||
+  xtest::fail "Unable to source shtest_setup"
+
+# ensure includes pass parse test
+shtest::parse "${NMUTILS}/general-functions" || shtest::fatal
+shtest::parse "${NMUTILS}/ddns-functions" || shtest::fatal
 
 # normal startup
 
 # load ddns- or general-functions
-NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
-[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
+NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
+# shellcheck source=/dev/null
+{ [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
   # no DDNS, use general-functions
-  NMDDNS=
-  NMG="${NMG:-$NMUTILS/general-functions}"
-  [ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-    echo 1>&2 "Unable to read $NMG" && exit 2
+  NMDDNS='' NMG="${NMG:-${NMUTILS}/general-functions}"
+  # shellcheck source=/dev/null
+  { [[ -r ${NMG} ]] && . "${NMG}"; } || {
+    echo 1>&2 "Unable to read ${NMG}" && exit 2; }
+}
+
+xtest::reg_test() { # <id> <ref> <desc>
+  # LOG matches <ref>, ERR should be empty...
+  shtest::check_reg_files "${1-}" "${3-}" "${2-}"
+}
+
+xtest::reg_test2() { # <id> <ref> <stderr/out> <desc>
+  # LOG matches <ref>, ERR matches <err>
+  shtest::check_reg_files "${1-}" "${4-}" "${2-}" "${3-}"
+}
+
+# make tests easier to add
+shopt -s expand_aliases
+alias xtest='shtest::check_result'
+alias vtest='shtest::check_var'
+alias atest='shtest::check_array'
+alias ftest='xtest::reg_test'
+alias ftest2='xtest::reg_test2'
+
+xwrap() {
+  local cmd=${1-}
+  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
+  shift
+  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xtest::group1::log() {
+  local nmg_show_debug=''
+
+  # shellcheck disable=SC2034
+  local NMG_LOGGER=echo
+
+  shtest::title "nmg_log() tests"
+
+  shtest::prefix "nmg_log"
+
+  # test unset prio
+  xwrap nmg_log
+  xtest L1 t "(<no args>) returns true"
+  ftest L1f "" " - should not log"
+
+  # test empty prio
+  xwrap nmg_log "" "text"
+  xtest L2 t "(<empty prio>) returns true"
+  ftest L2f "" " - should not log"
+
+  # test debug with debug off
+  xwrap nmg_log debug "debug text"
+  xtest L3 t "(debug) when disabled, returns true"
+  ftest L3f "" " - when disabled, should not log"
+
+  # now log debug
+  nmg_show_debug=1
+
+  # test debug
+  xwrap nmg_log debug "debug text"
+  xtest L4 t "(debug) when enabled, returns true"
+  ftest L4f "DBG: debug text" " - when enabled, should log debug"
+
+  # test error
+  xwrap nmg_log err "helper-test text"
+  xtest L5 t "(err) returns true"
+  ftest L5f "ERR: helper-test text" " - should log err"
+
+  # closed log fd
+  echo -n >"${XLOG}"
+  nmg_log &>"${XERR}" 4>&- err "no log"
+  xtest L6 t "(err <log closed>) returns true"
+  ftest L6f "" " - should not generate output"
+
+  # test info, multi-word
+  xwrap nmg_log info "info" "text"
+  xtest L7 t "(info) returns true"
+  ftest L7f "info text" " - should log info"
+
+  # test tag
+  local NMG_TAG="test prefix"
+  xwrap nmg_log err "text with prefix"
+  xtest L8 t "(err) with tag, returns true"
+  ftest L8f "test prefix: ERR: text with prefix" " - should log with tag"
+
+  # test with logger
+  local nmg_log_stderr
+  unset nmg_log_stderr
+  xwrap nmg_log err "text with tag"
+  xtest L9 t "(err) with default logger with tag, returns true"
+  ftest2 L9f "" "-p daemon.err -t test prefix text with tag" \
+         " - should log with prio/tag"
+
+  # test logger w/o tag
+  unset NMG_TAG
+  xwrap nmg_log info "text without tag"
+  xtest L10 t "(info) with default logger no tag, returns true"
+  ftest2 L10f "" "-p daemon.info text without tag" \
+         " - no tag, should log with prio only"
+
+  nmg_log_stderr=1
+  xwrap nmg_log err "to stderr"
+  xtest L11 t "(err) to stderr with tag, returns true"
+  ftest2 L11f "" "ERR: to stderr" " - should log with prio to stderr"
+
+  echo -n >"${XLOG}"
+  nmg_log >"${XERR}" 2>&- err "stderr closed"
+  xtest L12 t "(err <stderr closed>) returns true"
+  ftest L12f "" " - should not generate output"
+}
+
+xtest::group2::err() {
+  local _nmgrc=0 _nmglog='' _nmgvar=''
+
+  shtest::title "nmg::_err tests"
+
+  shtest::prefix "nmg::_err"
+
+  # test ignore when _nmgrc unset (should not set _nmgrc)
+  unset _nmgrc _nmgvar
+  _nmglog=ignore
+  xwrap nmg::_err "test::func: err msg"; echo >>"${XLOG}" "${_nmgrc-unset}"
+  xtest E1 t "(ignore) \$_nmgrc unset, returns true"
+  ftest E1f "unset" " - \$_nmgrc unset, should not set \$_nmgrc"
+
+  # test ignore, should set _nmgrc=0
+  _nmgrc=1 _nmglog=ignore
+  xwrap nmg::_err "test::func: err msg"; echo >>"${XLOG}" "${_nmgrc-unset}"
+  xtest E2 t "(ignore) \$_nmgrc set, returns true"
+  ftest E2f "0" " - \$_nmgrc set, sets \$_nmgrc=0"
+
+  # test ignore, should not log
+  _nmgrc=1 _nmglog=ignore
+  xwrap nmg::_err "test::func: err msg"
+  xtest E3 t "(ignore) returns true"
+  ftest E3f "" " - should not log"
+
+  # test "err ignore", should not log
+  _nmgrc=1 _nmglog="err ignore"
+  xwrap nmg::_err "test::func: err msg"
+  xtest E4 t "(err ignore) returns true"
+  ftest E4f "" " - should not log"
+
+  # without message or _nmglog
+  unset _nmglog _nmgrc
+  xwrap nmg::_err
+  xtest E5 t "(<no args>) returns true"
+  ftest E5f "ERR: nmg::_err: missing <msg>" " - logs error"
+
+  # test calling with invalid err-mode
+  _nmgrc=1 _nmglog=xbad
+  xwrap nmg::_err "test::func: err msg"
+  xtest E6 t "(xbad) returns true"
+  ftest E6f "ERR: test::func: unknown error mode 'xbad'"$'\n'"ERR: test::func: err msg" \
+        " - logs multiple errors"
+
+  # test calling with err-mode retvar, and _nmgvar not set
+  unset _nmgvar
+  _nmglog=retvar
+  xwrap nmg::_err "test::func: err msg"
+  xtest E7 t "(retvar) unset \$_nmgvar, returns true"
+  ftest E7f "ERR: test::func: err msg" " - unset \$_nmgvar, logs error"
+
+  # test calling with info log
+  _nmglog=info
+  xwrap nmg::_err "test::func: err msg"
+  xtest E8 t "(msg) \$_nmglog=info, returns true"
+  ftest E8f "test::func: err msg" " - should log info"
+
+  # test calling with err-mode debug
+  local nmg_show_debug=1
+  _nmglog="err debug"
+  xwrap nmg::_err "test::func: err msg"
+  xtest E9 t "(debug) returns true"
+  ftest E9f "DBG: test::func: err msg" " - logs debug msg"
+  unset nmg_show_debug
+
+  # test retvar
+  _nmgvar='' _nmglog="nolog retvar"
+  xwrap nmg::_err "test::func: err msg"; echo >"${XLOG}" "_=${_nmgvar-unset}"
+  xtest E10 t "(nolog retvar) returns true"
+  ftest E10f "_=err msg" " - does not log, sets _nmgvar"
+
+  : "${_nmglog-}" # for SC
+}
+
+xtest::group3::cmd() {
+  local var=''
+
+  # used for several tests
+  rm -f "$XFILE"
+  echo "#!/bin/sh"$'\n'"echo >&2 \"arg=\$1\"; exit \$1" > "$XFILE"
+  chmod +x "$XFILE"
+
+  shtest::title "command tests"
+
+  shtest::prefix "nmg::run"
+
+  # invalid call
+  xwrap nmg::run
+  xtest X1 f "(<no args>) returns false"
+  ftest X1f "ERR: nmg::run: missing <cmd>" " - should log error"
+
+  # test basic echo command
+  xwrap nmg::run var info echo a few words
+  xtest X2 t "(echo) returns true"
+  vtest X2v "a few words" " - should generate output"
+  ftest X2f "" " - should not log"
+
+  local nmg_dryrun=5 nmg_show_debug=''
+  xwrap nmg::run var err true
+  xtest X3 5 "(<dry-run 5>) returns 5"
+  vtest X3v "" " - should clear retvar"
+  ftest X3f "ERR: FAIL(5) DRY-RUN: true" " - should log err"
+
+  # shellcheck disable=SC2034
+  nmg_dryrun=0 nmg_show_debug=1
+  xwrap nmg::run var err "$XFILE" 0
+  xtest X4 t "(<dry-run>) returns true"
+  vtest X4v "" " - no output"
+  ftest X4f "DBG: DRY-RUN: $XFILE 0" " - should log debug"
+  unset nmg_dryrun nmg_show_debug
+
+  var="bogus"
+  xwrap nmg::run var
+  xtest X5 f "(<no-cmd>) returns false"
+  vtest X5v "" " - retvar cleared"
+  ftest X5f "ERR: nmg::run: missing <cmd>" " - should log err"
+
+  shtest::prefix "nmg_cmd"
+
+  xwrap nmg_cmd "$XFILE" 5
+  xtest X11 5 "(<exit 5>) returns 5"
+  ftest X11f "ERR: FAIL(5) $XFILE 5 => arg=5" " - should log error"
+
+  xwrap nmg_cmd "$XFILE"
+  xtest X12 t "(<exit>) returns 0"
+  ftest X12f "$XFILE => arg=" " - should log info"
+
+  xwrap nmg_cmd "$XNOFILE"
+  xtest X13 127 "('not-there') returns 127"
+  ftest X13f "ERR: FAIL(127) $XNOFILE => No such file or directory" \
+        " - should log error"
+
+  xwrap nmg_cmd true
+  xtest X14 t "(true) returns true"
+  ftest X14f "" " - should not log"
+
+  shtest::prefix "nmg_qcmd"
+
+  xwrap nmg_qcmd false
+  xtest X21 f "(false) returns false"
+  ftest X21f "" "(...e) should not log"
+
+  shtest::prefix "nmg_need_progs"
+
+  xwrap nmg_need_progs "/bin/ls" "$XFILE"
+  xtest X31 t "(<exists>) returns true"
+  ftest X31f "" " - does not log"
+
+  xwrap nmg_need_progs "/bin/ls" "$XNOFILE"
+  xtest X32 3 "(<missing>) returns 3"
+  ftest X32f "ERR: Where is ${XNOFILE}? (locate in ./conf/general.conf)" \
+        " - logs error"
+
+  shtest::prefix "nmg_daemon"
+
+  # make sure we don't use cgroups in tests
+  # shellcheck disable=SC2034
+  local NMG_DAEMON_CGROUP=
+
+  xwrap nmg_daemon
+  xtest X41 f "(<no args>) returns false"
+  ftest X41f "ERR: nmg_daemon: missing command" " - logs error"
+
+  xwrap nmg_daemon "$XFILE" 4
+  xtest X42 t "(<spawn>) returns 0"
+  if shtest::last_check_ok; then
+    wait $!
+    xtest X42w 4 "(<exit 4>) returns 4"
+  fi
+  ftest2 X42f "" "arg=4" "(<spawn>) should have output"
+
+  xwrap nmg_daemon "$XNOFILE"
+  xtest X43 f "('not-there') returns false"
+  ftest X43f "ERR: nmg_daemon: command '$XNOFILE' not found" " - logs error"
+}
+
+xtest::group3::ddns() {
+  # check if ddns funcs avail
+  [ -z "$NMDDNS" ] && return
+
+  local cnf="$NMCONF/ddns-test.conf"
+
+  shtest::title "nmddns tests"
+
+  shtest::prefix "nmddns_spawn_update"
+
+  nmddns_spawn_update "$cnf"
+  xtest D1 t "($cnf) returns true"
+  nmddns_spawn_update "$cnf" AAAA fddd:dead:beef::1
+  xtest D2 t "(AAAA <ip>) returns true"
+  nmddns_spawn_update "$cnf" A;
+  xtest D3 t "(A <empty) returns true"
+  nmddns_spawn_update "$cnf" A 1.2.3.4
+  xtest D4 t "(A <ip) returns true"
+
+  nmddns_cleanup
+}
+
+xtest::group3::ip() {
+  local avar=() aref=() anull=()
+
+  shtest::title "nmg ip tests"
+
+  shtest::prefix "nmg::query_ips"
+
+  xwrap nmg::query_ips avar "" 4 "eth0" "^192.*"
+  xtest I1 t "(4 eth0 192.*) returns true"
+  aref=("192.168.10.4/24 8600sec 2400sec")
+  atest I1a avar aref " - returns address and lifetimes"
+  ftest I1f "" " - should not log"
+
+  xwrap nmg::query_ips avar "" 4 "" "" "scope" "host"
+  xtest I2 t "(4 scope host) returns true"
+  aref=("127.0.0.1/8 forever forever")
+  atest I2a avar aref " - returns local address and lifetimes"
+  ftest I2f "" " - should not log"
+
+  avar=("bogus")
+  xwrap nmg::query_ips avar "" 4 "eth2"
+  xtest I3 f "(4 eth2) returns false"
+  atest I3a avar anull " - clears avar"
+  ftest I3f "ERR: FAIL(1) $NMG_IP -4 addr show dev eth2 scope global => Device \"eth2\" does not exist." " - logs error"
+
+  avar=("bogus")
+  xwrap nmg::query_ips avar "" 5 "eth2"
+  xtest I4 f "(5) returns false"
+  atest I4a avar anull " - clears avar"
+  ftest I4f "ERR: nmg::query_ips: invalid ip version '5'" \
+        " - logs error"
+
+  xwrap nmg::query_ips "bad#name" "" 4 "eth0"
+  xtest I5 f "(bad#name) returns false"
+  ftest I5f "ERR: nmg::query_ips: invalid <retvar> 'bad#name'" \
+        " - logs error"
+
+  xwrap nmg::query_ips avar "" 4 "lo" "" ""
+  xtest I6 t "('lo') returns true"
+  aref=("127.0.0.1/8 forever forever")
+  atest I6a avar aref " - returns localhost"
+  ftest I6f "" " - should not log"
+
+  xwrap nmg::query_ips avar "retvar ignore" 4 "eth2"
+  xtest I7 t "(eth2 <ignore>) returns true"
+  aref=("FAIL(1) $NMG_IP -4 addr show dev eth2 scope global => Device \"eth2\" does not exist.")
+  atest I7a avar aref " - retvar contains error"
+  ftest I7f "" " - does not log"
+
+  avar=("bogus")
+  xwrap nmg::query_ips avar "nolog" 4 "eth2"
+  xtest I8 f "(eth2 <nolog>) returns false"
+  atest I8a avar anull " - clears retvar"
+  ftest I8f "" " - does not log"
+
+  local nmg_show_debug=1
+  avar=("bogus")
+  xwrap nmg::query_ips avar "debug ignore" 4 "eth2"
+  xtest I9 t "(eth2 <debug ignore>) returns true"
+  atest I9a avar anull " - clears retvar"
+  ftest I9f "DBG: $NMG_IP -4 addr show dev eth2 scope global" " - logs debug"
+  unset nmg_show_debug
+
+  xwrap nmg::query_ips
+  xtest I10 f "(<no args>) returns false"
+  ftest I10f "ERR: nmg::query_ips: invalid ip version ''" " - logs error"
+
+  xwrap nmg::query_ips "" retvar
+  xtest I11 f "(<retvar>) w/o retvar, returns false"
+  ftest I11f "ERR: nmg::query_ips: <err-mode> retvar requires one" \
+        " - logs error"
+
+  shtest::prefix "nmg::mod_ip"
+
+  xwrap nmg::mod_ip
+  xtest I21 f "(<no args>) returns false"
+  ftest I21f "ERR: nmg::mod_ip: invalid <cmd> ''" " - logs error"
+
+  : "${aref-} ${avar-} ${anull-} ${nmg_show_debug-}" # for SC
+}
+
+xtest::group3::ip4() {
+
+  shtest::title "nmg ip4 tests"
+
+  shtest::prefix "nmg_check_ip4_addr"
+
+  nmg_check_ip4_addr 192.168.1.1
+  xtest V1 3 "('192.168.1.1') returns 3"
+  nmg_check_ip4_addr 192.168.1.1 1
+  xtest V2 t "('192.168.1.1' 1) <private>, returns true"
+  nmg_check_ip4_addr 172.16.1.1
+  xtest v3 3 "('172.16.1.1'), returns 3"
+  nmg_check_ip4_addr 8.8.8.8
+  xtest v4 t "(<dns>), returns true"
+  nmg_check_ip4_addr 127.0.0.1
+  xtest v5 2 "('127.0.0.1'), returns 2"
+  nmg_check_ip4_addr 127.0.0.a
+  xtest v6 1 "('127.0.0.a'), returns 1"
+
+  shtest::prefix "nmg_find_ip4_addrs"
+
+  # test locating address
+  xwrap nmg_find_ip4_addrs "" "^10.*"
+  xtest V11 t "(10.*) returns true"
+  ftest2 V11f "" "10.0.10.12/24" " - returns matching address"
+
+  xwrap nmg_find_ip4_addrs "" "^50.*"
+  xtest V12 t "(50.*) returns true"
+  ftest V12f "" " - returns no addresses"
+
+  xwrap nmg_find_ip4_addrs "eth0"
+  xtest V13 t "(eth0) returns true"
+  ftest2 V13f "" "192.168.10.4/24" " - returns matching address"
+
+  shtest::prefix "nmg_add_ip4_addr"
+
+  xwrap nmg_add_ip4_addr
+  xtest V21 f "(<no args>) returns false"
+  ftest V21f "ERR: nmg_add_ip4_addr: missing <intf>" " - logs error"
+
+  xwrap nmg_add_ip4_addr "eth0"
+  xtest V22 f "(<no addr>) returns false"
+  ftest V22f "ERR: nmg_add_ip4_addr: missing <addr/plen>" " - logs error"
+
+  xwrap nmg_add_ip4_addr "eth0" "10.10.10/24"
+  xtest V23 f "(<bad addr>) returns false"
+  ftest V23f "ERR: nmg_add_ip4_addr: invalid address '10.10.10/24'" \
+        " - logs error"
+
+  xwrap nmg_add_ip4_addr "lo" "127.0.0.1/8"
+  xtest V24 2 "(<existing addr>) returns false"
+  ftest V24f "" " - performs no action"
+
+  xwrap nmg_add_ip4_addr "eth0" "10.5.5.10"
+  xtest V25 t "(<new addr w/ plen>) returns true"
+  ftest V25f "Adding 10.5.5.10/32 to eth0"$'\n'"$NMG_IP => ip -4 addr add 10.5.5.10/32 dev eth0" \
+        " - adds address with default plen"
+
+  xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24"
+  xtest V26 t "(<new addr>) returns true"
+  ftest V26f "Adding 10.10.5.11/24 to eth1"$'\n'"$NMG_IP => ip -4 addr add 10.10.5.11/24 dev eth1" \
+        " - adds address"
+
+  xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24" "invalid"
+  xtest V27 255 "(<bad ip-args>) returns 255"
+  ftest V27f "Adding 10.10.5.11/24 to eth1"$'\n'"ERR: FAIL(255) $NMG_IP -4 addr add 10.10.5.11/24 dev eth1 invalid => Error: either \"local\" is duplicate, or \"invalid\" is a garbage." \
+        " - logs error"
+}
+
+xtest::group3::ip6() {
+  local var=''
+
+  shtest::title "nmg ip6 tests"
+
+  shtest::prefix "nmg_check_ip6_addr"
+
+  nmg_check_ip6_addr fc80::1
+  xtest P1 3 "('fc80::1') returns 3"
+  nmg_check_ip6_addr fc80::1 1
+  xtest P2 t "('fc80::1' 1) <private>, returns true"
+  nmg_check_ip6_addr ffffff::1 1
+  xtest P3 t "('ffffff::1' 1) <private>, returns true"
+  nmg_check_ip6_addr zz::1
+  xtest P4 f "('zz::1'), returns false"
+  nmg_check_ip6_addr fe80::1 1
+  xtest P5 2 "('fe80::1') <private>, returns 2"
+  nmg_check_ip6_addr 2001:4860:4860::8888
+  xtest P6 t "(<dns>), returns true"
+
+  shtest::prefix "nmg_create_ip6_host"
+
+  xwrap nmg_create_ip6_host "eth0" "auto"
+  xtest P11 t "(eth0 auto) returns true"
+  ftest2 P11f "" "a00:27ff:fe1b:ff9a" " - returns ip6 host-part"
+
+  shtest::prefix "nmg::create_ip6_prefix"
+
+  xwrap nmg::create_ip6_prefix var "fddd:dead:beef::/48" "1234" "60"
+  xtest P21 t "(<prefix> <site> <plen>) returns true"
+  vtest P21v "fddd:dead:beef:2340::/60" " - returns expected ip6 prefix"
+  ftest P21f "" " - does not log"
+
+  xwrap nmg::create_ip6_prefix
+  xtest P22 f "(<no args>) returns false"
+  ftest P22f "ERR: nmg::create_ip6_prefix: missing <retvar>" \
+        " - logs error"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234"
+  xtest P23 f "(invalid) returns false"
+  vtest P23v "" " - sets var=''"
+  ftest P23f "ERR: nmg::create_ip6_prefix: invalid ip6-prefix 'fddd:1234'" \
+        " - logs error"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234::/64"
+  xtest P24 f "(<no site>) returns false"
+  vtest P24v "" " - sets var=''"
+  ftest P24f "ERR: nmg::create_ip6_prefix: missing site" " - logs error"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234::/64" "zz"
+  xtest P25 f "(<bad site>) returns false"
+  vtest P25v "" " - sets var=''"
+  ftest P25f "ERR: nmg::create_ip6_prefix: invalid site 'zz'" \
+        " - logs error"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234::/64" "1:eeff" "zz"
+  xtest P26 f "(<bad site-len>) returns false"
+  vtest P26v "" " - sets var=''"
+  ftest P26f "ERR: nmg::create_ip6_prefix: invalid site-len 'zz'" \
+        " - logs error"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234::/60" "1:eeff" "128"
+  xtest P27 t "(site-len=128) returns true"
+  vtest P27v "fddd:1234:0:f::/128" " - returns /128 prefix"
+  ftest P27f "" " - does not log"
+
+  xwrap nmg::create_ip6_prefix var "fddd:1234:5678:abcd::/48" "eeff"
+  xtest P28 t "(<prefix>/48 <site>) returns true"
+  vtest P28v "fddd:1234:5678:eeff::/64" " - returns /64 prefix"
+  ftest P28f "" " - does not log"
+}
+
+xtest::group3::file() {
+  local var=''
+
+  shtest::title "nmg_write tests"
+
+  shtest::prefix "nmg_write"
+
+  # no args
+  xwrap nmg_write
+  xtest F1 1 "(<no args>) returns 1"
+  ftest F1f "ERR: nmg_write: empty filename" " - logs error"
+
+  rm -f "$XFILE"
+  local nmg_dryrun=5
+  xwrap nmg_write "$XFILE" "content"
+  xtest F2 5 "(<dry-run 5>) returns 5"
+  ftest F2f "ERR: FAIL(5): DRY-RUN: nmg_write($XFILE)" " - logs error"
+
+  # shellcheck disable=SC2034
+  nmg_dryrun=0
+  xwrap nmg_write "$XFILE" "content"
+  xtest F3 t "(<dry-run>) returns true"
+  ftest F3f "DRY-RUN: nmg_write($XFILE)" " - logs info"
+  unset nmg_dryrun
+
+  touch "$XFILE"
+  chmod a-w "$XFILE"
+  xwrap nmg_write "$XFILE" "content"
+  xtest F4 f "(<write prot>) returns false"
+  ftest F4f "ERR: FAIL(1) nmg_write($XFILE) => Permission denied" \
+        " - logs error"
+
+  rm -f "$XFILE"
+  xwrap nmg_write "$XFILE" "content"
+  xtest F5 t "(<file>) returns true"
+  ftest F5f "" " - should not log"
+
+  shtest::prefix
+
+  echo -n >"${XLOG}"
+  unset var; read -r -d '' var &>"${XERR}" < "${XFILE}"
+  ftest F6r "" "reading file should not generate stderr"
+  [[ ${var+set} == set ]]
+  xtest F6s t "file should be readable"
+  vtest F6v "content" "file should have content"
+
+  shtest::title "nmg::read tests"
+
+  shtest::prefix "nmg::read"
+
+  # test w/o args
+  xwrap nmg::read
+  xtest F11 1 "(<no-args>) returns 1"
+  ftest F11f "ERR: nmg::read: empty filename" " - logs error"
+
+  # test w/o filename
+  xwrap nmg::read var "retvar info" ""
+  xtest F12 1 "('') returns 1"
+  vtest F12v "empty filename" " - should set retvar=err"
+  ftest F12f "nmg::read: empty filename" " - should log info"
+
+  rm -f "$XNOFILE"
+  var="bogus"
+  xwrap nmg::read var "ignore retvar" "$XNOFILE"
+  xtest F13 t "('not-there' ignore) returns true"
+  vtest F13v "not found" " - should set retvar=err"
+  ftest F13f "" " - should not log"
+
+  xwrap nmg::read "" "retvar" "$XNOFILE"
+  xtest F14 1 "(<empty retvar>) returns 1"
+  ftest F14f "ERR: nmg::read: <err-mode> retvar requires one" " - logs error"
+
+  xwrap nmg::read "bad#name" "retvar" "$XNOFILE"
+  xtest F15 1 "(<bad retvar> retvar) returns 1"
+  ftest F15f "ERR: nmg::read: invalid <retvar> 'bad#name'" " - logs error"
+
+  var="orig"
+  xwrap nmg::read var "" "$XNOFILE"
+  xtest F16 2 "('not-there') returns 2"
+  vtest F16v "" " - should clear var"
+  ftest F16f "" " - should not log"
+
+  chmod a-r "$XFILE"
+  xwrap nmg::read var "retvar" "$XFILE"
+  xtest F17 1 "(<read protected file> retvar) returns 1"
+  vtest F17v "no read perm" " - set retvar=err"
+  ftest F17f "ERR: nmg::read($XFILE): no read perm" " - logs error"
+
+  rm -f "$XFILE"
+  echo "some"$'\n'"contents" > "$XFILE"
+  xwrap nmg::read var "" "$XFILE"
+  xtest F18 t "(<file>) returns true"
+  vtest F18v "some"$'\n'"contents"$'\n' " - sets var to content"
+  ftest F18f "" " - should not log"
+
+  shtest::title "nmg_remove tests"
+  shtest::prefix "nmg_remove"
+
+  xwrap nmg_remove
+  xtest F31 f "(<no args>) returns false"
+  ftest F31f "ERR: nmg_remove: missing <file>" " - logs error"
+
+  rm -f "$XFILE"
+  echo "some"$'\n'"contents" > "$XFILE"
+  xwrap nmg_remove "$XFILE"
+  xtest F32 t "(<file>) returns true"
+  ftest F32f "" " - should not log"
+  [[ -f "$XFILE" ]]
+  xtest F32r f " - file should be removed"
+}
+
+xtest::group3::misc() {
+  local src=("word 1" "word 2" "word 3") var=''
+
+  shtest::title "Misc function tests"
+
+  shtest::prefix "nmg::array_join"
+
+  xwrap nmg::array_join
+  xtest M1 f "(<no args>) returns false"
+  ftest M1f "ERR: nmg::array_join: missing <retvar>" " - logs error"
+
+  var="orig"
+  xwrap nmg::array_join var
+  xtest M2 t "(<retvar>) returns true"
+  vtest M2v "" " - should clear retvar"
+  ftest M2f "" " - does not log"
+
+  xwrap nmg::array_join var "," "${src[@]}"
+  xtest M3 t "(',' <words>) returns true"
+  vtest M3v "word 1,word 2,word 3" " - sets <retvar> to comma-list"
+
+  xwrap nmg::array_join var "," "a" "" "c"
+  xtest M4 t "(<array w/ nil>) returns true"
+  vtest M4v "a,,c" " - list contains an empty item"
+
+  shtest::prefix "nmg::2dec"
+
+  xwrap nmg::2dec var "0x5d"
+  xtest M11 t "(0x5d) returns true"
+  vtest M11v "93" " - converted to 93"
+  ftest M11f "" " - does not log"
+
+  var="orig"
+  xwrap nmg::2dec var "xx"
+  xtest M12 f "(xx) returns false"
+  vtest M12v "" " - sets clear retvar"
+  ftest M12f "ERR: nmg::2dec: invalid <value> 'xx'" " - logs error"
+
+  shtest::prefix "nmg::2hex"
+
+  xwrap nmg::2hex var "93"
+  xtest M21 t "(93) returns true"
+  vtest M21v "5d" " - converted to 0x5d"
+  ftest M21f "" " - does not log"
+
+  var="orig"
+  xwrap nmg::2hex var "xx"
+  xtest M22 f "(xx) returns false"
+  vtest M22v "" " - sets clear retvar"
+  ftest M22f "ERR: nmg::2hex: invalid <value> 'xx'" " - logs error"
+}
+
+xtest::group4::config() {
+  local var=''
+
+  # shellcheck disable=SC2034
+  local cfg_env; shtest::save_env cfg_env
+
+  shtest::title "Config function tests"
+
+  shtest::prefix "nmg_read_config"
+
+  xwrap nmg_read_config
+  xtest C1 1 "(<no args>) returns 1"
+  ftest C1f "" " - should not log"
+
+  rm -f "$XNOFILE"
+  xwrap nmg_read_config "$XNOFILE"
+  xtest C2 1 "('not-there') returns 1"
+  ftest C2f "" " - should not log"
+
+  rm -f "$XFILE"
+  echo "TEST1=1"$'\n'"{ # parse error" > "$XFILE"
+  xwrap nmg_read_config "$XFILE"
+  xtest C3 2 "(<bad file>) returns 2"
+  ftest C3f "ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3: syntax error: unexpected end of file" " - logs error"
+
+  xwrap nmg_read_config "$XFILE" 1
+  xtest C4 2 "(<bad file> nolog) returns 2"
+  ftest C4f "" " - should not log"
+
+  chmod a-r "$XFILE"
+  xwrap nmg_read_config "$XFILE"
+  xtest C5 2 "(<read prot) returns 2"
+  ftest C5f "ERR: nmg_read_config($XFILE): access denied" \
+        " - should log error"
+
+  xwrap nmg_read_config "$XFILE" 1
+  xtest C6 2 "(<read prot> nolog) returns 2"
+  ftest C6f "" " - should not log"
+
+  rm -f "$XFILE"
+  echo "echo >&2 to stderr"$'\n'"echo to stdout" > "$XFILE"
+  xwrap nmg_read_config "$XFILE"
+  xtest C7 t "(<file w/ output>) returns true"
+  ftest C7f "" " - should not output/log"
+
+  # shellcheck disable=SC2034
+  unset var
+  echo "var='new value'" > "$XFILE"
+  xwrap nmg_read_config "$XFILE"
+  xtest C8 t "(<config>) returns true"
+  vtest C8v "new value" " - correctly load values"
+  ftest C8f "" " - should not log"
+
+  shtest::prefix "nmg_required_config"
+
+  unset var
+  xwrap nmg_required_config "$XFILE"
+  xtest C21 t "(<config>) returns true"
+  vtest C21v "new value" " - correctly load values"
+  ftest C21f "" " - should not log"
+
+  rm -f "$XNOFILE"
+  (xwrap nmg_required_config "$XNOFILE"; echo "not reached")
+  xtest C22 t "('not-there') exits 0"
+  ftest C22f "" " - should not log"
+
+  rm -f "$XFILE"
+  echo "TEST1=1"$'\n'"{ # parse error" > "$XFILE"
+  var=0
+  (xwrap nmg_required_config "$XFILE"; echo "not reached") || var=$?
+  vtest C23 2 "(<bad file>) exits 2"
+  ftest C23f "ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3: syntax error: unexpected end of file" \
+        " - logs error"
+}
+
+xtest::usage() { # <modes>
+  local mode modes=()
+  xtest::err "Usage: ${0##*/} <options>"
+  xtest::err "  <options> include:"
+  xtest::err "    help - show help"
+  xtest::err "    verbose - always show test descriptions"
+  xtest::err "    quiet - show summary only"
+  xtest::err "    strict - enable -eEu bash option"
+  xtest::err "    trace - enable -eEu bash option with traceback"
+  xtest::err "    all - run all tests (default)"
+  xtest::err "    +<id/pattern> - show test <id/pattern(*|?)> (may be repeated)"
+  for mode in "$@"; do modes+=("${mode#xtest::group*::}"); done
+  xtest::err "    ${modes[*]} - include these groups"
+  shtest::cleanup
+  exit 1
+}
+
+xtest::perform_tests() { # <args>...
+  local arg all reqs=()
+
+  { read -r -a all -d '' || :; } \
+    <<< "$(compgen -A function xtest::group | sort)"
+
+  for arg in "$@"; do
+    if [[ "${all[*]}" =~ (^| )(xtest::group.::"$arg")($| ) ]]; then
+      reqs+=("${BASH_REMATCH[2]}")
+    else
+      case $arg in
+        all) : ;;
+        strict|trace)
+          shtest::strict "${arg[@]/strict/}"
+          shtest::global_whitelist "xtest::group*" "xwrap"
+          ;;
+        verbose)
+          shtest::verbose
+          ;;
+        quiet)
+          shtest::quiet
+          ;;
+        +*)
+          arg=${arg#+}; [[ $arg ]] || xtest::usage "${all[@]}"
+          shtest::add_focus "${arg}"
+          ;;
+        help)
+          xtest::usage "${all[@]}"
+          ;;
+        *)
+          xtest::err "Unknown option: ${arg}"
+          xtest::usage "${all[@]}"
+          ;;
+      esac
+    fi
+  done
+
+  local func_env
+  for arg in "${reqs[@]:-${all[@]}}"; do
+    shtest::save_env func_env
+    "$arg"
+    shtest::prefix
+    shtest::check_env "ENV-${arg##*:}" func_env "check config environment"
+  done
+  : "${func_env-}" # for SC
+}
+
+xtest::run_tests() {
+
+  [[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
+
+  # need output directory
+  [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
+  local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
+
+  # shellcheck disable=SC2034
+  local nmg_log_stderr=4 xtest_env; shtest::save_env xtest_env
+
+  # fd 4 used for logger
+  exec 4>&2
+
+  shtest::reg_file "$XLOG"
+  shtest::reg_file "$XERR"
+
+  xtest::perform_tests "$@"
+
+  # cleanup
+  [[ -f $XFILE ]] && rm -f "$XFILE"
+  [[ -f $XLOG ]] && rm -f "$XLOG"
+  [[ -f $XERR ]] && rm -f "$XERR"
+  exec 4>&-
+
+  shtest::title "Final tests"
+  shtest::check_env ENV-all xtest_env "check environment"
+  shtest::summary_report || {
+    shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
   }
 }
 
-tn=0
-
-test_report() {
-  # <name> <args>
-  local rc=$? name="$1"; shift
-
-  ((tn++))
-  if [ $rc -ne 0 ]; then
-    nmg_info "TEST $tn: $name($*) returned $rc"
-  else
-    nmg_info "TEST $tn: $name($*) succeeded"
-  fi
-
-  return $rc
-}
-
-test_cmd() {
-  nmg_run err "$@"
-  test_report nmg_run "$@"
-}
-
-test_write() {
-  nmg_write "$@"
-  test_report nmg_write "$@"
-}
-
-test_ip6() {
-  nmg_check_ip6_addr "$@"
-  test_report nmg_check_ip6_addr "$@"
-}
-
-test_ip6_host() {
-  echo $(nmg_create_ip6_host "$1" "auto")
-  test_report nmg_check_ip6_host "$1"
-}
-
-test_dns() {
-  nmddns_spawn_update "$cnf" "$@"
-  test_report nmddns_spawn_update "$@"
-}
-
-test_all_dns() {
-  [ -z "$NMDDNS" ] && return
-  local cnf="$NMCONF/ddns-test.conf"
-  test_dns
-  test_dns AAAA 1.2.3.4
-  test_dns A
-  test_dns A 1.2.3.4
-  test_dns A 209.76.109.246
-}
-
-all_tests() {
-
-#  test_write 1 "content" "/tmp/my file"
-
-# test_cmd 1 "cat" - << EOF
-#several lines of test
-#another line
-#EOF
-
-  test_cmd echo a few words
-  test_cmd false
-  test_ip6 fc80::1
-  test_ip6 fc80::1 1
-  test_ip6 ffffff::1 1
-  test_all_dns
-}
-
-
-#test_ip6_host "br0"
-
-all_tests
-
+# shellcheck disable=SC2034
+NMG_TAG=''
+xtest::run_tests "$@"
+shtest::cleanup
