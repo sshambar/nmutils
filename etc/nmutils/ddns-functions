@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.2 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.3 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -59,6 +59,10 @@
 #   nmddns_required_config(<config-file>) - same as
 #     nmddns_read_config but exit 0 if not found/required element missing,
 #     or exit with error if other error.
+#
+#   nmddns_config_cleanup - unset all config environment
+#
+#   nmddns_cleanup - unset all loaded environment
 #
 #   nmddns_update(<rrec> [<value> [<state-pat>]]) - set DNS resource
 #     record <rrec> to <value>, or if <value> empty, set to the
@@ -256,24 +260,37 @@ function nmddnsi_update() {
   return $rc
 }
 
+function nmddns_reset_config() {
+  local name
+  for name in "${!DDNS_RREC_@}"; do unset "$name"; done
+  unset DDNS_ZONE DDNS_SERVER DDNS_TTL DDNS_FLOCK_TIMEOUT
+  unset DDNS_DIG_TIMEOUT DDNS_DIG_RETRIES DDNS_DIG_OPTIONS
+  unset DDNS_NSUPDATE_TIMEOUT DDNS_NSUPDATE_OPTIONS DDNS_LOCKFILE
+}
+
 function nmddns_read_config() {
   # <config-file>
   local config="${1:-}"
 
+  # clear config
+  nmddns_reset_config
+
   # lockfile defaults to config-file (as it will exist if used)
   DDNS_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-$config}"
-
-  # clear config
-  DDNS_ZONE= DDNS_SERVER= DDNS_TTL= DDNS_FLOCK_TIMEOUT=
-  DDNS_DIG_TIMEOUT= DDNS_DIG_RETRIES= DDNS_DIG_OPTIONS=
-  DDNS_NSUPDATE_TIMEOUT= DDNS_NSUPDATE_OPTIONS=
-  for name in "${!DDNS_RREC_@}"; do unset "$name"; done
 
   # read config if any
   nmg_read_config "$config" || return
 
   # check required elements
   [ -n "$DDNS_ZONE" ] || return
+}
+
+function nmddns_cleanup() {
+  nmddns_reset_config
+  unset DDNS_GLOBAL_LOCKFILE DDNS_GLOBAL_FLOCK_TIMEOUT
+  unset DDNS_GLOBAL_DIG_TIMEOUT DDNS_GLOBAL_DIG_RETRIES
+  unset DDNS_GLOBAL_DIG_OPTIONS DDNS_GLOBAL_NSUPDATE_TIMEOUT
+  unset DDNS_GLOBAL_NSUPDATE_OPTIONS
 }
 
 function nmddns_required_config() {
@@ -308,7 +325,7 @@ function nmddns_update() {
     return 5
   fi
 
-  local state="${state_pat/@RREC@/$rrec}"
+  local state="${state_pat//@RREC@/$rrec}"
   if [ -n "$value" ]; then
 
     # set state if requested
@@ -349,7 +366,7 @@ function nmddns_update() {
     [ -z "$value" ] && value=$(eval echo -n '${DDNS_RREC_'$rrec'_FALLBACK:-}')
   fi
 
-  if [ -n "$DDNS_LOCKFILE" -a -n "$(command -v "$NMDDNS_FLOCK")" ]; then
+  if [ -n "${DDNS_LOCKFILE-}" -a -n "$(command -v "$NMDDNS_FLOCK")" ]; then
     local timeout="${DDNS_FLOCK_TIMEOUT:-${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}}"
     ("$NMDDNS_FLOCK" -w "$timeout" 9
      [ $? -ne 0 ] && nmg_err "Timeout getting DDNS lock for $rrec" && exit 1
@@ -357,7 +374,7 @@ function nmddns_update() {
     ) 9<"$DDNS_LOCKFILE"
   else
     # no locking
-    [ -n "$DDNS_LOCKFILE" ] && nmg_info "Locking not available for DDNS"
+    [ -n "${DDNS_LOCKFILE-}" ] && nmg_info "Locking not available for DDNS"
     nmddnsi_update "$ddns_name" "$rrec" "$value"
   fi
 }
@@ -394,7 +411,7 @@ function nmddns_update_all() {
   for name in "${!DDNS_RREC_@}"; do
 
     # DDNS_RREC_<rrec>_NAME is required
-    [[ "$name" = *_NAME ]] || continue
+    [[ $name == *_NAME ]] || continue
 
     # parse rrec
     name="${name#DDNS_RREC_}"
@@ -448,7 +465,7 @@ function nmddns_spawn_update_all() {
   local name= name_found=
   for name in "${!DDNS_RREC_@}"; do
     # DDNS_RREC_<rrec>_NAME is required
-    [[ "$name" = *_NAME ]] && name_found=1 && break
+    [[ $name == *_NAME ]] && name_found=1 && break
   done
   [ -z "$name_found" ] && return
 

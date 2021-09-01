@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.0.0 - Shell script testing functions
+# shtest v1.1.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -41,13 +41,13 @@
 #     Enables 'set -eEu' bash options, any failures a captured and fail
 #     the next shtest::check_*.  "trace" enables backtrace on failure.
 #
-#   shtest::global_whitelist <pattern>
+#   shtest::global_whitelist <pattern>...
 #
 #     Strict mode ignores failure of any function matching <pattern>
 #     Useful to allow functions in <pattern> to call functions that
 #     fail without triggering strict-mode failures.
 #
-#   shtest::whitelist <pattern>
+#   shtest::whitelist <pattern>...
 #
 #     As global_whitelist, but only until next shtest::check_* called.
 #
@@ -178,8 +178,9 @@ shtest::_init_globals() {
   # internal state
   # 0 - COUNT, 1 - FAILED, 2 - STRICT, 3 - VERBOSE, 4 - NEXT_EXITTRAP,
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK, 8 - MUTE, 9 - TOP_SUBSHELL
+  # 10 - LOGFD
   _SHTEST_STATE=(0 0)
-  for (( i=2; i<=9; i++ )); do _SHTEST_STATE[${i}]=''; done
+  for (( i=2; i<=10; i++ )); do _SHTEST_STATE[${i}]=''; done
   _SHTEST_STATE[9]=${BASH_SUBSHELL}
   _SHTEST_REG_FILES=() _SHTEST_FOCUS=() _SHTEST_FAILED=()
 
@@ -205,7 +206,23 @@ shtest::_reset_state() {
 shtest::_log() { # <msg>
   # focus mutes _log too
   [[ ${_SHTEST_STATE[8]} == 1 ]] && return 0
-  printf >&88 "%s\n" "$*"
+  printf >&${_SHTEST_STATE[10]:-88} "%s\n" "$*"
+}
+
+shtest::_checkinit() {
+  [[ ${_SHTEST_STATE[0]+set} == set ]] && return
+  echo >&2 "FATAL: You must call shtest::reset after shtest::cleanup"
+  exit 1
+}
+
+shtest::log_setfd() { # <fd>/0
+  shtest::_checkinit
+  [[ ${1-} ]] || { echo -n "${_SHTEST_STATE[10]:-88}"; return 0; }
+  [[ $1 == 0 ]] && { _SHTEST_STATE[10]=''; return 0; }
+  local -i fd
+  printf 2>/dev/null -v fd "%d" "${1-}" || fd=0
+  [[ ${fd} -lt 1 ]] && shtest::fatal "shtest::set_logfd: bad fd '$1'"
+  _SHTEST_STATE[10]=${fd}
 }
 
 shtest::log() { # <msg>
@@ -222,7 +239,7 @@ shtest::_fmtlog() { # <format> <args>
   [[ ${1-} ]] || return 0
   # shellcheck disable=SC2059
   printf -v msg "$1" "${@:2}" ||
-    shtest::fatal "shtest::_fmtlog() bad format: $1" 3
+    shtest::fatal "shtest::_fmtlog: bad format: $1" 3
   shtest::log "${msg}"
 }
 
@@ -243,7 +260,7 @@ shtest::_backtrace() { # <skip>
 shtest::fatal() { # <msg> [ <backtrace-skip> ]
   # just in case...
   [[ ${_SHTEST_FATAL-} ]] &&
-    { echo >&2 "shtest::fatal(): called itself!"; exit 1; }
+    { echo >&2 "shtest::fatal: called itself!"; exit 1; }
   _SHTEST_FATAL=1
   _SHTEST_STATE[8]= # unmute
   if [[ ${1-} ]]; then
@@ -490,7 +507,7 @@ shtest::check_env() { # <id> <varname> [ <desc> ]
   local _SHTEST_NAME _SHTEST_ENV="${2}[@]" _SHTEST_NEWVARS=()
   for _SHTEST_NAME in $(compgen -v); do
     [[ ${_SHTEST_NAME} =~ ^_SHTEST_(NEWVARS|NAME|ENV)$ ]] && continue
-    [[ ${_SHTEST_NAME} =~ ^(BASH_*|LINES) ]] && continue
+    [[ ${_SHTEST_NAME} =~ ^(BASH_*|LINES|COLUMNS) ]] && continue
     [[ ${!_SHTEST_ENV} =~ (^| )"${_SHTEST_NAME}"($| ) ]] ||
       _SHTEST_NEWVARS+=("${_SHTEST_NAME}")
   done
@@ -580,23 +597,27 @@ shtest::strict() { # [ "trace" ]
   [[ ${_SHTEST_STATE[2]} ]] && return 0
   _SHTEST_STATE[2]=$(mktemp -u -t "shtest-strict-XXXXXX") || :
   [[ ${_SHTEST_STATE[2]} ]] ||
-    shtest::fatal "shtest::strict(): Unable to setup tmpfile"
+    shtest::fatal "shtest::strict: Unable to setup tmpfile"
   _SHTEST_STATE[4]=$(trap -p EXIT)
   trap 'shtest::_handle_exit $?' EXIT
   trap shtest::_handle_err ERR
   set -eEu
 }
 
-shtest::whitelist() { # <pattern>
+shtest::whitelist() { # <pattern>...
   local p
-  shtest::_toreg p "${1-}" || return
-  _SHTEST_WHITELIST+=("${p}")
+  for p in "$@"; do
+    shtest::_toreg p "${p}" || return
+    _SHTEST_WHITELIST+=("${p}")
+  done
 }
 
-shtest::global_whitelist() { # <pattern>
+shtest::global_whitelist() { # <pattern>...
   local p
-  shtest::_toreg p "${1-}" || return
-  _SHTEST_GLOBAL_WHITELIST+=("${p}")
+  for p in "$@"; do
+    shtest::_toreg p "${p}" || return
+    _SHTEST_GLOBAL_WHITELIST+=("${p}")
+  done
 }
 
 shtest::verbose() { # [ <level> ]
@@ -610,7 +631,7 @@ shtest::reset() {
   shtest::cleanup
   shtest::_init_globals
   # restore logging state
-  for i in 3 8; do _SHTEST_STATE[${i}]=${state[${i}]-}; done
+  for i in 3 8 10; do _SHTEST_STATE[${i}]=${state[${i}]-}; done
 }
 
 # initialize everything
