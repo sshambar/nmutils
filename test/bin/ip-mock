@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 
-# ip-mock v0.3.0 - ip command wrapper/replacement for testing
+# ip-mock - ip command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -19,13 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+VERSION=0.4.0
 
 IP_MOCK_ADDRS=${IP_MOCK_ADDRS:-conf/ip-mock-addrs}
 
+IP_MOCK_FAIL=${IP_MOCK_FAIL-}
+
 usage() {
-  err "Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }"
+  err "Usage: ${0##*/} [ OPTIONS ] OBJECT { COMMAND | help }"
   err "where  OBJECT := { address }"
-  err "       OPTIONS := { -4 | -6 | -v }"
+  err "       OPTIONS := { -4 | -6 | -v | -V[ersion] }"
   exit 1
 }
 
@@ -34,16 +37,17 @@ err() {
 }
 
 verbose() {
-  [[ $VERBOSE ]] && err "$@"
+  [[ $VERBOSE ]] && err "$*"
 }
 
 fail() {
-  rc=$1; shift
-  err "$@"
-  exit $rc
+  local -i rc=1
+  printf 2>/dev/null -v rc "%d" "$1"
+  [[ $rc == 0 ]] && rc=1
+  shift
+  err "$*"
+  exit "$rc"
 }
-
-[[ $MOCK_ECHO ]] && err "${0##*/} $*"
 
 # State file format:
 #  dev <device> [ <mtu> [ <state> ] ]
@@ -57,7 +61,7 @@ ADDRS=()
 DEVS=()
 read_addr_state() { # <filename>
   local file=$1
-  [ -f "$file" ] || { verbose "State file $file not found"; return 0; }
+  [[ -f $file ]] || { verbose "State file $file not found"; return 0; }
   verbose "Loading address state file $file"
   DEVS=("lo 65536 LOOPBACK,UP,LOWER_UP")
   ADDRS=("lo addr 127.0.0.1/8 forever forever host lo")
@@ -66,8 +70,9 @@ read_addr_state() { # <filename>
   while read -r line || [[ $line ]]; do
     unset IFS
     [[ "$line" =~ ^# ]] && continue
+    # shellcheck disable=SC2086
     set -- $line
-    case "$1" in
+    case $1 in
       dev) dev=$2; shift 2; DEVS+=("$dev $*");;
       addr|addr6)
         [[ $dev ]] || continue
@@ -78,9 +83,10 @@ read_addr_state() { # <filename>
 }
 
 usage_addr() {
-  err "Usage: ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ]"
-  err "       ip address del IFADDR dev IFNAME"
-  err "       ip address [ show [ dev IFNAME ] [ scope SCOPE-ID ] ]"
+  local ip=${0##*/}
+  err "Usage: $ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ]"
+  err "       $ip address del IFADDR dev IFNAME"
+  err "       $ip address [ show [ dev IFNAME ] [ scope SCOPE-ID ] ]"
   err "IFADDR := PREFIX [ scope SCOPE-ID ]"
   err "SCOPE-ID := [ host | link | global | NUMBER ]"
   err "LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]"
@@ -91,28 +97,30 @@ usage_addr() {
 addr_show() {
   local d e dev num=0 mtu type a b valid pref scope state istate qdisc
   for e in "${ADDRS[@]}"; do
+    # shellcheck disable=SC2086
     set -- $e
     [[ $1 && $2 ]] || continue
-    if [ "$dev" != "$1" ]; then
+    if [[ $dev != "$1" ]]; then
       ((num++))
       dev=$1
-      [[ $DEV ]] && [ "$DEV" != "$dev" ] && continue
+      [[ $DEV ]] && [[ $DEV != "$dev" ]] && continue
       mtu=1500; state="BROADCAST,MULTICAST,UP,LOWER_UP"
       for d in "${DEVS[@]}"; do
+        # shellcheck disable=SC2086
         set -- $d
-        if [ "$dev" = "$1" ]; then
+        if [[ $dev == "$1" ]]; then
           mtu=${2:-1500}; state="${3:-BROADCAST,MULTICAST,UP,LOWER_UP}"
           break
         fi
       done
       istate=UP; qdisc=fq_codel
-      [ "$dev" = lo ] && { istate=UNKNOWN; qdisc=noqueue; }
+      [[ $dev == lo ]] && { istate=UNKNOWN; qdisc=noqueue; }
       echo "$num: $dev: <$state> mtu $mtu qdisc $qdisc state $istate group default qlen 1000"
       if [[ $IPV4 && $IPV6 ]]; then
-        if [ "$dev" = lo ]; then
+        if [[ $dev = lo ]]; then
           echo -n "    link/loopback 00:00:00:00:00:00"
         else
-          [ $num -lt 10 ] && b="0$num" || b="$num"
+          [[ $num -lt 10 ]] && b="0$num" || b="$num"
           echo -n "    link/ether 08:00:27:1b:ff:$b"
         fi
         if [[ $state =~ BROADCAST ]]; then
@@ -121,18 +129,19 @@ addr_show() {
           echo " brd 00:00:00:00:00:00"
         fi
       fi
+      # shellcheck disable=SC2086
       set -- $e
     fi
-    [[ $DEV ]] && [ "$DEV" != "$dev" ] && continue
+    [[ $DEV ]] && [[ $DEV != "$dev" ]] && continue
     type=$2 a=$3 valid=${4:-forever} pref=${5-forever} scope=${6-global}
-    [[ $SCOPE ]] && [ "$SCOPE" != "$scope" ] && continue
+    [[ $SCOPE ]] && [[ $SCOPE != "$scope" ]] && continue
     shift 3; shift; shift; shift
-    if [[ $IPV4 ]] && [ "$type" = addr ]; then
+    if [[ $IPV4 ]] && [[ $type == addr ]]; then
       # poor-man broadcast hack
       [[ $state =~ BROADCAST ]] && b="brd ${a%.*}.255 " || b=
       echo "    inet $a ${b}scope $scope $*"
       echo "       valid_lft $valid preferred_lft $pref"
-    elif [[ $IPV6 ]] && [ "$type" = addr6 ]; then
+    elif [[ $IPV6 ]] && [[ $type == addr6 ]]; then
       echo "    inet6 $a scope $scope $*"
       echo "       valid_lft $valid preferred_lft $pref"
     fi
@@ -141,60 +150,65 @@ addr_show() {
   [[ $DEV && ! $mtu ]] && fail 1 "Device \"$DEV\" does not exist."
 }
 
-VERBOSE=
-OBJECT= COMMAND=show IPV4=1 IPV6=1 DEV= SCOPE= IP4= IP6= VALID_LT= PREF_LT=
+OBJECT='' COMMAND=show IPV4=1 IPV6=1 DEV='' SCOPE='' IP4='' IP6=''
+VERBOSE='' VALID_LT='' PREF_LT=''
 parse_args() {
   local state=object
   for arg in "$@"; do
-    case "$state" in
+    case $state in
       object)
-        case "$arg" in
-          addr|address) OBJECT=addr; state=addr;;
-          -6) IPV4=;;
-          -4) IPV6=;;
-          -v) VERBOSE=1;;
-          *) fail 1 "Object \"$arg\" is unknown, try \"ip help\"";;
-        esac;;
+        case $arg in
+          addr|address) OBJECT=addr; state=addr ;;
+          help) usage ;;
+          -6) IPV4='' ;;
+          -4) IPV6='' ;;
+          -v) VERBOSE=1 ;;
+          -V|-Version) echo "${0##*/}, $VERSION"; exit 0; ;;
+          +fail=*) IP_MOCK_FAIL=${arg#+fail=} ;;
+          +fail*) IP_MOCK_FAIL=1 ;;
+          -*) : ;; # ignore other options
+          *) fail 1 "Object \"$arg\" is unknown, try \"ip help\"" ;;
+        esac ;;
       addr)
-        case "$arg" in
-          add|change|replace|del|delete) COMMAND=$arg; state=ifaddr;;
-          show) COMMAND=$arg; state=options;;
-          help) usage_addr;;
-          *) fail 255 "Command \"$arg\" is unknown, try \"ip address help\"";;
-        esac;;
-      dev) DEV=$arg; state=options;;
+        case $arg in
+          add|change|replace|del|delete) COMMAND=$arg; state=ifaddr ;;
+          show) COMMAND=$arg; state=options ;;
+          help) usage_addr ;;
+          *) fail 255 "Command \"$arg\" is unknown, try \"ip address help\"" ;;
+        esac ;;
+      dev) DEV=$arg; state=options ;;
       scope)
-        case "$arg" in
-          host|link|global|[0-9]+) SCOPE=$arg; state=options;;
-          *) fail 255 "Error: argument \"$arg\" is wrong: invalid scope value.";;
-        esac;;
+        case $arg in
+          host|link|global|[0-9]+) SCOPE=$arg; state=options ;;
+          *) fail 255 "Error: argument \"$arg\" is wrong: invalid scope value." ;;
+        esac ;;
       valid_lft|preferred_lft)
-        if [[ $arg =~ [0-9]+ ]] || [ $arg = forever ]; then
-          [ $state = valid_lft ] && VALID_LT=$arg || PREF_LT=$arg
+        if [[ $arg =~ [0-9]+ ]] || [[ $arg == forever ]]; then
+          [[ $state == valid_lft ]] && VALID_LT=$arg || PREF_LT=$arg
           state=options
         else
           fail 255 "Error: argument \"$arg\" is wrong: $state value"
-        fi;;
+        fi ;;
       ifaddr)
         if [[ $arg =~ [0-9a-fA-F:]+/[0-9]+ ]]; then
-          IP6=$arg; IPV4=
+          IP6=$arg; IPV4=''
         elif [[ $arg =~ [0-9]+.[0-9]+.[0-9]+.[0-9]+ ]]; then
-          IP4=$arg; IPV6=
+          IP4=$arg; IPV6=''
         else
           fail 1 "Error: any valid prefix is expected rather than \"$arg\""
         fi
-        state=options;;
+        state=options ;;
       options)
-        case "$arg" in
-          dev|scope|valid_lft|preferred_lft) state=$arg;;
-          *) fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage.";;
-        esac;;
+        case $arg in
+          dev|scope|valid_lft|preferred_lft) state=$arg ;;
+          *) fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage." ;;
+        esac ;;
     esac
   done
 
-  case "$OBJECT" in
+  case $OBJECT in
     addr)
-      case "$COMMAND" in
+      case $COMMAND in
         add|del|delete)
           [[ $DEV ]] ||
             fail 1 "Not enough information: \"dev\" argument is required."
@@ -206,19 +220,23 @@ parse_args() {
   esac
 }
 
+[[ ${MOCK_DEBUG} ]] && { err "${0##*/} $*"; VERBOSE=1; }
+
 parse_args "$@"
 
-verbose OBJECT=$OBJECT COMMAND=$COMMAND
-verbose IPV4=$IPV4 IP4=$IP4
-verbose IPV6=$IPV6 IP6=$IP6
-verbose VALID_LT=$VALID_LT PREF_LT=$PREF_LT
-verbose DEV=$DEV SCOPE=$SCOPE
+[[ ${IP_MOCK_FAIL} ]] && fail "${IP_MOCK_FAIL}" "ip mock fail $IP_MOCK_FAIL"
+
+verbose "OBJECT=$OBJECT COMMAND=$COMMAND"
+verbose "IPV4=$IPV4 IP4=$IP4"
+verbose "IPV6=$IPV6 IP6=$IP6"
+verbose "VALID_LT=$VALID_LT PREF_LT=$PREF_LT"
+verbose "DEV=$DEV SCOPE=$SCOPE"
 
 case $OBJECT in
   addr)
     read_addr_state "$IP_MOCK_ADDRS"
-    case "$COMMAND" in
-      add|change|replace|del|delete) echo "ip $@" ;;
+    case $COMMAND in
+      add|change|replace|del|delete) [[ ${MOCK_ECHO} ]] && echo "ip $*" ;;
       show) addr_show;;
       *) fail 1 "Command \"$COMMAND\" not implemented"
     esac
