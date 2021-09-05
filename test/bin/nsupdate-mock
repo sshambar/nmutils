@@ -2,5 +2,29 @@
 #
 # nsupdate-mock for test scripts
 #
-[ -n "$nmg_show_debug" ] && cat -
+
+NSUPDATE_MOCK_FAIL=${NSUPDATE_MOCK_FAIL-}
+
+err() {
+  printf >&2 "%s\n" "$*"
+}
+
+fail() {
+  local -i rc=1
+  printf 2>/dev/null -v rc "%d" "$1"
+  [[ $rc == 0 ]] && rc=1
+  shift
+  err "$*"
+  exit "$rc"
+}
+
+[[ ${NSUPDATE_MOCK_FAIL} ]] &&
+  fail "${NSUPDATE_MOCK_FAIL}" "nsupdate mock fail ${NSUPDATE_MOCK_FAIL}"
+
+# echo commands if requested
+if [[ ${MOCK_ECHO} ]]; then
+  echo "nsupdate $*"
+  cat -
+fi
+
 exit 0

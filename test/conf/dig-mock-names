@@ -1,0 +1,23 @@
+# dns names for dig-mock
+# format:
+# $ORIGIN <domain>
+# $TTL <secs>
+# [ <name> ] <rrec> <value>
+$TTL 12894
+. NS a.root-servers.test.
+$SERVER 127.0.0.1
+$ORIGIN example.test.
+$TTL 1800
+www     A 192.0.2.8
+        A 203.0.113.4
+        AAAA 2001:DB8:4860:4860::8888
+ipv6    AAAA 2001:DB8:4860:4860::8844
+$ORIGIN .
+example.test MX 10 mail.example.test.
+
+$SERVER home.test
+$ORIGIN home.test.
+$TTL 120
+gateway  AAAA fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b
+         A 198.51.100.5
+desktop  A 198.51.100.24

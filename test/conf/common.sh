@@ -18,4 +18,3 @@ export NMCONF="${NMCONF:-$TEST_ROOT/conf}"
 # for state/pids
 export RUNDIR="${RUNDIR:-$TEST_ROOT/run/nmutils}"
 [ -d "$RUNDIR" ] || mkdir -p "$RUNDIR"
-
