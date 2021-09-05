@@ -1,0 +1,219 @@
+#!/bin/bash
+# -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
+#
+# dig-mock - dig command replacement for testing
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright (C) 2021 Scott Shambarger
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+VERSION=0.1.0
+
+VERBOSE='' RREC='' HOSTS=() BRIEF='' SERVER='' HEADER=''
+
+# default name state file
+DIG_MOCK_NAMES=${DIG_MOCK_NAMES:-conf/dig-mock-names}
+
+err() { printf >&2 "%s\n" "$*"; }
+verbose() { [[ $VERBOSE ]] && err "$*"; }
+fail() { err "$*"; exit 1; }
+
+usage() {
+  echo "Usage: ${0##*/} [@server] [q-type] {q-opt} host"
+  echo "Where: q-type  is one of (a,aaaa,ns,...)"
+  echo "       q-opt is one of:"
+  echo "             -q name (specify query name)"
+  echo "             -t type (specify query type)"
+  echo "             -<any>  (Ignored)"
+  echo "             +short  (Display only short form of answer)"
+  echo "             +<any>  (Ignored)"
+  echo "       @server       (only match entries for \$SERVER)"
+  echo "       -d            (show debug messages)"
+  echo "       -h            (print help and exit)"
+  echo "       -v            (print version and exit)"
+  echo "All matches done against \"${DIG_MOCK_NAMES}\""
+}
+
+# inspired by https://stackoverflow.com/a/51573758/14179001
+caseadj() { # <retvar> <string> <from> <to>
+  local _r="${2-}" _i
+  for ((_i=0; _i<${#3}; _i++)); do _r=${_r//${3:$_i:1}/${4:$_i:1}}; done
+  printf -v "$1" "%s" "$_r"
+}
+lowercase() { # <retvar> <string>
+  caseadj "$1" "${2-}" "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "abcdefghijklmnopqrstuvwxyz"
+}
+uppercase() { # <retvar> <string>
+  caseadj "$1" "${2-}" "abcdefghijklmnopqrstuvwxyz" "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+}
+
+display_item() { # <fqdn> <ttl> <rrec> <value>
+  printf "%-23s %-7d IN      %-7s %s\n" "${1%.}." "${@:2:3}"
+}
+
+display_header() { # answer
+  [[ ${HEADER} || ${BRIEF} ]] && return 0
+  HEADER=${1:-ANSWER}
+  echo "; <<>> DiG-mock ${VERSION} <<>> ${ARGS}"
+  echo ";; global options: +cmd"
+
+  echo ";; QUESTION SECTION:"
+  display_item ";${HOST}" "" "${RREC}"
+  echo
+  echo ";; ${HEADER} SECTION:"
+}
+
+display_result() { # <fqdn> <ttl> <rrec> <value>
+  [[ ${BRIEF} ]] && { echo "$4"; return 0; }
+  display_header
+  display_item "$@"
+}
+
+display_nxdomain() {
+  local host domain
+  [[ ${BRIEF} ]] && return 0
+  display_header "AUTHORITY"
+  if [[ ${HOST} =~ [^.]+\..+$ ]]; then
+    host=${HOST%.*.*}
+  else
+    host=${HOST%.*}
+  fi
+  domain=${HOST#${host}.}
+  display_item "${domain}" 10800 SOA "a.root-servers.net."
+}
+
+match_query() { # <server> <fqdn> <ttl> <rrec> <value>
+  local server=$1 fqdn=$2 rrec=$4
+  local ttl=$3 val=$5
+
+  verbose "matching $@"
+  [[ ${SERVER} && ${server} ]] && {
+    [[ ${SERVER} == "${server}" ]] || return 1; }
+  shift
+  [[ ${RREC} == "${rrec}" ]] || return 1
+  [[ ${HOST} == "${fqdn}" ]] || return 1
+  display_result "$@"
+}
+
+# Name state file format:
+#   $SERVER <server>
+#   $ORIGIN <domain>
+#   $TTL <secs>
+#   [ <name> ] <rrec> <value>
+
+do_query() { # <filename>
+  local file=$1 IFS=$'\n' line found='' ttl=3600 lineno=0
+  local name='' rrec='' domain='' server='' value=''
+
+  [[ -f ${file} ]] || fail "State file $file not found"
+
+  while read -r line || [[ ${line} ]]; do
+    ((lineno++)) || :
+    unset IFS
+    [[ ${line} =~ ^# ]] && continue
+    # shellcheck disable=SC2086
+    set -- $line
+    if [[ ${3-} ]]; then
+      # <name> <rrec> <value>
+      lowercase name "$1"
+      uppercase rrec "$2"
+      value=$3
+    elif [[ ${2-} ]]; then
+      case $1 in
+        \$ORIGIN) lowercase domain "$2" ;;
+        \$SERVER) lowercase server "@$2" ;;
+        \$TTL) ttl=$2 ;;
+        *)
+          [[ ${name} ]] || fail "State file ${file}#${lineno}: missing <name>"
+          uppercase rrec "$1"
+          value=$2
+          ;;
+      esac
+    elif [[ ${1-} ]]; then
+      fail "State file ${file}#${lineno}: invalid format"
+    fi
+    [[ ${name} && ${rrec} && ${value} ]] && {
+      match_query "${server}" "${name}${domain:+.${domain%.}}" \
+                  "${ttl}" "${rrec}" "${value}" && found=1
+      value=''
+    }
+  done < "${file}"
+  [[ ${found} ]] || display_nxdomain
+  return 0
+}
+
+is_rrec() { # <arg>
+  local rrec
+  uppercase rrec "$1"
+  case ${rrec} in
+    A|AAAA|NS|SOA|CNAME|MX|HINFO|MINFO|TXT|PTR) return 0 ;;
+  esac
+  return 1
+}
+
+parse_args() {
+  local arg extra='' nextarg='' warn=''
+  ARGS="$*" # keep for header
+  for arg in "$@"; do
+    [[ ${arg} ]] || "dig: '' is not a legal name (unexpected end of input)"
+    [[ ${nextarg} ]] && {
+      case ${nextarg} in
+        RREC) if is_rrec "${arg}"; then
+                uppercase RREC "${arg}"
+              else
+                err ";; Warning, ignoring invalid type $arg"; warn=1
+              fi ;;
+        HOST) lowercase HOST "${arg}" ;;
+      esac
+      nextarg=''
+      continue
+    }
+    case "${arg}" in
+      -d) VERBOSE=1 ;;
+      -h) usage; exit 0 ;;
+      -q) nextarg=HOST ;;
+      -t) nextarg=RREC ;;
+      -v) err "${0##*/} ${VERSION}"; exit 0 ;;
+      +short) BRIEF=1 ;;
+      +*|-*) : ;;
+      @*) lowercase SERVER "${arg}" ;;
+      *)
+        if is_rrec "${arg}"; then
+          uppercase RREC "${arg}"
+        else
+          lowercase arg "${arg}"
+          HOSTS+=("${arg}")
+        fi ;;
+    esac
+  done
+  [[ ${extra} ]] && {
+    err ";; Warning, extra type option"
+  }
+  [[ ${#HOSTS[*]} != 0 || ${RREC} ]] || RREC=NS
+  RREC=${RREC:-A}
+  [[ ${#HOSTS[*]} != 0 ]] || HOSTS=(".")
+  return 0
+}
+
+parse_args "$@"
+
+verbose "Using state file: ${file}"
+
+for HOST in "${HOSTS[@]}"; do
+  HEADER=''
+  verbose "looking up ${RREC} record ${HOST}"
+  do_query "${DIG_MOCK_NAMES}"
+done
+
