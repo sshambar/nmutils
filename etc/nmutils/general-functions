@@ -424,7 +424,7 @@ function nmg_required_config() {
   # 1 means no file, just exit 0
   [[ ${rc} == 1 ]] && exit 0
   # any other error, exit with it
-  [[ ${rc} != 0 ]] && exit $rc
+  [[ ${rc} != 0 ]] && exit ${rc}
   # no errors, continue...
   return 0
 }

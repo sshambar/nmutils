@@ -22,7 +22,7 @@ SRC_ROOT := $(TEST_ROOT)/..
 # test configuration files
 TEST_CONF := $(TEST_ROOT)/conf
 # common test configuration
-TEST_COMMON := $(TEST_CONF)/common.sh
+TEST_COMMON := $(TEST_CONF)/common.conf
 # directory for generated results
 TEST_OUT := $(TEST_ROOT)/results
 # directory for expected results

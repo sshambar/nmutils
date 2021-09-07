@@ -1,0 +1,311 @@
+#!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
+#
+# Test suite for ddns-functions
+#
+
+# load common.conf
+TEST_COMMON=${TEST_COMMON:-conf/common.conf}
+# shellcheck source=/dev/null
+{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
+  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
+
+# shellcheck source=/dev/null
+[[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"
+
+NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
+
+# ensure includes pass parse test
+shtest::parse "${NMDDNS}" || shtest::fatal
+
+# shellcheck source=/dev/null
+. "${NMDDNS}"
+
+# less noise
+export NMG_TAG=''
+
+# these tests require MOCK_ECHO=1 to check command actions
+export MOCK_ECHO=1
+
+xwrap() {
+  local cmd=${1-}
+  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
+  shift
+  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xtest::group4::ddns() {
+  local out xpat xstate cnf
+  # check if ddns funcs avail
+  [ -z "$NMDDNS" ] && return
+  # don't use helper
+  unset NMDDNS_HELPER
+
+  shtest::title "nmddns tests"
+
+  shtest::prefix "nmddns_update"
+
+  DDNS_ZONE=example.test DDNS_RREC_A_NAME=www.example.test
+  xwrap nmddns_update A
+  xtest D1 t "(<remove A>) returns true"
+  read -r -d '' out <<-EOF
+	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D1f "$out" " - logs and removes A"
+
+  export DIG_MOCK_FAIL=5
+  xwrap nmddns_update A
+  xtest D2 25 "(<dig fail 5>) returns 25"
+  ftest D2f "ERR: FAIL(5) ${NMDDNS_DIG} @127.0.0.1 +short +retry=2 +time=3 +time=1 +retry=2 A www.example.test => dig mock fail 5"$'\n'"ERR: Removal of www.example.test A failed" " - logs error"
+  unset DIG_MOCK_FAIL
+
+  export NSUPDATE_MOCK_FAIL=5
+  xwrap nmddns_update A
+  xtest D3 5 "(<nsupdate fail 5>) returns 5"
+  ftest D3f "Removing www.example.test A"$'\n'"ERR: FAIL(5) ${NMDDNS_NSUPDATE} -t 3 => nsupdate mock fail 5"$'\n'"ERR: DNS update to server 127.0.0.1 failed for www.example.test A" " - logs error"
+  unset NSUPDATE_MOCK_FAIL
+
+  xwrap nmddns_update A 192.168.55.1
+  xtest D4 t "(A <private>) returns true"
+  read -r -d '' out <<-EOF
+	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D4f "$out" " - logs and removes A"
+
+  DDNS_RREC_A_FALLBACK=203.0.113.8
+  xwrap nmddns_update A 192.168.55.1/24
+  xtest D5 t "(A <private>) FALLBACK returns true"
+  read -r -d '' out <<-EOF
+	Setting www.example.test A to 203.0.113.8
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	update add www.example.test 600 A 203.0.113.8
+	send
+	EOF
+  ftest D5f "$out" " - logs and sets A to fallback"
+  unset DDNS_RREC_A_FALLBACK
+
+  DDNS_RREC_A_PRIVATE=1
+  xpat="$TEST_OUT/xtest-state @RREC@"
+  xstate=${xpat//@RREC@/A}
+  rm -f "$xstate"
+  xwrap nmddns_update A 192.168.55.1/24 "$xpat"
+  xtest D6 t "(A <private>) PRIVATE=1 returns true"
+  read -r -d '' out <<-EOF
+	Setting www.example.test A to 192.168.55.1
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	update add www.example.test 600 A 192.168.55.1
+	send
+	EOF
+  ftest D6f "$out" " - logs and sets A (no plen)"
+  shtest::check_file D6s "$xstate" "192.168.55.1/24" " - generates state file (has plen)"
+  rm -f "$xstate"
+
+  xstate="$TEST_OUT/xtest-state"
+  rm -f "$xstate"
+  xwrap nmddns_update A "" "$xstate"
+  xtest D7 t "(<bad state-pat>) returns true"
+  read -r -d '' out <<-EOF
+	ERR: nmddns_update: <state-pat> must include string '@RREC@'
+	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D7f "$out" " - logs error and performs action"
+  [[ -f $xstate ]]
+  xtest D7s f " - should not create state file"
+  rm -f "$xstate"
+
+  xwrap nmddns_update
+  xtest D8 f "(<no args>) returns false"
+  ftest D8f "ERR: nmddns_update: missing <rrec>" " - logs error"
+
+  unset DDNS_ZONE
+  xwrap nmddns_update A
+  xtest D9 5 "(A) unset ZONE, returns 5"
+  ftest D9f "ERR: Missing required DDNS_ZONE config" " - logs error"
+
+  unset DDNS_RREC_A_NAME
+  xwrap nmddns_update A
+  xtest D10 t "(A) unset NAME, returns true"
+  ftest D10f "" " - does not log"
+
+  nmddns_reset_config
+
+  shtest::prefix "nmddns_update_all"
+
+  # multi-update with overrides
+  DDNS_ZONE=example.test DDNS_RREC_AAAA_NAME=ipv6.example.test
+  DDNS_RREC_MX_NAME=www.example.test DDNS_RREC_MX_VALUE="5 mx.example.test."
+  DDNS_RREC_MX_FALLBACK="10 backup.example.test."
+  DDNS_RREC_A_NAME=www.example.test DDNS_RREC_A_VALUE="203.0.113.4"
+  DDNS_TTL=300
+  xwrap nmddns_update_all up 203.0.113.8 2001:db8:1000:2000::1/64
+  xtest D21 t "(<up multi>) returns true"
+  read -r -d '' out <<-EOF
+	Setting ipv6.example.test AAAA to 2001:db8:1000:2000::1
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete ipv6.example.test AAAA
+	update add ipv6.example.test 300 AAAA 2001:db8:1000:2000::1
+	send
+	Setting www.example.test A to 203.0.113.4
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	update add www.example.test 300 A 203.0.113.4
+	send
+	Setting www.example.test MX to 5 mx.example.test.
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test MX
+	update add www.example.test 300 MX 5 mx.example.test.
+	send
+	EOF
+  ftest D21f "$out" " - performs actions"
+
+  DDNS_NSUPDATE_TIMEOUT=5
+  xwrap nmddns_update_all down
+  xtest D22 t "(<down multi>) returns true"
+  read -r -d '' out <<-EOF
+	Removing ipv6.example.test AAAA
+	${NMDDNS_NSUPDATE} => nsupdate -t 5
+	server 127.0.0.1
+	zone example.test
+	update delete ipv6.example.test AAAA
+	send
+	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 5
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	Setting www.example.test MX to 10 backup.example.test.
+	${NMDDNS_NSUPDATE} => nsupdate -t 5
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test MX
+	update add www.example.test 300 MX 10 backup.example.test.
+	send
+	EOF
+  ftest D22f "$out" " - performs actions"
+
+  shtest::prefix "nmddns_spawn_update"
+
+  cnf="$TEST_OUT/xtest-ddns.conf"
+  rm -f "$cnf"
+  xwrap nmddns_spawn_update "$cnf"
+  xtest D31 t "(<no conf>) returns true"
+  ftest D31f "" " - does nothing"
+
+  xpat="$TEST_OUT/xtest-state @RREC@"
+  xstate=${xpat//@RREC@/A}
+
+  cat > "$cnf" - <<-EOF
+	DDNS_LOCKFILE=''
+	DDNS_ZONE=example.test
+	DDNS_RREC_A_NAME=www.example.test
+	EOF
+  rm -f "$xstate"; touch "$xstate"
+  xwrap nmddns_spawn_update "$cnf" "" "" "$xpat"
+  xtest D32 t "(<no rrec>) returns true"
+  ftest D32f "" " - does nothing"
+  [[ -f $xstate ]]
+  xtest D32s t " - leaves state file"
+
+  touch "$xstate"
+  xwrap nmddns_spawn_update "$cnf" A "" "$xpat"
+  xtest D33 t "(A) returns true"
+  [[ -f $xstate ]]
+  xtest D33s f " - removes state file"
+  rm -f "$xstate"
+  read -r -d '' out <<-EOF
+	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D33f "$out" " - logs error, removes A rrec"
+
+  xstate="$TEST_OUT/xfile.out"
+  rm -f "$XFILE"
+  echo "#!/bin/sh"$'\n'"echo >\"$xstate\" \"arg=\$*\"" > "$XFILE"
+  chmod +x "$XFILE"
+  NMDDNS_HELPER=$XFILE
+  xwrap nmddns_spawn_update "$cnf" A "" "$xpat"
+  xtest D34 t "(<remove A>) returns true"
+  ftest D34f "" " - does not log"
+  shtest::last_check_ok && wait $!
+  shtest::check_file D34o "$xstate" "arg=update $cnf A  $xpat" " - runs helper"
+  rm -f "$XFILE" "$xstate"
+
+  rm -f "$cnf"
+  nmddns_cleanup
+
+  # for SC
+  : "${DDNS_RREC_A_NAME-} ${DDNS_RREC_A_FALLBACK-} ${DDNS_RREC_A_PRIVATE-}"
+  : "${DDNS_RREC_A_VALUE-} ${DDNS_NSUPDATE_TIMEOUT-} ${NMDDNS_HELPER-}"
+  : "${DDNS_ZONE-} ${DDNS_RREC_MX_NAME-} ${DDNS_RREC_MX_FALLBACK-}"
+  : "${DDNS_RREC_AAAA_NAME-} ${DDNS_TTL-} ${DDNS_RREC_MX_VALUE-}"
+}
+
+main() { # <args>
+
+  [[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
+
+  # need output directory
+  [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+
+  local XFILE="$TEST_OUT/xtest file"
+  local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
+
+  export nmg_log_stderr=4
+
+  # fd 4 used for logger
+  exec 4>&2
+
+  shtest::reg_file "$XLOG"
+  shtest::reg_file "$XERR"
+
+  xtest::run_tests "ddns-functions Test Summary" "$@"
+
+  # cleanup
+  [[ -f $XFILE ]] && rm -f "$XFILE"
+  [[ -f $XLOG ]] && rm -f "$XLOG"
+  [[ -f $XERR ]] && rm -f "$XERR"
+  exec 4>&-
+
+  return 0
+}
+
+main "$@"
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:

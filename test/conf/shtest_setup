@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.1.0 - Shell script testing functions
+# shtest v1.1.1 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -125,9 +125,10 @@
 #
 #     Returns true/false based on the result of the last shtest:check_*
 #
-#   shtest::summary_report
+#   shtest::summary_report [ <title> ]
 #
-#     Prints count of tests, with any fail counts.
+#     Prints count of tests, with any fail counts.  <title> replaces
+#     default report title.
 #
 #   shtest::reset
 #
@@ -206,7 +207,7 @@ shtest::_reset_state() {
 shtest::_log() { # <msg>
   # focus mutes _log too
   [[ ${_SHTEST_STATE[8]} == 1 ]] && return 0
-  printf >&${_SHTEST_STATE[10]:-88} "%s\n" "$*"
+  printf >&"${_SHTEST_STATE[10]:-88}" "%s\n" "$*"
 }
 
 shtest::_checkinit() {
@@ -529,10 +530,10 @@ shtest::parse() { # <file>
     shtest::log "shtest::parse(${file}) failed"; return 1; }
 }
 
-shtest::summary_report() {
+shtest::summary_report() { # [ <title> ]
   local rc=0
   shtest::_reset_state || :
-  shtest::_log $'\n'"%%%%% SUMMARY REPORT %%%%%"$'\n'
+  shtest::_log $'\n'"%%%%% ${1:-SUMMARY REPORT} %%%%%"$'\n'
   shtest::_log "     TESTS RUN: ${_SHTEST_STATE[0]}"
   shtest::_log "  TESTS PASSED: $(( _SHTEST_STATE[0] - _SHTEST_STATE[1] ))"
   if [[ ${_SHTEST_STATE[1]} != 0 ]]; then

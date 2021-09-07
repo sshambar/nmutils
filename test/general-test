@@ -1,64 +1,31 @@
 #!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
 #
-# Test suite for general-functions and ddns-functions
+# Test suite for general-functions
 #
 
-# if desired, export nmg_show_debug as we use in some test programs
-#export nmg_show_debug=1
-
-xtest::err() {
-  echo >&2 "$*"
-}
-
-xtest::fail() {
-  xtest::err "$*"
-  exit 1
-}
-
-# load common.sh
-TEST_COMMON=${TEST_COMMON:-conf/common.sh}
+# load common.conf
+TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 # shellcheck source=/dev/null
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
-  xtest::fail "Unable to load common.sh"
+  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
 
 # shellcheck source=/dev/null
-. "${TEST_ROOT-.}/shtest_setup" ||
-  xtest::fail "Unable to source shtest_setup"
+[[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"
+
+NMG="${NMG:-${NMUTILS}/general-functions}"
 
 # ensure includes pass parse test
-shtest::parse "${NMUTILS}/general-functions" || shtest::fatal
-shtest::parse "${NMUTILS}/ddns-functions" || shtest::fatal
+shtest::parse "${NMG}" || shtest::fatal
 
-# normal startup
-
-# load ddns- or general-functions
-NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
 # shellcheck source=/dev/null
-{ [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
-  # no DDNS, use general-functions
-  NMDDNS='' NMG="${NMG:-${NMUTILS}/general-functions}"
-  # shellcheck source=/dev/null
-  { [[ -r ${NMG} ]] && . "${NMG}"; } || {
-    echo 1>&2 "Unable to read ${NMG}" && exit 2; }
-}
+. "${NMG}"
 
-xtest::reg_test() { # <id> <ref> <desc>
-  # LOG matches <ref>, ERR should be empty...
-  shtest::check_reg_files "${1-}" "${3-}" "${2-}"
-}
+# less noise
+export NMG_TAG=''
 
-xtest::reg_test2() { # <id> <ref> <stderr/out> <desc>
-  # LOG matches <ref>, ERR matches <err>
-  shtest::check_reg_files "${1-}" "${4-}" "${2-}" "${3-}"
-}
-
-# make tests easier to add
-shopt -s expand_aliases
-alias xtest='shtest::check_result'
-alias vtest='shtest::check_var'
-alias atest='shtest::check_array'
-alias ftest='xtest::reg_test'
-alias ftest2='xtest::reg_test2'
+# these tests require MOCK_ECHO=1 to check command actions
+export MOCK_ECHO=1
 
 xwrap() {
   local cmd=${1-}
@@ -70,7 +37,6 @@ xwrap() {
 xtest::group1::log() {
   local nmg_show_debug=''
 
-  # shellcheck disable=SC2034
   local NMG_LOGGER=echo
 
   shtest::title "nmg_log() tests"
@@ -146,6 +112,8 @@ xtest::group1::log() {
   nmg_log >"${XERR}" 2>&- err "stderr closed"
   xtest L12 t "(err <stderr closed>) returns true"
   ftest L12f "" " - should not generate output"
+
+  : "${NMG_LOGGER-}" # for SC
 }
 
 xtest::group2::err() {
@@ -252,7 +220,6 @@ xtest::group3::cmd() {
   vtest X3v "" " - should clear retvar"
   ftest X3f "ERR: FAIL(5) DRY-RUN: true" " - should log err"
 
-  # shellcheck disable=SC2034
   nmg_dryrun=0 nmg_show_debug=1
   xwrap nmg::run var err "$XFILE" 0
   xtest X4 t "(<dry-run>) returns true"
@@ -305,7 +272,6 @@ xtest::group3::cmd() {
   shtest::prefix "nmg_daemon"
 
   # make sure we don't use cgroups in tests
-  # shellcheck disable=SC2034
   local NMG_DAEMON_CGROUP=
 
   xwrap nmg_daemon
@@ -323,28 +289,8 @@ xtest::group3::cmd() {
   xwrap nmg_daemon "$XNOFILE"
   xtest X43 f "('not-there') returns false"
   ftest X43f "ERR: nmg_daemon: command '$XNOFILE' not found" " - logs error"
-}
 
-xtest::group3::ddns() {
-  # check if ddns funcs avail
-  [ -z "$NMDDNS" ] && return
-
-  local cnf="$NMCONF/ddns-test.conf"
-
-  shtest::title "nmddns tests"
-
-  shtest::prefix "nmddns_spawn_update"
-
-  nmddns_spawn_update "$cnf"
-  xtest D1 t "($cnf) returns true"
-  nmddns_spawn_update "$cnf" AAAA fddd:dead:beef::1
-  xtest D2 t "(AAAA <ip>) returns true"
-  nmddns_spawn_update "$cnf" A;
-  xtest D3 t "(A <empty) returns true"
-  nmddns_spawn_update "$cnf" A 1.2.3.4
-  xtest D4 t "(A <ip) returns true"
-
-  nmddns_cleanup
+  : "${nmg_dryrun-} ${nmg_show_debug-} ${NMG_DAEMON_CGROUP-}" # for SC
 }
 
 xtest::group3::ip() {
@@ -356,7 +302,7 @@ xtest::group3::ip() {
 
   xwrap nmg::query_ips avar "" 4 "eth0" "^192.*"
   xtest I1 t "(4 eth0 192.*) returns true"
-  aref=("192.168.10.4/24 8600sec 2400sec")
+  aref=("192.168.66.4/24 8600sec 2400sec")
   atest I1a avar aref " - returns address and lifetimes"
   ftest I1f "" " - should not log"
 
@@ -434,13 +380,13 @@ xtest::group3::ip4() {
 
   shtest::prefix "nmg_check_ip4_addr"
 
-  nmg_check_ip4_addr 192.168.1.1
-  xtest V1 3 "('192.168.1.1') returns 3"
-  nmg_check_ip4_addr 192.168.1.1 1
-  xtest V2 t "('192.168.1.1' 1) <private>, returns true"
+  nmg_check_ip4_addr 192.168.88.1
+  xtest V1 3 "('192.168.88.1') returns 3"
+  nmg_check_ip4_addr 192.168.88.1 1
+  xtest V2 t "('192.168.88.1' 1) <private>, returns true"
   nmg_check_ip4_addr 172.16.1.1
   xtest v3 3 "('172.16.1.1'), returns 3"
-  nmg_check_ip4_addr 8.8.8.8
+  nmg_check_ip4_addr 203.0.113.8
   xtest v4 t "(<dns>), returns true"
   nmg_check_ip4_addr 127.0.0.1
   xtest v5 2 "('127.0.0.1'), returns 2"
@@ -460,7 +406,7 @@ xtest::group3::ip4() {
 
   xwrap nmg_find_ip4_addrs "eth0"
   xtest V13 t "(eth0) returns true"
-  ftest2 V13f "" "192.168.10.4/24" " - returns matching address"
+  ftest2 V13f "" "192.168.66.4/24" " - returns matching address"
 
   shtest::prefix "nmg_add_ip4_addr"
 
@@ -587,7 +533,6 @@ xtest::group3::file() {
   xtest F2 5 "(<dry-run 5>) returns 5"
   ftest F2f "ERR: FAIL(5): DRY-RUN: nmg_write($XFILE)" " - logs error"
 
-  # shellcheck disable=SC2034
   nmg_dryrun=0
   xwrap nmg_write "$XFILE" "content"
   xtest F3 t "(<dry-run>) returns true"
@@ -678,6 +623,8 @@ xtest::group3::file() {
   ftest F32f "" " - should not log"
   [[ -f "$XFILE" ]]
   xtest F32r f " - file should be removed"
+
+  : "${nmg_dryrun-}" # for SC
 }
 
 xtest::group3::misc() {
@@ -735,9 +682,6 @@ xtest::group3::misc() {
 xtest::group4::config() {
   local var=''
 
-  # shellcheck disable=SC2034
-  local cfg_env; shtest::save_env cfg_env
-
   shtest::title "Config function tests"
 
   shtest::prefix "nmg_read_config"
@@ -777,7 +721,6 @@ xtest::group4::config() {
   xtest C7 t "(<file w/ output>) returns true"
   ftest C7f "" " - should not output/log"
 
-  # shellcheck disable=SC2034
   unset var
   echo "var='new value'" > "$XFILE"
   xwrap nmg_read_config "$XFILE"
@@ -805,73 +748,11 @@ xtest::group4::config() {
   vtest C23 2 "(<bad file>) exits 2"
   ftest C23f "ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3: syntax error: unexpected end of file" \
         " - logs error"
+
+  : "${var-}" # for SC
 }
 
-xtest::usage() { # <modes>
-  local mode modes=()
-  xtest::err "Usage: ${0##*/} <options>"
-  xtest::err "  <options> include:"
-  xtest::err "    help - show help"
-  xtest::err "    verbose - always show test descriptions"
-  xtest::err "    quiet - show summary only"
-  xtest::err "    strict - enable -eEu bash option"
-  xtest::err "    trace - enable -eEu bash option with traceback"
-  xtest::err "    all - run all tests (default)"
-  xtest::err "    +<id/pattern> - show test <id/pattern(*|?)> (may be repeated)"
-  for mode in "$@"; do modes+=("${mode#xtest::group*::}"); done
-  xtest::err "    ${modes[*]} - include these groups"
-  shtest::cleanup
-  exit 1
-}
-
-xtest::perform_tests() { # <args>...
-  local arg all reqs=()
-
-  { read -r -a all -d '' || :; } \
-    <<< "$(compgen -A function xtest::group | sort)"
-
-  for arg in "$@"; do
-    if [[ "${all[*]}" =~ (^| )(xtest::group.::"$arg")($| ) ]]; then
-      reqs+=("${BASH_REMATCH[2]}")
-    else
-      case $arg in
-        all) : ;;
-        strict|trace)
-          shtest::strict "${arg[@]/strict/}"
-          shtest::global_whitelist "xtest::group*" "xwrap"
-          ;;
-        verbose)
-          shtest::verbose
-          ;;
-        quiet)
-          shtest::quiet
-          ;;
-        +*)
-          arg=${arg#+}; [[ $arg ]] || xtest::usage "${all[@]}"
-          shtest::add_focus "${arg}"
-          ;;
-        help)
-          xtest::usage "${all[@]}"
-          ;;
-        *)
-          xtest::err "Unknown option: ${arg}"
-          xtest::usage "${all[@]}"
-          ;;
-      esac
-    fi
-  done
-
-  local func_env
-  for arg in "${reqs[@]:-${all[@]}}"; do
-    shtest::save_env func_env
-    "$arg"
-    shtest::prefix
-    shtest::check_env "ENV-${arg##*:}" func_env "check config environment"
-  done
-  : "${func_env-}" # for SC
-}
-
-xtest::run_tests() {
+main() {
 
   [[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
 
@@ -881,8 +762,7 @@ xtest::run_tests() {
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
   local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
 
-  # shellcheck disable=SC2034
-  local nmg_log_stderr=4 xtest_env; shtest::save_env xtest_env
+  export nmg_log_stderr=4
 
   # fd 4 used for logger
   exec 4>&2
@@ -890,7 +770,7 @@ xtest::run_tests() {
   shtest::reg_file "$XLOG"
   shtest::reg_file "$XERR"
 
-  xtest::perform_tests "$@"
+  xtest::run_tests "general-functions Test Summary" "$@"
 
   # cleanup
   [[ -f $XFILE ]] && rm -f "$XFILE"
@@ -898,14 +778,14 @@ xtest::run_tests() {
   [[ -f $XERR ]] && rm -f "$XERR"
   exec 4>&-
 
-  shtest::title "Final tests"
-  shtest::check_env ENV-all xtest_env "check environment"
-  shtest::summary_report || {
-    shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
-  }
+  return 0
 }
 
-# shellcheck disable=SC2034
-NMG_TAG=''
-xtest::run_tests "$@"
-shtest::cleanup
+main "$@"
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:

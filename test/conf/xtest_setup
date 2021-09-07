@@ -1,0 +1,204 @@
+# vim:set ft=sh et sw=2 ts=2:
+#
+# xtest_setup v1.0.0 - shtest suite in a box
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright (C) 2021 Scott Shambarger
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Instructions to use:
+#
+#   Place this file in same directory as shtest_setup, and source
+#   it from your test script.
+#
+#   Define your tests in functions named: 'xtest::group<#>::<name>'
+#   where <name> is available for running a group of tests,
+#   and group<#> orders the tests when run.  All xtest::group* functions
+#   are whitelisted so functions can fail in them in strict mode.
+#
+#   Register files, setup global whitelists etc, and then call
+#   'xtest::run_tests' to do all the work
+#
+# Provides:
+#
+#   xtest::err <msg>
+#
+#     Echo to stderr
+#
+#   xtest::fail <msg>
+#
+#     Echo err and exit 1
+#
+#   xtest::no_env_tests
+#
+#     Call to disable default environment tests
+#
+#   xtest::run_tests <title> [ <args> ]
+#
+#     Parses command-line <args>, runs requested tests and creates
+#     summary report with <title>, and cleans up.
+#
+# Shortcuts:
+#
+#   xtest::reg_test <id> <expect1> <desc> =>
+#                  shtest::check_reg_files <id> <desc> <expect1>
+#
+#     Checks <expect1> against 1st registered file, others expected
+#     to be empty
+#
+#   xtest::reg_test2 <id> <log> <stderr/out> <desc> =>
+#                  shtest::check_reg_files <id> <desc> <log> <stderr/out>
+#
+#     Checks <expect1> <expect2> against 1st/2nd registered files,
+#     others expected to be empty.
+#
+# Aliases
+#
+#   xtest => shtest::check_result
+#   vtest => shtest::check_var
+#   atest => shtest::check_array
+#   ftest => xtest::reg_test
+#   ftest2 => xtest::reg_test2
+#
+# shellcheck shell=bash
+
+_XTEST_ENV_TESTS=1
+
+xtest::err() {
+  echo >&2 "$*"
+}
+
+xtest::fail() {
+  xtest::err "$*"
+  exit 1
+}
+
+# shellcheck source=/dev/null
+. "${BASH_SOURCE[0]%/*}/shtest_setup" ||
+  xtest::fail "Unable to source shtest_setup"
+
+xtest::reg_test() { # <id> <ref> <desc>
+  # LOG matches <ref>, ERR should be empty...
+  shtest::check_reg_files "${1-}" "${3-}" "${2-}"
+}
+
+xtest::reg_test2() { # <id> <ref> <stderr/out> <desc>
+  # LOG matches <ref>, ERR matches <err>
+  shtest::check_reg_files "${1-}" "${4-}" "${2-}" "${3-}"
+}
+
+# make tests easier to add
+shopt -s expand_aliases
+alias xtest='shtest::check_result'
+alias vtest='shtest::check_var'
+alias atest='shtest::check_array'
+alias ftest='xtest::reg_test'
+alias ftest2='xtest::reg_test2'
+
+xtest::_usage() { # <modes>
+  local mode modes=()
+  xtest::err "Usage: ${0##*/} <options>"
+  xtest::err "  <options> include:"
+  xtest::err "    help - show help"
+  xtest::err "    verbose - always show test descriptions"
+  xtest::err "    quiet - show summary only"
+  xtest::err "    strict - enable -eEu bash option"
+  xtest::err "    trace - enable -eEu bash option with traceback"
+  xtest::err "    all - run all tests (default)"
+  xtest::err "    +<id/pattern> - show test <id/pattern(*|?)> (may be repeated)"
+  for mode in "$@"; do modes+=("${mode#xtest::group*::}"); done
+  xtest::err "    ${modes[*]} - include these groups"
+  shtest::cleanup
+  exit 1
+}
+
+xtest::_run_tests() { # <args>...
+  local arg all reqs=()
+
+  { read -r -a all -d '' || :; } \
+    <<< "$(compgen -A function xtest::group | sort)"
+
+  for arg in "$@"; do
+    if [[ "${all[*]}" =~ (^| )(xtest::group.::"$arg")($| ) ]]; then
+      reqs+=("${BASH_REMATCH[2]}")
+    else
+      case $arg in
+        all) : ;;
+        strict|trace)
+          shtest::strict "${arg[@]/strict/}"
+          shtest::global_whitelist "xtest::group*" "xwrap"
+          ;;
+        verbose)
+          shtest::verbose
+          ;;
+        quiet)
+          shtest::quiet
+          ;;
+        +*)
+          arg=${arg#+}; [[ $arg ]] || xtest::_usage "${all[@]}"
+          shtest::add_focus "${arg}"
+          ;;
+        help)
+          xtest::_usage "${all[@]}"
+          ;;
+        *)
+          xtest::err "Unknown option: ${arg}"
+          xtest::_usage "${all[@]}"
+          ;;
+      esac
+    fi
+  done
+
+  local func_env
+  for arg in "${reqs[@]:-${all[@]}}"; do
+    [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env func_env
+    "$arg"
+    shtest::prefix
+    [[ ${_XTEST_ENV_TESTS} ]] && {
+      shtest::check_env "env-${arg##*:}" func_env "check config environment"
+    }
+  done
+  : "${func_env-}" # for SC
+}
+
+xtest::no_env_tests() {
+  _XTEST_ENV_TESTS=''
+}
+
+xtest::run_tests() { # <title> <args>...
+  local _xtest_env _xtest_title=${1-}
+  shift || set --
+
+  [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _xtest_env
+
+  xtest::_run_tests "$@"
+
+  [[ ${_XTEST_ENV_TESTS} ]] && {
+    shtest::title "Final tests"
+    shtest::check_env env-all _xtest_env "check environment"
+  }
+  shtest::summary_report "${_xtest_title}" ||
+    shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
+
+  shtest::cleanup
+  : "${_xtest_env-}" # for SC
+}
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
