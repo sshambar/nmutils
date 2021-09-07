@@ -148,6 +148,34 @@ xtest::group4::ddns() {
   xtest D10 t "(A) unset NAME, returns true"
   ftest D10f "" " - does not log"
 
+  DDNS_ZONE=exmaple.test DDNS_RREC_A_NAME=www.example.test
+  DDNS_RREC_A_VALUE="*"
+  xwrap nmddns_update A 203.0.113.10
+  xtest D11 t "(A) _VALUE=*, returns true"
+  read -r -d '' out <<-EOF
+	Removing www.example.test A
+	./bin/nsupdate-mock => nsupdate -t 3
+	server 127.0.0.1
+	zone exmaple.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D11f "$out" " - logs and removes A"
+
+  unset DDNS_RREC_A_VALUE
+  xwrap nmddns_update A 203.0.113.10
+  xtest D12 t "(A <pub>) returns true"
+  read -r -d '' out <<-EOF
+	Setting www.example.test A to 203.0.113.10
+	./bin/nsupdate-mock => nsupdate -t 3
+	server 127.0.0.1
+	zone exmaple.test
+	update delete www.example.test A
+	update add www.example.test 600 A 203.0.113.10
+	send
+	EOF
+  ftest D12f "$out" " - logs and adds A"
+
   nmddns_reset_config
 
   shtest::prefix "nmddns_update_all"
