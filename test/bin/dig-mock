@@ -156,6 +156,8 @@ do_query() { # <filename>
       fail 1 "State file ${file}#${lineno}: invalid format"
     fi
     [[ ${name} && ${rrec} && ${value} ]] && {
+      # always return lowercase AAAA
+      [[ ${rrec} == "AAAA" ]] && lowercase value "${value}"
       match_query "${server}" "${name}${domain:+.${domain}}" \
                   "${ttl}" "${rrec}" "${value}" && found=1
       value=''

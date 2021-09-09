@@ -224,7 +224,7 @@ parse_args() {
 
 parse_args "$@"
 
-[[ ${IP_MOCK_FAIL} ]] && fail "${IP_MOCK_FAIL}" "ip mock fail ${IP_MOCK_FAIL}"
+[[ ${IP_MOCK_FAIL} ]] && fail "$IP_MOCK_FAIL" "ip mock fail $IP_MOCK_FAIL"
 
 verbose "OBJECT=$OBJECT COMMAND=$COMMAND"
 verbose "IPV4=$IPV4 IP4=$IP4"

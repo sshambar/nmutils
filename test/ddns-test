@@ -38,7 +38,9 @@ xtest::group4::ddns() {
   local out xpat xstate cnf
   # check if ddns funcs avail
   [ -z "$NMDDNS" ] && return
-  # don't use helper
+
+  # don't use helper until we're ready
+  local NMDDNS_HELPER
   unset NMDDNS_HELPER
 
   shtest::title "nmddns tests"
@@ -148,15 +150,15 @@ xtest::group4::ddns() {
   xtest D10 t "(A) unset NAME, returns true"
   ftest D10f "" " - does not log"
 
-  DDNS_ZONE=exmaple.test DDNS_RREC_A_NAME=www.example.test
+  DDNS_ZONE=example.test DDNS_RREC_A_NAME=www.example.test
   DDNS_RREC_A_VALUE="*"
   xwrap nmddns_update A 203.0.113.10
   xtest D11 t "(A) _VALUE=*, returns true"
   read -r -d '' out <<-EOF
 	Removing www.example.test A
-	./bin/nsupdate-mock => nsupdate -t 3
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
-	zone exmaple.test
+	zone example.test
 	update delete www.example.test A
 	send
 	EOF
@@ -167,9 +169,9 @@ xtest::group4::ddns() {
   xtest D12 t "(A <pub>) returns true"
   read -r -d '' out <<-EOF
 	Setting www.example.test A to 203.0.113.10
-	./bin/nsupdate-mock => nsupdate -t 3
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
-	zone exmaple.test
+	zone example.test
 	update delete www.example.test A
 	update add www.example.test 600 A 203.0.113.10
 	send
@@ -241,20 +243,15 @@ xtest::group4::ddns() {
 
   shtest::prefix "nmddns_spawn_update"
 
-  cnf="$TEST_OUT/xtest-ddns.conf"
-  rm -f "$cnf"
-  xwrap nmddns_spawn_update "$cnf"
+  rm -f "$XNOFILE"
+  xwrap nmddns_spawn_update "$XNOFILE"
   xtest D31 t "(<no conf>) returns true"
   ftest D31f "" " - does nothing"
 
+  cnf="$TEST_CONF/test-ddns.conf"
   xpat="$TEST_OUT/xtest-state @RREC@"
   xstate=${xpat//@RREC@/A}
 
-  cat > "$cnf" - <<-EOF
-	DDNS_LOCKFILE=''
-	DDNS_ZONE=example.test
-	DDNS_RREC_A_NAME=www.example.test
-	EOF
   rm -f "$xstate"; touch "$xstate"
   xwrap nmddns_spawn_update "$cnf" "" "" "$xpat"
   xtest D32 t "(<no rrec>) returns true"
@@ -290,7 +287,6 @@ xtest::group4::ddns() {
   shtest::check_file D34o "$xstate" "arg=update $cnf A  $xpat" " - runs helper"
   rm -f "$XFILE" "$xstate"
 
-  rm -f "$cnf"
   nmddns_cleanup
 
   # for SC
@@ -300,6 +296,79 @@ xtest::group4::ddns() {
   : "${DDNS_RREC_AAAA_NAME-} ${DDNS_TTL-} ${DDNS_RREC_MX_VALUE-}"
 }
 
+xtest::group5::helper() {
+
+  local out state0 state1
+
+  shtest::title "nmddns-helper tests"
+
+  shtest::prefix "nmddns-helper"
+
+  command &>/dev/null -v "${NMDDNS_HELPER}"
+  xtest H1 t "nmddns-helper is in path"
+  shtest::last_check_ok || return 0
+
+  state0="${RUNDIR}/ddns-eth0-AAAA.state"
+  state1="${RUNDIR}/ddns-eth1-A.state"
+  rm -f "$state0"
+  rm -f "$state1"
+
+  echo "2001:db8:4860:4860::8888/64" > "$state0"
+  echo "10.0.10.12/24" > "$state1"
+  xwrap "${NMDDNS_HELPER}"
+  xtest H2 t "(<no args>) 2 curr ip, returns true"
+  ftest H2f "" " - does not log"
+
+  echo "2001:db8:871a:28c1::2/64" > "$state0"
+  xwrap "${NMDDNS_HELPER}"
+  xtest H3 t "(<no args>) diff non-active ip, returns true"
+  read -r -d '' out <<-EOF
+	Removing www.example.test AAAA
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test AAAA
+	send
+	EOF
+  ftest H3f "$out" " - removes rrec"
+
+  echo "2001:db8:871a:28c1::1/64" > "$state0"
+  xwrap "${NMDDNS_HELPER}"
+  xtest H4 t "(<no args>) diff active ip, returns true"
+  read -r -d '' out <<-EOF
+	Setting www.example.test AAAA to 2001:db8:871a:28c1::1
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test AAAA
+	update add www.example.test 600 AAAA 2001:db8:871a:28c1::1
+	send
+	EOF
+  ftest H4f "$out" " - updates rrec"
+
+  rm -f "$state0" "$state1"
+  xwrap "${NMDDNS_HELPER}"
+  xtest H5 t "(<no args>) missing 2 states, returns true"
+  read -r -d '' out <<-EOF
+	Removing www.example.test AAAA
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test AAAA
+	send
+	Removing gateway.home.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server home.test
+	zone home.test
+	update delete gateway.home.test A
+	send
+	EOF
+  ftest H5f "$out" " - removes rrecs"
+
+  rm -f "$state0"
+  rm -f "$state1"
+}
+
 main() { # <args>
 
   [[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
@@ -307,7 +376,7 @@ main() { # <args>
   # need output directory
   [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
 
-  local XFILE="$TEST_OUT/xtest file"
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
   local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
 
   export nmg_log_stderr=4

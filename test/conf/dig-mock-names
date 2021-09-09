@@ -19,5 +19,5 @@ $SERVER home.test
 $ORIGIN home.test.
 $TTL 120
 gateway  AAAA fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b
-         A 198.51.100.5
-desktop  A 198.51.100.24
+         A 10.0.10.12
+desktop  A 198.168.66.24

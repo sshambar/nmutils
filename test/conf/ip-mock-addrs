@@ -1,6 +1,7 @@
 dev eth0 9000
 addr 192.168.66.4/24 8600sec 2400sec
 addr6 2001:db8:871a:28c1::1/64 86400sec 14400sec
+addr6 2001:db8:4860:4860::8888/64 86400sec 14400sec
 addr6 fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64 3600sec 1800sec global noprefixroute
 addr6 fe80::a00:27ff:fe1b:ff9a/64 forever forever link
 dev eth1

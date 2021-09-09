@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.1.1 - Shell script testing functions
+# shtest v1.2.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -114,10 +114,10 @@
 #
 #     Remove <filename> from shtest::check_reg_files tests.
 #
-#   shtest::check_reg_files <id> <desc> [ <fileX_contents>... ]
+#   shtest::check_reg_files <id> <desc> [ <file#-contents>... ]
 #
 #     Checks contents of files registered with shtest::reg_file
-#     in order against <fileX_contents>, displays "<id> OK" or
+#     in order against <file#-contents>, displays "<id> OK" or
 #     <id> FAIL | <desc>" including expected vs actual for first
 #     file with mis-matched content.
 #
@@ -179,9 +179,9 @@ shtest::_init_globals() {
   # internal state
   # 0 - COUNT, 1 - FAILED, 2 - STRICT, 3 - VERBOSE, 4 - NEXT_EXITTRAP,
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK, 8 - MUTE, 9 - TOP_SUBSHELL
-  # 10 - LOGFD
+  # 10 - LOGFD, 11 - MULTI_TEST
   _SHTEST_STATE=(0 0)
-  for (( i=2; i<=10; i++ )); do _SHTEST_STATE[${i}]=''; done
+  for (( i=2; i<=11; i++ )); do _SHTEST_STATE[${i}]=''; done
   _SHTEST_STATE[9]=${BASH_SUBSHELL}
   _SHTEST_REG_FILES=() _SHTEST_FOCUS=() _SHTEST_FAILED=()
 
@@ -295,8 +295,10 @@ shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
     shtest::log "        reason: ${3-}"
   fi
   ((_SHTEST_STATE[1]++)) || :
-  _SHTEST_FAILED+=("${id}")
-  [[ ${#_SHTEST_FOCUS[*]} != 0 ]] && _SHTEST_STATE[8]=1
+  [[ ${_SHTEST_STATE[11]} ]] || {
+    _SHTEST_FAILED+=("${id}")
+    [[ ${#_SHTEST_FOCUS[*]} != 0 ]] && _SHTEST_STATE[8]=1
+  }
   return 0
 }
 
@@ -461,18 +463,28 @@ shtest::dereg_file() { # <filename>
   done
 }
 
-shtest::check_reg_files() { # <id> <desc> [ <fileX_contents>... ]
-  local id=${1-} desc=${2-} file rc
+shtest::check_reg_files() { # <id> <desc> [ <file#-contents>... ]
+  local id=${1-} desc=${2-} file rc fails num
   [[ ${id} ]] ||
-    shtest::fatal "Usage: shtest::check_reg_files <id> <desc> [ <fileX_contents>... ]" 3
+    shtest::fatal "Usage: shtest::check_reg_files <id> <desc> [ <file#-contents>... ]" 3
   shtest::_check_entry "${id}" "${desc}" || return 0
   shift 2 || set --
+  fails=${_SHTEST_STATE[1]} num=0
+  _SHTEST_STATE[11]=1 # multi-test state
   for file in "${_SHTEST_REG_FILES[@]-}"; do
-    [[ ${file} ]] || break
-    shtest::_check_file "${id}" "${file}" "${1-}" "${desc}"
-    [[ ${rc} != 0 ]] && return 0
+    ((num++)) || :
+    [[ ${file} ]] || continue
+    shtest::_check_file "${id}" "${file}" "${1-}" "${desc} (reg ${num})"
     shift || set --
   done
+  _SHTEST_STATE[11]='' # reset multi-test
+  [[ ${fails} != ${_SHTEST_STATE[1]} ]] && {
+    # multiple file failures is only a single test failure
+    _SHTEST_STATE[1]=$((++fails))
+    _SHTEST_FAILED+=("${id}")
+    [[ ${#_SHTEST_FOCUS[*]} != 0 ]] && _SHTEST_STATE[8]=1
+    return 0
+  }
   shtest::_log_ok "${id}" "${desc}"
 }
 

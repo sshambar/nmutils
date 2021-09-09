@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# nmddns-helper v1.1.0 - NMUtils Dynamic DNS helper program
+# nmddns-helper v1.1.1 - NMUtils Dynamic DNS helper program
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2019 Scott Shambarger
+# Copyright (C) 2014-2021 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@
 #
 
 # for logging
-NMG_TAG="${NMG_TAG:-nmddns}"
+NMG_TAG="${NMG_TAG-nmddns}"
 
 # set NMUTILS/NMCONF early, and allow environment to override
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -57,123 +57,127 @@ RUNDIR="${RUNDIR:-/run/nmutils}"
 ########## SCRIPT START
 
 # load ddns-functions
-NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
-[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
-    echo 1>&2 "Unable to load $NMDDNS" && exit 2
-  }
+NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
+# shellcheck disable=SC1090
+{ [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
+  echo 1>&2 "Unable to load ${NMDDNS}"; exit 2; }
 
 ########## Config locations
 
-# NOTE: *_PAT variables must have @MATCH@ and @RREC@ keywords
+# NOTE: *_PAT variables must have a single @MATCH@ and @RREC@ keyword
 NMDDNS_CONFIG_PAT="${NMDDNS_CONFIG_PAT:-$NMCONF/ddns-@MATCH@.conf}"
 NMDDNS_STATE_PAT="${NMDDNS_STATE_PAT:-$RUNDIR/ddns-@MATCH@-@RREC@.state}"
 
 function ddns_update() {
   # <rrec> [<value>]
-  local rrec="$1" value="${2:-}" rc=0
+  local rrec="${1-}" value="${2-}" rc=0
 
-  [ -n "$rrec" ] || return 0
+  [[ ${rrec} ]] || return 0
 
-  nmddns_update "$rrec" "$value" || rc=$?
+  nmddns_update "${rrec}" "${value}" || rc=$?
 
   # allow server unreachable...
-  [ $rc -eq 25 ] && return 0
+  [[ ${rc} == 25 ]] && return 0
 
-  return $rc
+  return ${rc}
 }
 
 function ddns_interface_rrec() {
   # <interface> <state-pat> <rrec>
   local intf="$1" state_pat="$2" rrec="$3"
 
-  local state="${state_pat/@RREC@/$rrec}"
+  local state="${state_pat//@RREC@/${rrec}}"
 
-  local value=
-  [ -f "$state" -a -r "$state" ] && value=$(< "$state")
+  nmg::read value ignore "${state}"
+  # first line only...
+  value=${value%%$'\n'*}
 
-  if [ -n "$value" ]; then
+  if [[ ${value} ]]; then
     # ensure if address, it can be found on the interface
-    case "$rrec" in
-      "A")
-	value=$(nmg_find_ip4_addrs "$intf" "$value")
-	;;
-      "AAAA")
-	value=$(nmg_find_ip6_addrs "$intf" "$value")
-	;;
+    case ${rrec} in
+      A)
+        nmg_debug "Checking if ${intf} has ip4 ${value}"
+        value=$(nmg_find_ip4_addrs "${intf}" "${value}") ;;
+      AAAA)
+        nmg_debug "Checking if ${intf} has ip6 ${value}"
+        value=$(nmg_find_ip6_addrs "${intf}" "${value}") ;;
     esac
   fi
 
-  ddns_update "$rrec" "$value"
+  ddns_update "${rrec}" "${value}"
 }
 
 function ddns_interface() {
-  # [<interface>]
-  local interface="${1:-}" rc=0
+  # [ <interface> ]
+  local interface=${1-} rc=0
 
   local config_pre="${NMDDNS_CONFIG_PAT%@MATCH@*}"
   local config_post="${NMDDNS_CONFIG_PAT##*@MATCH@}"
 
-  shopt -s nullglob
-  local config=
-  for config in "$config_pre"*"$config_post"; do
+  local config intf
+  for config in "${config_pre}"*"${config_post}"; do
+
+    # config has * if no matches...
+    [[ ${config} == "${NMDDNS_CONFIG_PAT/@MATCH@/*}" ]] && break
 
     # get match part
-    local match="${config#$config_pre}"
-    match="${match%$config_post}"
-    [ -z "$match" ] && continue
+    local match="${config#${config_pre}}"
+    match="${match%${config_post}}"
+    [[ ${match} ]] || continue
 
     # find interface (remove any -prefix etc)
-    local intf="${match%%-*}"
+    intf="${match%%-*}"
 
     # if we have an interface, make sure we filter for it
-    [ -z "$interface" -o "$intf" = "$interface" ] || continue
+    [[ ${interface} && ${interface} != "${intf}" ]] && continue
 
     # load DDNS config
-    nmddns_read_config "$config" || continue
+    nmddns_read_config "${config}" || continue
 
     # get state file pattern
-    local state_pat="${NMDDNS_STATE_PAT/@MATCH@/$match}"
+    local state_pat="${NMDDNS_STATE_PAT/@MATCH@/${match}}"
 
-    local name=
+    local name rrec
     for name in "${!DDNS_RREC_@}"; do
-      name="${name#DDNS_RREC_}"
-      [[ "$name" = *_NAME ]] || continue
-      ddns_interface_rrec "$intf" "$state_pat" "${name%_NAME}" || rc=$?
+      [[ ${name} =~ _NAME$ ]] || continue
+      name=${name#DDNS_RREC_}
+      rrec=${name%_NAME}
+      [[ ${rrec} ]] || continue
+      ddns_interface_rrec "${intf}" "${state_pat}" "${rrec}" || rc=$?
     done
   done
 
-  return $rc
+  return ${rc}
 }
 
 function ddns_helper_action() {
-  # <action> <config-file> <args>...
-  local action="${1:-}" config="${2:-}"; shift 2
+  # <action> <config-file> [ <args>... ]
+  local action=$1 config=$2; shift 2
 
-  case "$action" in
-    "update")
-      nmddns_required_config "$config"
+  case ${action} in
+    update)
+      nmddns_required_config "${config}"
       nmddns_update "$@"
       ;;
-    "up"|"down")
-      nmddns_required_config "$config"
-      nmddns_update_all "$action" "$@"
+    up|down)
+      nmddns_required_config "${config}"
+      nmddns_update_all "${action}" "$@"
       ;;
     *)
-      echo 1>&2 "Usage: ${0##*/} [<interface>]"
+      echo 1>&2 "Usage: ${0##*/} [ <interface> ]"
       return 1
       ;;
   esac
 }
 
-[ -e "$RUNDIR" ] || {
-  nmg_cmd mkdir -p "$RUNDIR" || exit
-}
+[[ -e ${RUNDIR} ]] || { nmg_cmd mkdir -p "${RUNDIR}" || exit; }
 
-if [ -z "${2:-}" ]; then
-  ddns_interface "${1:-}"
-else
+if [[ ${2-} ]]; then
   ddns_helper_action "$@"
+else
+  ddns_interface "$@"
 fi
+
 # Local Variables:
 # mode: sh
 # sh-basic-offset: 2
