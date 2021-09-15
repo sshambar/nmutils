@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.2.2 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.3.0 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -135,6 +135,18 @@
 #   nmg_dec_to_hex <num> => nmg::2hex, echos result
 #
 # String functions
+#
+#   nmg::transpose <retvar> <string> <from> <to>
+#
+#     Transpose characters <from> to <to> in <string>, assign to <retvar>
+#
+#   nmg::lowercase <retvar> <string>
+#
+#     Assign <retvar> <string> lowercased
+#
+#   nmg::uppercase <retvar> <string>
+#
+#     Assign <retvar> <string> uppercased
 #
 #   nmg::array_join <retvar> <sep> <vals>...
 #
@@ -870,6 +882,41 @@ function nmg::2hex() {
 function nmg_dec_to_hex() {
   # <decimal number>
   local hex; nmg::2hex hex "${1-}" && { echo -n "${hex}" || :; }
+}
+
+nmg::transpose() {
+  # <retvar> <string> <from> <to>
+  nmg::_clearvar "${1-}" "ret" 1 || return
+  local __r=${2-} __m __p
+  if [[ ${3-} && ${4-} && ${#3} == ${#4} ]]; then
+    while [[ ${__r} =~ ([${3-}]) ]]; do
+      __m="${BASH_REMATCH[1]}"; __p="${3%${__m}*}"
+      __r="${__r//${__m}/${4:${#__p}:1}}"
+    done
+  fi
+  printf -v "$1" "%s" "${__r}"
+}
+
+nmg::lowercase() {
+  # <retvar> <string>
+  nmg::_clearvar "${1-}" "ret" 1 || return
+  if (( BASH_VERSINFO[0] >= 4 )); then
+    local __r=${2-}; printf -v "$1" "%s" "${__r,,}"
+  else
+    nmg::transpose "$1" "${2-}" "ABCDEFGHIJKLMNOPQRSTUVWXYZ" \
+                   "abcdefghijklmnopqrstuvwxyz"
+  fi
+}
+
+nmg::uppercase() {
+  # <retvar> <string>
+  nmg::_clearvar "${1-}" "ret" 1 || return
+  if (( BASH_VERSINFO[0] >= 4 )); then
+    local __r=${2-}; printf -v "$1" "%s" "${__r^^}"
+  else
+    nmg::transpose "$1" "${2-}" "abcdefghijklmnopqrstuvwxyz" \
+                   "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  fi
 }
 
 function nmg::array_join() {

@@ -653,7 +653,7 @@ xtest::group3::misc() {
   var="orig"
   xwrap nmg::array_join var
   xtest M2 t "(<retvar>) returns true"
-  vtest M2v "" " - should clear retvar"
+  vtest M2v "" " - clears retvar"
   ftest M2f "" " - does not log"
 
   xwrap nmg::array_join var "," "${src[@]}"
@@ -674,7 +674,7 @@ xtest::group3::misc() {
   var="orig"
   xwrap nmg::2dec var "xx"
   xtest M12 f "(xx) returns false"
-  vtest M12v "" " - sets clear retvar"
+  vtest M12v "" " - clears retvar"
   ftest M12f "ERR: nmg::2dec: invalid <value> 'xx'" " - logs error"
 
   shtest::prefix "nmg::2hex"
@@ -687,8 +687,61 @@ xtest::group3::misc() {
   var="orig"
   xwrap nmg::2hex var "xx"
   xtest M22 f "(xx) returns false"
-  vtest M22v "" " - sets clear retvar"
+  vtest M22v "" " - clears retvar"
   ftest M22f "ERR: nmg::2hex: invalid <value> 'xx'" " - logs error"
+
+  shtest::prefix "nmg::transpose"
+
+  var="orig"
+  xwrap nmg::transpose var
+  xtest M31 t "() returns true"
+  vtest M31v "" " - clears retvar"
+  ftest M31f "" " - does not log"
+
+  var="orig"
+  xwrap nmg::transpose var "xx"
+  xtest M32 t "(xx) returns true"
+  vtest M32v "xx" " - sets retvar"
+
+  var="orig"
+  xwrap nmg::transpose var "xx" "xy"
+  xtest M33 t "(xx xy) returns true"
+  vtest M33v "xx" " - sets retvar"
+
+  var="orig"
+  xwrap nmg::transpose var "xx" "xy" "YZ"
+  xtest M34 t "(xx xy YZ) returns true"
+  vtest M34v "YY" " - sets retvar"
+
+  xwrap nmg::transpose
+  xtest M35 f "(<no args>) returns false"
+  ftest M35f "ERR: nmg::transpose: missing <retvar>" " - logs error"
+
+  xwrap nmg::transpose "!bad" "xx" "xy" "YZ"
+  xtest M36 f "(<bad retvar>) returns false"
+  ftest M36f "ERR: nmg::transpose: invalid <retvar> '!bad'" " - logs error"
+
+  shtest::prefix "nmg::uppercase"
+
+  xwrap nmg::uppercase var "Some Text"
+  xtest M41 t "(text) returns true"
+  vtest M41v "SOME TEXT" " - set retvar"
+
+  var="orig"
+  xwrap nmg::uppercase var
+  xtest M42 t "(<no text>) returns true"
+  vtest M42v "" " - clears retvar"
+
+  shtest::prefix "nmg::lowercase"
+
+  xwrap nmg::lowercase var "Some Text"
+  xtest M51 t "(text) returns true"
+  vtest M51v "some text" " - set retvar"
+
+  var="orig"
+  xwrap nmg::lowercase var
+  xtest M52 t "(<no text>) returns true"
+  vtest M52v "" " - clears retvar"
 }
 
 xtest::group4::config() {
