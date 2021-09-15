@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.2.1 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.2.2 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -451,12 +451,12 @@ function nmg_daemon() {
   nmg_debug "nmg_daemon: $*"
 
   command &>/dev/null -v "${cmd}" || {
-    nmg_err "nmg_daemon: command '${cmd}' not found" && return 1; }
+    nmg_err "nmg_daemon: command '${cmd}' not found"; return 1; }
 
   # fork, add to daemon cgroup (if any) and re-exec command
   (
     [[ ${NMG_DAEMON_CGROUP} ]] && [[ -w ${NMG_DAEMON_CGROUP} ]] && {
-      nmg_write "${NMG_DAEMON_CGROUP}" "${BASHPID}"; }
+      nmg_write "${NMG_DAEMON_CGROUP}" "${BASHPID}" || :; }
     # export environment
     export NMUTILS NMCONF
     if [[ ${nmg_log_stderr-} ]]; then
@@ -636,9 +636,9 @@ function nmg::read() {
 
 function nmg_remove() {
   # <file>
-  [[ ${1-} ]] || { nmg_err "nmg_remove: missing <file>" && return 1; }
+  [[ ${1-} ]] || { nmg_err "nmg_remove: missing <file>"; return 1; }
 
-  nmg_qcmd "$NMG_RM" -f "$1"
+  nmg_qcmd "$NMG_RM" -f "$1" || :
 }
 
 function nmg_is_running() {
@@ -841,7 +841,8 @@ function nmg_find_ip4_addrs() {
   # [ <intf> [ <match> [ <ip-args> ] ] ]
   local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} && echo -n "${ips[@]%% *}"
+  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} && {
+    echo -n "${ips[@]%% *}" || :; }
   return 0
 }
 
@@ -855,7 +856,7 @@ function nmg::2dec() {
 
 function nmg_hex_to_dec() {
   # <hex number>
-  local dec; nmg::2dec dec "0x${1:-0}" && echo -n "${dec}"
+  local dec; nmg::2dec dec "0x${1:-0}" && { echo -n "${dec}" || :; }
 }
 
 function nmg::2hex() {
@@ -868,7 +869,7 @@ function nmg::2hex() {
 
 function nmg_dec_to_hex() {
   # <decimal number>
-  local hex; nmg::2hex hex "${1-}" && echo -n "${hex}"
+  local hex; nmg::2hex hex "${1-}" && { echo -n "${hex}" || :; }
 }
 
 function nmg::array_join() {
@@ -903,7 +904,7 @@ function nmg::_create_ip6_prefix() { # returns 0
 
   # hex2dec
   printf 2>/dev/null -v site "%d" "0x${asite//:/}" || {
-    nmg::_p_err "invalid site '${asite}'" && return 0; }
+    nmg::_p_err "invalid site '${asite}'"; return 0; }
 
   printf 2>/dev/null -v slen "%d" "${aslen:-64}" || {
     nmg::_p_err "invalid site-len '${aslen}'"; return 0; }
@@ -964,7 +965,7 @@ function nmg::create_ip6_prefix() {
 function nmg_create_ip6_prefix() {
   local _nmgvar='' _nmgrc=1
   nmg::_create_ip6_prefix "$@"
-  [[ ${_nmgrc} == 0 ]] && echo -n "${_nmgvar}"
+  [[ ${_nmgrc} == 0 ]] && { echo -n "${_nmgvar}" || :; }
   return ${_nmgrc}
 }
 
@@ -999,7 +1000,8 @@ function nmg_find_ip6_addrs() {
   # [ <intf> [ <pattern> [ <ip-args> ] ] ]
   local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} && echo -n "${ips[@]%% *}"
+  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} && {
+    echo -n "${ips[@]%% *}" || :; }
   return 0
 }
 
@@ -1023,8 +1025,7 @@ function nmg_create_ip6_host() {
   local intf=${1-} node=${2-} link_addrs
 
   [[ ${intf} ]] || {
-    nmg_err "nmg_create_ip6_host: missing <intf>" && return 1
-  }
+    nmg_err "nmg_create_ip6_host: missing <intf>"; return 1; }
 
   if [[ -z ${node} ]] || [[ ${node} == auto ]]; then
 
@@ -1043,7 +1044,7 @@ function nmg_create_ip6_host() {
     return 1
   }
 
-  echo -n "${node}"
+  echo -n "${node}" || :
 }
 
 function nmg_create_ip6_addr() {
@@ -1056,9 +1057,9 @@ function nmg_create_ip6_addr() {
   if [[ ${p} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+::$ ]] \
        && [[ ${node} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$ ]]; then
     # both prefix and node are 4-quads, remove the ::
-    echo -n "${p%::}:${node}"
+    echo -n "${p%::}:${node}" || :
   else
-    echo -n "${p}${node}"
+    echo -n "${p}${node}" || :
   fi
 }
 
@@ -1075,8 +1076,9 @@ function nmg_radvd_trigger() {
     nmg_debug "signaling ${NMG_RADVD}"
     local pid
     nmg::read pid "ignore" "${NMG_RADVD_PID}"
-    [[ ${pid} ]] && nmg_cmd kill -HUP "${pid}"
+    [[ ${pid} ]] && { nmg_cmd kill -HUP "${pid}" || :; }
   fi
+  return 0
 }
 
 # private

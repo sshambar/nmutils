@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.5 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.6 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -341,7 +341,7 @@ function nmddns_update() {
     [[ ${rrec} =~ ^(A|AAAA)$ ]] && value="${value%%/*}"
 
     # set state if requested
-    [[ ${state} ]] && nmg_write "${state}" "${value}"
+    [[ ${state} ]] && { nmg_write "${state}" "${value}" || :; }
 
     # use DDNS_RREC_*_VALUE, or $value if not set
     name="DDNS_RREC_${rrec}_VALUE"; new_value=${!name:-${value}}
