@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.2.0 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.2.1 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -149,7 +149,7 @@
 #     pattern <match> (all if unset) limited to ipv4 (4) or ipv6 (6).
 #     <retvar> items are each "<addr/prefix> <valid-life> <pref-life>".
 #     <ip-args>... replace default "'scope' 'global'" ip args.
-#     See <err-modes> above for options.
+#     See <err-modes> above for options.  Returns 2 if none found.
 #
 #   nmg::mod_ip <retvar> <err-modes> <cmd> <intf> <addr/plen> [ <ip-args>... ]
 #
@@ -169,7 +169,7 @@
 #
 #     Echos newline seperated addresses on <intf> (default all)
 #     matching <pattern> (default all). <ip-args> replace default
-#     "scope global".
+#     "scope global".  Returns 0.
 #
 #   nmg_add_ip4_addr <intf> <addr/plen> [ <ip-args>... ]
 #
@@ -211,7 +211,7 @@
 #
 #     Echos newline seperated addresses on <intf> (default all)
 #     matching <pattern> (default all). <ip-args> replace default
-#     "scope global".
+#     "scope global".  Returns 0.
 #
 #   nmg_add_ip6_addr <intf> <addr/plen> [ <ip-args>... ]
 #
@@ -675,6 +675,7 @@ function nmg::_query_ips() { # returns 0
     _nmgrc=$?; [[ ${_nmglog//ignore} != "${_nmglog}" ]] && _nmgrc=0
     _nmgvar=${out}; return; }
 
+  _nmgrc=2
   pat=${3:-^[0-9a-f:]+/[0-9]+$}; [[ $1 == 4 ]] && pat=${3:-^[0-9.]+/[0-9]+$}
   for el in $out; do
     case ${state} in
@@ -696,11 +697,14 @@ function nmg::_query_ips() { # returns 0
     esac
     if [[ ${addr} && ${valid} && ${pref} ]]; then
       _nmgvar+="${addr} ${valid} ${pref}"$'\n'
-      addr='' valid='' pref=''
+      addr='' valid='' pref='' _nmgrc=0
     fi
   done
 
-  _nmgrc=0
+  [[ ${_nmgrc} != 0 ]] && {
+    _nmglog+=" debug"; nmg::_err "nmg::query_ips: none found"
+  }
+  return 0
 }
 
 function nmg::query_ips() {
@@ -837,8 +841,8 @@ function nmg_find_ip4_addrs() {
   # [ <intf> [ <match> [ <ip-args> ] ] ]
   local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} &&
-    echo -n ${ips[@]+"${ips[@]%% *}"}
+  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} && echo -n "${ips[@]%% *}"
+  return 0
 }
 
 function nmg::2dec() {
@@ -995,8 +999,8 @@ function nmg_find_ip6_addrs() {
   # [ <intf> [ <pattern> [ <ip-args> ] ] ]
   local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} &&
-    echo -n ${ips[@]+"${ips[@]%% *}"}
+  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} && echo -n "${ips[@]%% *}"
+  return 0
 }
 
 function nmg_add_ip6_addr() {

@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 90-transmission v1.1.0 - Transmission dispatcher script
+# 90-transmission v1.1.1 - Transmission dispatcher script
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # This script sets transmissions bind address to the public IP
@@ -135,11 +135,11 @@ function get_addr4() { # <varname>
     # check addr (remove netmask and gateway)
     nmg_check_ip4_addr "${addr}" "${priv_ok}" || continue
 
-    if [[ $(nmg_find_ip4_addrs "${interface}" "^${addr}" \
-                               "scope global tentative") ]]; then
+    if nmg::query_ips "" "nolog" 4 "${interface}" "^${addr}" \
+                      "scope global tentative"; then
       nmg_debug "Address ${addr} still tentative"
-    elif [[ $(nmg_find_ip4_addrs "${interface}" "^${addr}" \
-                                 "scope global") ]]; then
+    elif nmg::query_ips "" "nolog" 4 "${interface}" "^${addr}" \
+                        "scope global"; then
       nmg_debug "Selecting ${addr}"
       printf -v "$1" "%s" "${addr}"
       return 0
@@ -169,11 +169,11 @@ function get_addr6() { # <varname>
     # check addr (remove netmask and gateway)
     nmg_check_ip6_addr "${addr}" "${priv_ok}" || continue
 
-    if [[ $(nmg_find_ip6_addrs "${interface}" "^${addr}" \
-                               "scope global tentative") ]]; then
+    if nmg::query_ips "" "nolog" 6 "${interface}" "^${addr}" \
+                      "scope global tentative"; then
       nmg_debug "Address ${addr} still tentative"
-    elif [[ $(nmg_find_ip6_addrs "${interface}" "^${addr}" \
-                                 "scope global") ]]; then
+    elif nmg::query_ips "" "nolog" 6 "${interface}" "^${addr}" \
+                        "scope global"; then
       nmg_debug "Selecting ${addr}"
       printf -v "$1" "%s" "${addr}"
       return 0

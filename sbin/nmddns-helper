@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# nmddns-helper v1.1.1 - NMUtils Dynamic DNS helper program
+# nmddns-helper v1.1.2 - NMUtils Dynamic DNS helper program
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -84,7 +84,7 @@ function ddns_update() {
 
 function ddns_interface_rrec() {
   # <interface> <state-pat> <rrec>
-  local intf="$1" state_pat="$2" rrec="$3"
+  local intf="$1" state_pat="$2" rrec="$3" ipver=''
 
   local state="${state_pat//@RREC@/${rrec}}"
 
@@ -95,13 +95,18 @@ function ddns_interface_rrec() {
   if [[ ${value} ]]; then
     # ensure if address, it can be found on the interface
     case ${rrec} in
-      A)
-        nmg_debug "Checking if ${intf} has ip4 ${value}"
-        value=$(nmg_find_ip4_addrs "${intf}" "${value}") ;;
-      AAAA)
-        nmg_debug "Checking if ${intf} has ip6 ${value}"
-        value=$(nmg_find_ip6_addrs "${intf}" "${value}") ;;
+      A) ipver=4 ;;
+      AAAA) ipver=6 ;;
     esac
+    [[ ${ipver} ]] && {
+      if nmg::query_ips aval "nolog" "${ipver}" "${intf}" "^${value}"; then
+        value=${aval[0]%% *}
+        nmg_debug "ip${ipver} address ${value} found on ${intf}"
+      else
+        nmg_debug "ip${ipver} address ${value} not found on ${intf}"
+        value=''
+      fi
+    }
   fi
 
   ddns_update "${rrec}" "${value}"

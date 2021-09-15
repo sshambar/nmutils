@@ -365,6 +365,18 @@ xtest::group3::ip() {
   ftest I11f "ERR: nmg::query_ips: <err-mode> retvar requires one" \
         " - logs error"
 
+  local nmg_show_debug=1
+  avar=("bogus")
+  xwrap nmg::query_ips avar "" 4 "eth1" "^50.*"
+  xtest I12 2 "(eth1 ^50.*) returns 2"
+  atest I12a avar anull " - clears retvar"
+  ftest I12f "DBG: $NMG_IP -4 addr show dev eth1 scope global"$'\n'"DBG: nmg::query_ips: none found" " - logs debug (none found)"
+
+  xwrap nmg::query_ips "" "nolog" 4 "eth0" "^192.*"
+  xtest I13 t "(nolog eth0 ^192.*) returns true"
+  ftest I13f "DBG: $NMG_IP -4 addr show dev eth0 scope global" " - logs debug"
+  unset nmg_show_debug
+
   shtest::prefix "nmg::mod_ip"
 
   xwrap nmg::mod_ip
