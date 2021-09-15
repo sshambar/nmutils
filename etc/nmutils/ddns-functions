@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.4 - Dynamic DNS functions scripts can include and use
+# NMDDNS v1.3.5 - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -77,8 +77,6 @@
 #     the record (DDNS_* values should be set).  If supplied,
 #     <state-pat> must contain the string "@RREC@" and is used to
 #     set state for nmddns-helper to update DDNS in late startup.
-#     NOTE: if <state-pat> is used, A and AAAA addresses should include
-#     "/<plen>" so nmddns-helper can match address is interface.
 #
 #   nmddns_spawn_update <config-file> <rrec> [ <value> [ <state-pat> ] ]
 #
@@ -89,8 +87,7 @@
 #
 #     Updates for all configured DDNS names (DDNS_* values should be set),
 #     using <ip4-addr> for A and <ip6-addr> for AAAA (if respective
-#     DDNS_RREC_*_VALUEs don't override). See nmddns_update regarding
-#     <state-pat>.
+#     DDNS_RREC_*_VALUEs don't override).
 #
 #   nmddns_spawn_update_all up | down <config-file>
 #                          [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
@@ -340,11 +337,11 @@ function nmddns_update() {
   state="${state_pat//@RREC@/${rrec}}"
   if [[ ${value} ]]; then
 
-    # set state if requested
-    [[ ${state} ]] && nmg_write "${state}" "${value}"
-
     # strip "/<prefix>" on A/AAAA values
     [[ ${rrec} =~ ^(A|AAAA)$ ]] && value="${value%%/*}"
+
+    # set state if requested
+    [[ ${state} ]] && nmg_write "${state}" "${value}"
 
     # use DDNS_RREC_*_VALUE, or $value if not set
     name="DDNS_RREC_${rrec}_VALUE"; new_value=${!name:-${value}}

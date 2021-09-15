@@ -115,7 +115,7 @@ xtest::group4::ddns() {
 	send
 	EOF
   ftest D6f "$out" " - logs and sets A (no plen)"
-  shtest::check_file D6s "$xstate" "192.168.55.1/24" " - generates state file (has plen)"
+  shtest::check_file D6s "$xstate" "192.168.55.1" " - generates state file (no plen)"
   rm -f "$xstate"
 
   xstate="$TEST_OUT/xtest-state"
