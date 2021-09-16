@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.4.0 - Some useful functions NetworkManager scripts can include and use
+# NMG - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -30,8 +30,11 @@
 #       NMUTILS="${NMUTILS:-/etc/nmutils}"
 #       NMCONF="${NMCONF:-${NMUTILS}/conf}"
 #
+#       # optional required
+#       NMG_REQUIRED="1.4.1"
+#
 #       NMG="${NMG:-${NMUTILS}/general-functions}"
-#       { [[ -r ${NMG} ]] && . "${NMG}"; } || NMG=
+#       { [[ -r ${NMG} ]] && . "${NMG}"; } || NMG=''
 #
 #   Use of NM* variables above is optional (NMG here indicates nmg_* functions
 #   were loaded), but the above allows easy overrides from the environment
@@ -58,6 +61,9 @@
 #       nolog - don't log anything
 #       ignore - don't log and return 0
 #       retvar - <retvar>="<err-text>"
+#
+#   NOTE: <retvar> may be empty for any function that accepts <err-modes>,
+#       except when <err-modes> includes "retvar"
 #
 #   nmg_log <log-level> <msg>
 #
@@ -135,6 +141,10 @@
 #   nmg_dec_to_hex <num> => nmg::2hex, echos result
 #
 # String functions
+#
+#   nmg::require_version <version> <min-required>
+#
+#     Returns 0 if <version> >= <min-required> ('.' format), 1 otherwise.
 #
 #   nmg::transpose <retvar> <string> <from> <to>
 #
@@ -268,6 +278,8 @@
 #
 #   NMCONF (default: NMUTILS/conf) - location of general.conf
 #
+#   NMG_REQUIRED (optional) - minimum required NMG_VERSION
+#
 # Global overrides (put in NMCONF/general.conf):
 #
 #   NMG_DAEMON_CGROUP (default NetworkManager's) - control group
@@ -288,7 +300,13 @@
 #
 # NOTE: executable paths (see below) may be overriden if needed
 #
+# Globals
+#
+#   NMG_VERSION - current file version
+#
 # shellcheck shell=bash
+
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.4.1"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -405,6 +423,21 @@ function nmg::_err() { # returns 0
   elif [[ ${err} ]]; then
     nmg_err "${msg}"
   fi
+  return 0
+}
+
+function nmg::require_version() { # <version> >= <min-required>
+  # <version> <min-required>
+  [[ ${1-} ]] || {
+    nmg_err "nmg::require_version: missing <version>"; return 1; }
+  [[ ${2-} ]] || {
+    nmg_err "nmg::require_version: missing <min-required>"; return 1; }
+  local IFS=. va=() ra=() i
+  read -r -a va <<< "$1"; read -r -a ra <<< "$2"
+  for (( i=0; i<${#ra[*]}; i++ )); do
+    (( i > ${#va[*]} || ra[i] > va[i] )) && return 1
+    (( ra[i] < va[i] )) && return 0
+  done
   return 0
 }
 
@@ -897,7 +930,7 @@ nmg::transpose() {
   # <retvar> <string> <from> <to>
   nmg::_clearvar "${1-}" nmgret 1 || return
   local __r=${2-} __m __p
-  if [[ ${3-} && ${4-} && ${#3} == ${#4} ]]; then
+  if [[ ${3-} && ${4-} && ${#3} == "${#4}" ]]; then
     while [[ ${__r} =~ ([${3-}]) ]]; do
       __m="${BASH_REMATCH[1]}"; __p="${3%${__m}*}"
       __r="${__r//${__m}/${4:${#__p}:1}}"
@@ -1154,14 +1187,19 @@ function nmg_radvd_trigger() {
 }
 
 # private
-function nmg_loaded() {
+function nmg::_loaded() {
 
+  if [[ ${NMG_REQUIRED-} ]] &&
+       ! nmg::require_version "${NMG_VERSION}" "${NMG_REQUIRED}"; then
+    nmg_err "${BASH_SOURCE[0]}: NMG_VERSION=${NMG_VERSION} < NMG_REQUIRED=${NMG_REQUIRED}"
+    return 1
+  fi
   # test required programs
   nmg_need_progs "${NMG_PGREP}" "${NMG_RM}" "${NMG_IP}" || return
 }
 
 # last, so load fails if any missing components
-nmg_loaded
+nmg::_loaded
 
 # Local Variables:
 # mode: sh

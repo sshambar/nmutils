@@ -18,11 +18,23 @@ NMG="${NMG:-${NMUTILS}/general-functions}"
 # ensure includes pass parse test
 shtest::parse "${NMG}" || shtest::fatal
 
+# verify required
+NMG_REQUIRED="99.0.0"
+
 # shellcheck source=/dev/null
-. "${NMG}"
+(. "${NMG}" 2>/dev/null && {
+  echo >&2 "FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
+  exit 1
+} || :) || exit 1
+
+# min-version for tests
+NMG_REQUIRED="1.4.1"
 
 # less noise
 export NMG_TAG=''
+
+# shellcheck source=/dev/null
+. "${NMG}" || exit 1
 
 # these tests require MOCK_ECHO=1 to check command actions
 export MOCK_ECHO=1
@@ -502,7 +514,7 @@ xtest::group3::ip6() {
   xwrap nmg::create_ip6_prefix var "fddd:1234::/64"
   xtest P24 f "(<no site>) returns false"
   vtest P24v "" " - sets var=''"
-  ftest P24f "ERR: nmg::create_ip6_prefix: missing site" " - logs error"
+  ftest P24f "ERR: nmg::create_ip6_prefix: missing <site>" " - logs error"
 
   xwrap nmg::create_ip6_prefix var "fddd:1234::/64" "zz"
   xtest P25 f "(<bad site>) returns false"
@@ -525,6 +537,56 @@ xtest::group3::ip6() {
   xtest P28 t "(<prefix>/48 <site>) returns true"
   vtest P28v "fddd:1234:5678:eeff::/64" " - returns /64 prefix"
   ftest P28f "" " - does not log"
+
+  shtest::prefix "nmg_create_ip6_prefix"
+
+  xwrap nmg_create_ip6_prefix "fddd:1234:5678:abcd::/48" "eeff"
+  xtest P31 t "(<prefix>/48 <site>) returns true"
+  ftest2 P31f "" "fddd:1234:5678:eeff::/64" " - echos /64 prefix"
+
+  shtest::prefix "nmg::create_ip6_host"
+
+  xwrap nmg::create_ip6_host var "eth1"
+  xtest P41 t "(eth1) returns true"
+  vtest P41v "31fd:68fd:ed8b:4d77" " - returns link-local host-part"
+
+  xwrap nmg::create_ip6_host var "eth0" "auto"
+  xtest P42 t "(eth0 auto) returns true"
+  vtest P42v "a00:27ff:fe1b:ff9a" " - returns link-local host-part"
+
+  xwrap nmg::create_ip6_host var
+  xtest P43 f "(<no intf>) returns false"
+  ftest P43f "ERR: nmg::create_ip6_host: missing <intf>" " - logs error"
+
+  xwrap nmg::create_ip6_host var "eth3" "auto"
+  xtest P44 f "(<bad intf>) returns false"
+  ftest P44f "ERR: nmg::create_ip6_host: Unable to determine an auto host-part for interface eth3" " - logs error"
+
+  xwrap nmg::create_ip6_host var "eth0" "1"
+  xtest P45 t "(eth0 1) returns true"
+  vtest P45v "1" " - sets retvar to 1"
+
+  shtest::prefix "nmg::create_ip6_addr"
+
+  xwrap nmg::create_ip6_addr
+  xtest P51 f "(<no args>) returns false"
+  ftest P51f "ERR: nmg::create_ip6_addr: missing <retvar>" " - logs error"
+
+  xwrap nmg::create_ip6_addr var
+  xtest P52 f "(<no prefix>) returns false"
+  ftest P52f "ERR: nmg::create_ip6_addr: missing <prefix/plen>" " - logs error"
+
+  xwrap nmg::create_ip6_addr var "abcd::"
+  xtest P53 f "(<no plen>) returns false"
+  ftest P53f "ERR: nmg::create_ip6_addr: missing <prefix/plen>" " - logs error"
+
+  xwrap nmg::create_ip6_addr var "abCD::/64"
+  xtest P54 f "(<no host>) returns false"
+  ftest P54f "ERR: nmg::create_ip6_addr: missing <host-part>" " - logs error"
+
+  xwrap nmg::create_ip6_addr var "abCD::/64" "EFEF:1234"
+  xtest P55 t "(pfx host) returns true"
+  vtest P55v "abcd::efef:1234/64" " - sets retvar to lowercase addr"
 }
 
 xtest::group3::file() {
@@ -742,6 +804,34 @@ xtest::group3::misc() {
   xwrap nmg::lowercase var
   xtest M52 t "(<no text>) returns true"
   vtest M52v "" " - clears retvar"
+
+  shtest::prefix "nmg::version_required"
+
+  xwrap nmg::require_version
+  xtest M61 f "(<no args>) returns false"
+  ftest M61f "ERR: nmg::require_version: missing <version>" " - logs error"
+  xwrap nmg::require_version "1.2.3"
+  xtest M62 f "(<miss req>) returns false"
+  ftest M62f "ERR: nmg::require_version: missing <min-required>" " - logs error"
+  xwrap nmg::require_version "1.2.3" "1.2.2"
+  xtest M63 t "(>req) returns true"
+  xwrap nmg::require_version "1.2.3" "1.2.3"
+  xtest M64 t "(=req) returns true"
+  xwrap nmg::require_version "1.2.3" "1.2.4"
+  xtest M65 f "(<req) returns false"
+  ftest M65f "" " - does not log"
+  xwrap nmg::require_version "1.2.3" "1"
+  xtest M66 t "(> <short>) returns true"
+  xwrap nmg::require_version "1.2.3" "2"
+  xtest M67 f "(< <short>) returns false"
+  xwrap nmg::require_version "1.2.3" "1.2"
+  xtest M68 t "(> <partial>) returns true"
+  xwrap nmg::require_version "1.2" "1.2.3"
+  xtest M69 f "(< <partial>) returns false"
+  xwrap nmg::require_version "1.2" "2.2.3"
+  xtest M70 f "(< <major>) returns false"
+  xwrap nmg::require_version "2.2" "1.2.3"
+  xtest M71 t "(> <long>) returns true"
 }
 
 xtest::group4::config() {
