@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMDDNS v1.3.6 - Dynamic DNS functions scripts can include and use
+# NMDDNS - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -30,8 +30,11 @@
 #       NMUTILS="${NMUTILS:-/etc/nmutils}"
 #       NMCONF="${NMCONF:-$NMUTILS/conf}"
 #
+#       # optional required
+#       NMDDNS_REQUIRED="1.3.7"
+#
 #       NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
-#       [ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || NMDDNS=
+#       { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || NMDDNS=''
 #
 #   Use of NM* variables above is optional (NMDDNS here indicates
 #   nmddns_* functions were loaded), but the above allows easy
@@ -94,6 +97,12 @@
 #
 #     Spawn helper to call nmddns_update_all asynchronously, or read
 #     <config-file> and call it directly if helper can't be used.
+#
+# Configuration settings (set before including this file)
+#
+#   Any general-functions configuration, eg. NMUTILS/NMCONF
+#
+#   NMDDNS_REQUIRED (optional) - minimum required NMDDNS_VERSION
 #
 # Global overrides (put in NMCONF/general.conf)
 #
@@ -161,7 +170,13 @@
 #
 # NOTE: executable paths (see below) may be overriden if needed
 #
+# Globals
+#
+#   NMDDNS_VERSION - current file version
+#
 # shellcheck shell=bash
+
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.3.7"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -190,6 +205,9 @@ NMDDNS_FLOCK="${NMDDNS_FLOCK:-flock}"
 
 # load general-functions
 NMG="${NMG:-${NMUTILS}/general-functions}"
+# save any existing NMG_REQUIRED (checked later)
+NMDDNS_NMG_REQ=${NMG_REQUIRED-}
+NMG_REQUIRED="1.4.1"
 # shellcheck source=/dev/null
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
@@ -199,6 +217,19 @@ function nmddns::_loaded() {
 
   # test if general-functions loaded..
   [[ ${NMG} ]] || return
+
+  if [[ ${NMDDNS_NMG_REQ} ]]; then
+    NMG_REQUIRED=${NMDDNS_NMG_REQ}
+    if ! nmg::require_version "${NMG_VERSION}" "${NMG_REQUIRED}"; then
+      nmg_err "${BASH_SOURCE[0]}: NMG_VERSION=${NMG_VERSION} < NMG_REQUIRED=${NMG_REQUIRED}"
+      return 1
+    fi
+  fi
+  if [[ ${NMDDNS_REQUIRED-} ]] &&
+       ! nmg::require_version "${NMDDNS_VERSION}" "${NMDDNS_REQUIRED}"; then
+    nmg_err "${BASH_SOURCE[0]}: NMDDNS_VERSION=${NMDDNS_VERSION} < NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
+    return 1
+  fi
 
   # test required programs
   nmg_need_progs "${NMDDNS_DIG}" "${NMDDNS_NSUPDATE}" || return
