@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# NMG v1.3.0 - Some useful functions NetworkManager scripts can include and use
+# NMG v1.4.0 - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -239,14 +239,22 @@
 #     Remove <addr/plen> from <intf>. Return 2 if not present
 #     (or other error).
 #
-#   nmg_create_ip6_host <intf> <node>
+#   nmg::create_ip6_host <retvar> <intf> [ <node> ]
 #
-#     Echos appropriate host-part for <intf> if <node>="any", or <node>
-#     otherwise.  Returns 1 if none can be determined.
+#     Assigns <retvar> appropriate host-part for <intf> if <node>=auto/<unset>,
+#     or <node> otherwise.  Returns 1 if none can be determined.
 #
-#   nmg_create_ip6_addr <ip6-prefix> <host-part>
+#   nmg_create_ip6_host <intf> [ <node> ]
 #
-#     Echos address combining <ip6-prefix> and <host-part>
+#     Echos result of nmg::create_ip6_host
+#
+#   nmg::create_ip6_addr <retvar> <prefix/plen> <host-part>
+#
+#     Assigns <retvar> combination of <prefix/plen> and <host-part>
+#
+#   nmg_create_ip6_addr <prefix/plen> <host-part>
+#
+#     Echos result of nmg::create_ip6_addr (without /plen)
 #
 #   nmg_radvd_trigger
 #
@@ -377,7 +385,7 @@ function nmg::_err() { # returns 0
   local err=1 info='' debug='' setvar='' mode log=1
   for mode in ${_nmglog-}; do
     case "${mode}" in
-      nmgout) ;; # used to signal recording output
+      nmg*) ;; # internal modes
       err) err=1 ;;
       info) info=1 ;;
       debug) debug=1 ;;
@@ -492,11 +500,12 @@ function nmg::_clearvar() {
     }
     return 0
   fi
-  # if retvar mode, <retvar> required
+  # if nmgret/retvar mode, <retvar> required
   [[ ${2+${2/ret}} == "${2-}" ]] && return
+  # if no <call-depth>, dont log
   [[ ${3-} ]] || return 1
-  # "ret" mode used internally for return vals
-  if [[ ${2+${2/retvar}} == "${2-}" ]]; then
+  # "nmgret" mode used internally for return vals
+  if [[ ${2+${2/nmgret}} != "${2-}" ]]; then
     nmg_err "${FUNCNAME[$3]}: missing <retvar>"
   else
     nmg_err "${FUNCNAME[$3]}: <err-mode> retvar requires one"
@@ -584,7 +593,7 @@ function nmg::saferun() {
 }
 
 function nmg_cmd() {
-  nmg::run "" "nmgout" "$@" || return
+  nmg::run "" nmgout "$@" || return
 }
 
 function nmg_qcmd() {
@@ -688,7 +697,7 @@ function nmg::_query_ips() { # returns 0
     _nmgvar=${out}; return; }
 
   _nmgrc=2
-  pat=${3:-^[0-9a-f:]+/[0-9]+$}; [[ $1 == 4 ]] && pat=${3:-^[0-9.]+/[0-9]+$}
+  pat=${3:-^[0-9a-fA-F:]+/[0-9]+$}; [[ $1 == 4 ]] && pat=${3:-^[0-9.]+/[0-9]+$}
   for el in $out; do
     case ${state} in
       text)
@@ -860,7 +869,7 @@ function nmg_find_ip4_addrs() {
 
 function nmg::2dec() {
   # <retvar> <value>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   printf 2>/dev/null -v "$1" "%d" "${2:-0}" || {
     nmg_err "nmg::2dec: invalid <value> '${2-}'"
     nmg::_clearvar "$1"; return 1; }
@@ -873,7 +882,7 @@ function nmg_hex_to_dec() {
 
 function nmg::2hex() {
   # <retvar> <value>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   printf 2>/dev/null -v "$1" "%x" "${2:-0}" || {
     nmg_err "nmg::2hex: invalid <value> '${2-}'"
     nmg::_clearvar "$1"; return 1; }
@@ -886,7 +895,7 @@ function nmg_dec_to_hex() {
 
 nmg::transpose() {
   # <retvar> <string> <from> <to>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   local __r=${2-} __m __p
   if [[ ${3-} && ${4-} && ${#3} == ${#4} ]]; then
     while [[ ${__r} =~ ([${3-}]) ]]; do
@@ -899,7 +908,7 @@ nmg::transpose() {
 
 nmg::lowercase() {
   # <retvar> <string>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   if (( BASH_VERSINFO[0] >= 4 )); then
     local __r=${2-}; printf -v "$1" "%s" "${__r,,}"
   else
@@ -910,7 +919,7 @@ nmg::lowercase() {
 
 nmg::uppercase() {
   # <retvar> <string>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   if (( BASH_VERSINFO[0] >= 4 )); then
     local __r=${2-}; printf -v "$1" "%s" "${__r^^}"
   else
@@ -921,7 +930,7 @@ nmg::uppercase() {
 
 function nmg::array_join() {
   # <var> <sep> <array>
-  nmg::_clearvar "${1-}" "ret" 1 || return
+  nmg::_clearvar "${1-}" nmgret 1 || return
   local _nmgret=$1 IFS=${2-}
   shift 2 || return 0
   printf -v "${_nmgret}" "%s" "$*" || return
@@ -929,11 +938,11 @@ function nmg::array_join() {
 
 function nmg::is_ip6_prefix() {
   [[ ${1-} ]] || return 1
-  [[ ${1-} =~ ^[0-9a-f:]+::/[0-9]+$ ]] || return 1
+  [[ ${1-} =~ ^[0-9a-fA-F:]+::/[0-9]+$ ]] || return 1
 }
 
 function nmg::_p_err() {
-  nmg_err "${FUNCNAME[2]}: $*"
+  nmg_err "${FUNCNAME[3]}: $*"
 }
 
 # may set _nmgvar/_nmgrc
@@ -947,7 +956,7 @@ function nmg::_create_ip6_prefix() { # returns 0
     nmg::_p_err "invalid ip6-prefix '${pfx}'"; return 0; }
   plen=${pfx##*/}; pfx=${pfx%%/*}
 
-  [[ $asite ]] || { nmg::_p_err "missing site"; return 0; }
+  [[ $asite ]] || { nmg::_p_err "missing <site>"; return 0; }
 
   # hex2dec
   printf 2>/dev/null -v site "%d" "0x${asite//:/}" || {
@@ -990,7 +999,7 @@ function nmg::_create_ip6_prefix() { # returns 0
       (( squad[n] |= (site % 2) << (15 - (bits-1) % 16), site /= 2 )) || :
     fi
     # clear network bits > plen
-    (( pquad[n] &= ~(1 << (15 - (bits-1)%16)), bits-- )) || :
+    (( pquad[n] &= ~(1 << (15 - (bits-1) % 16)), bits-- )) || :
   done
 
   for n in {0..3}; do (( pquad[n] |= squad[n] )) || :; done
@@ -1001,19 +1010,11 @@ function nmg::_create_ip6_prefix() { # returns 0
 }
 
 function nmg::create_ip6_prefix() {
-  local _nmgvar='' _nmgrc=1
-  nmg::_clearvar "${1-}" "ret" 1 || return
-  # call _create to avoid retvar clash
-  nmg::_create_ip6_prefix "${@:2}"
-  printf -v "$1" "%s" "${_nmgvar}"
-  return ${_nmgrc}
+  local _nmgrc=1; nmg::_wrap "${1-}" nmgret "${@:2}"; return ${_nmgrc}
 }
 
 function nmg_create_ip6_prefix() {
-  local _nmgvar='' _nmgrc=1
-  nmg::_create_ip6_prefix "$@"
-  [[ ${_nmgrc} == 0 ]] && { echo -n "${_nmgvar}" || :; }
-  return ${_nmgrc}
+  local pfx; nmg::create_ip6_prefix pfx "$@" && { echo -n "${pfx}" || :; }
 }
 
 function nmg_check_ip6_addr() {
@@ -1026,7 +1027,7 @@ function nmg_check_ip6_addr() {
   nmg_debug "Checking IP6 address ${ip6}${priv_ok:+ (private ok)}"
 
   # check format
-  [[ ${ip6} =~ ^[0-9a-f:]+$ ]] || return 1
+  [[ ${ip6} =~ ^[0-9a-fA-F:]+$ ]] || return 1
 
   # check if link-local
   [[ ${ip6} =~ ^fe80 ]] && return 2
@@ -1067,47 +1068,71 @@ function nmg_del_ip6_addr() {
   local _nmgrc=1; nmg::_mod_ip "" nmgout del6 "$@"; return ${_nmgrc}
 }
 
-function nmg_create_ip6_host() {
+# may set _nmgvar/_nmgrc
+function nmg::_create_ip6_host() { # returns 0
   # <intf> <node>
   local intf=${1-} node=${2-} link_addrs
 
-  [[ ${intf} ]] || {
-    nmg_err "nmg_create_ip6_host: missing <intf>"; return 1; }
+  [[ ${intf} ]] || { nmg::_p_err "missing <intf>"; return; }
 
-  if [[ -z ${node} ]] || [[ ${node} == auto ]]; then
-
-    nmg::query_ips link_addrs "" 6 "${intf}" "" "scope" "link" || :
+  if [[ -z ${node} || ${node} == auto ]]; then
 
     node=''
-    for node in ${link_addrs[@]+"${link_addrs[@]%% *}"}; do
-      node="${node##*::}"
-      node="${node%/*}"
-      [[ ${node} ]] && break
-    done
+    if nmg::query_ips link_addrs "nolog" 6 "${intf}" "" "scope" "link"; then
+
+      for node in "${link_addrs[@]%% *}"; do
+        node="${node##*::}"; node="${node%/*}"
+        [[ ${node} ]] && break
+      done
+    fi
   fi
 
   [[ ${node} ]] || {
-    nmg_err "Unable to determine an auto host-part for interface ${intf}"
-    return 1
+    nmg::_p_err "Unable to determine an auto host-part for interface ${intf}"
+    return 0
   }
 
-  echo -n "${node}" || :
+  _nmgrc=0
+  _nmgvar=${node}
+}
+
+function nmg::create_ip6_host() {
+  local _nmgrc=1; nmg::_wrap "${1-}" nmgret "${@:2}"; return ${_nmgrc}
+}
+
+function nmg_create_ip6_host() {
+  local host; nmg::create_ip6_host host "$@" && { echo -n "${host}" || :; }
+}
+
+function nmg::_create_ip6_addr() {
+  # <prefix/plen> <host-part>
+  local pfx=${1-} node=${2-} plen
+
+  nmg::is_ip6_prefix "${pfx}" || {
+    nmg::_p_err "missing <prefix/plen>"; return; }
+  [[ ${node} ]] || { nmg::_p_err "missing <host-part>"; return; }
+
+  # strip subnet from prefix
+  plen=${pfx#*/}
+  nmg::lowercase pfx "${pfx%/*}"
+  nmg::lowercase node "${node}"
+
+  if [[ ${pfx} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+::$ ]] \
+       && [[ ${node} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$ ]]; then
+    # both prefix and node are 4-quads, remove the ::
+    _nmgvar="${pfx%::}:${node}/${plen}"
+  else
+    _nmgvar="${pfx}${node}/${plen}"
+  fi
+  _nmgrc=0
+}
+
+function nmg::create_ip6_addr() {
+  local _nmgrc=1; nmg::_wrap "${1-}" nmgret "${@:2}"; return ${_nmgrc}
 }
 
 function nmg_create_ip6_addr() {
-  # <ip6-prefix> <node>
-  local p=${1-} node=${2-}
-
-  # strip subnet from prefix
-  p="${p%/*}"
-
-  if [[ ${p} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+::$ ]] \
-       && [[ ${node} =~ ^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$ ]]; then
-    # both prefix and node are 4-quads, remove the ::
-    echo -n "${p%::}:${node}" || :
-  else
-    echo -n "${p}${node}" || :
-  fi
+  local addr; nmg::create_ip6_addr addr "$@" && { echo -n "${addr%/*}" || :; }
 }
 
 function nmg_radvd_trigger() {
