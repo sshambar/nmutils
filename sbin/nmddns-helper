@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# nmddns-helper v1.1.2 - NMUtils Dynamic DNS helper program
+# nmddns-helper v1.1.3 - NMUtils Dynamic DNS helper program
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -56,9 +56,12 @@ RUNDIR="${RUNDIR:-/run/nmutils}"
 
 ########## SCRIPT START
 
+# shellcheck disable=SC2034
+NMDDNS_REQUIRED="1.3.7"
+
 # load ddns-functions
 NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
-# shellcheck disable=SC1090
+# shellcheck source=/dev/null
 { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
   echo 1>&2 "Unable to load ${NMDDNS}"; exit 2; }
 
@@ -77,14 +80,14 @@ function ddns_update() {
   nmddns_update "${rrec}" "${value}" || rc=$?
 
   # allow server unreachable...
-  [[ ${rc} == 25 ]] && return 0
+  (( rc == 25 )) && return 0
 
   return ${rc}
 }
 
 function ddns_interface_rrec() {
   # <interface> <state-pat> <rrec>
-  local intf="$1" state_pat="$2" rrec="$3" ipver=''
+  local intf="$1" state_pat="$2" rrec="$3" ipver='' value='' aval=()
 
   local state="${state_pat//@RREC@/${rrec}}"
 
@@ -114,20 +117,18 @@ function ddns_interface_rrec() {
 
 function ddns_interface() {
   # [ <interface> ]
-  local interface=${1-} rc=0
+  local interface=${1-} rc=0 config intf match state_pat name rrec
 
   local config_pre="${NMDDNS_CONFIG_PAT%@MATCH@*}"
   local config_post="${NMDDNS_CONFIG_PAT##*@MATCH@}"
 
-  local config intf
   for config in "${config_pre}"*"${config_post}"; do
 
     # config has * if no matches...
     [[ ${config} == "${NMDDNS_CONFIG_PAT/@MATCH@/*}" ]] && break
 
     # get match part
-    local match="${config#${config_pre}}"
-    match="${match%${config_post}}"
+    match="${config#${config_pre}}"; match="${match%${config_post}}"
     [[ ${match} ]] || continue
 
     # find interface (remove any -prefix etc)
@@ -140,9 +141,8 @@ function ddns_interface() {
     nmddns_read_config "${config}" || continue
 
     # get state file pattern
-    local state_pat="${NMDDNS_STATE_PAT/@MATCH@/${match}}"
+    state_pat="${NMDDNS_STATE_PAT/@MATCH@/${match}}"
 
-    local name rrec
     for name in "${!DDNS_RREC_@}"; do
       [[ ${name} =~ _NAME$ ]] || continue
       name=${name#DDNS_RREC_}
