@@ -176,7 +176,7 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.3.7"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.3.8"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -314,7 +314,7 @@ function nmddns_read_config() {
   nmddns_reset_config
 
   # lockfile defaults to config-file (as it will exist if used)
-  DDNS_LOCKFILE="${DDNS_GLOBAL_LOCKFILE:-${config}}"
+  DDNS_LOCKFILE="${DDNS_GLOBAL_LOCKFILE-${config}}"
 
   # read config if any
   nmg_read_config "${config}" || return
