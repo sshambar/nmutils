@@ -2,9 +2,9 @@
 #
 # Calculate IPv6 address segments entirely in bash
 #
-# Source: https://github.com/frankcrawford/bash_ipv6
-#
 # Based loosely on wg-ip (https://github.com/chmduquesne/wg-ip)
+#
+# IPv6 definitions from https://en.wikipedia.org/wiki/IPv6_address
 #
 # Frank Crawford - <frank@crawford.emu.id.au> - 31-Jul-2021
 #
@@ -15,11 +15,12 @@
 # - returns compressed IPv6 address ($ip) under the form recommended by RFC5952
 # ipv6_prefix $ip $subnet
 # - extract the IPv6 routing prefix from $ip with subnet length $subnet
-# - currently requires subnet size a multiple of 4
-# ipv6_subnetid $ip $subnet
-# - extract the local subnet ID fro unicast address ($ip)
+# ipv6_subnetid $ip $subnet $fmt
+# - extract the local subnet ID from unicast address ($ip) with optional $fmt
 # ipv6_interface $ip
 # - IPv6 host or interface part of address ($ip)
+# ipv6_split_mask $ip/$mask
+# - returns 2 values $ip and $mask
 # is_ipv6 $ip
 # - tests if address ($ip) is a valid IPv6 in either the expanded form
 #   or the compressed one
@@ -48,7 +49,7 @@ lowercase_ipv6() { # <ipv6-address> - echoes result
 
 # expand an IPv6 address
 expand_ipv6() {
-    local ip=$(lowercase_ipv6 $1)
+    local ip=$(lowercase_ipv6 ${1:-::1})
 
     # prepend 0 if we start with :
     [[ "$ip" =~ ^: ]] && ip="0${ip}"
@@ -108,7 +109,6 @@ compress_ipv6() {
             :0:0:0 \
             :0:0; do
         if [[ "$ip" =~ $pattern ]]; then
-            ip=$(echo $ip | sed "s/$pattern/::/")
             ip=${ip/$pattern/::}
             # if the substitution occured before the end, we have :::
             ip=${ip/:::/::}
@@ -119,34 +119,39 @@ compress_ipv6() {
     # remove prepending : if necessary
     [[ "$ip" =~ ^:[^:] ]] && ip=${ip/#:/}
 
-    echo $ip
+    echo -n $ip
 }
 
-# extract the IPv6 routing prefix - currently requires size a multiple of 4
+# extract the IPv6 routing prefix
 ipv6_prefix() {
     local prefix=$(expand_ipv6 $1)
     local subnet=${2:-64}
-    local subid='0000'
 
-    local xdig=$(( $subnet / 4 ))
+    local nibble=''
 
-    prefix=${prefix:0:$xdig+$xdig/4}
+    (( $subnet > 64 )) && subnet=64
 
-    compress_ipv6 "${prefix}${subid:0:$subnet % 4}::"
+    if (( $subnet % 16 )); then
+	nibble=$(printf "%04x" "$(( 0x${prefix:($subnet/16)*5:4} & ~((1<<(16-$subnet%16))-1) ))")
+    fi
+
+    compress_ipv6 "${prefix:0:($subnet/16)*5}${nibble}::"
 }
 
 # extract the local subnet ID
 ipv6_subnetid() {
     local ip=$(expand_ipv6 $1)
     local subnet=${2:-64}
+    local fmt="${3:-%x}"
 
-    local xdig=$(( $subnet / 4 ))
-    local len=$(( 20-$xdig-$xdig/4 ))
+    local len=$(( 64-$subnet ))
 
-    if (( $len <= 0 )); then
-	echo "0"
+    if (( $len < 0 || $len > 16 )); then
+	# Not really valid for non-route entries
+	echo -n '-'
     else
-        echo "${ip:$xdig+$xdig/4:$len-1}"
+        ip=${ip//:/}
+        printf "$fmt" "$(( 0x${ip:14:2} & ((1<<$len)-1) ))"
     fi
 }
 
@@ -155,6 +160,15 @@ ipv6_interface() {
     local ip=$(expand_ipv6 $1)
 
     compress_ipv6 "::${ip:20}"
+}
+
+# split into two parts, the address and the mask
+ipv6_split_mask() {
+    local ip=${1:-::/0}
+
+    set ${ip/\// }
+
+    echo -n $1 ${2:-128}
 }
 
 # a valid IPv6 in either the expanded form or the compressed one
@@ -171,17 +185,24 @@ is_ipv6() {
 ipv6_type() {
     local ip=$(lowercase_ipv6 $1)
 
-    # Technically should be /10 but ipv6_prefix doesn't handle that
-    if [[ $(ipv6_prefix $ip 16) == 'fe80::' ]]; then
-	echo 'Link-local'
+    if [[ $(ipv6_prefix $ip 10) == 'fe80::' ]]; then
+	echo -n 'Link-local'
+    elif [[ $(ipv6_prefix $ip 10) == 'fec0::' ]]; then
+	echo -n 'Site-local (deprecated)'
+    elif [[ $(ipv6_prefix $ip 16) == '2002::' ]]; then
+	echo -n '6to4'
+    elif [[ $(ipv6_prefix $ip 16) == '3ffe::' ]]; then
+	echo -n '6bone (returned)'
+    elif [[ $(ipv6_prefix $ip 32) == '2001::' ]]; then
+	echo -n 'Teredo tunneling'
     else
 	case $(ipv6_prefix $ip 8) in
 	::) echo 'Special' ;;
-	fc::) echo 'Global ULA' ;;
-	fd::) echo 'Local ULA' ;;
-	ff::) echo 'Multicast' ;;
-	f?::) echo 'Invalid' ;;
-	*) echo 'Unicast' ;;
+	fc00::) echo -n 'Global ULA' ;;
+	fd00::) echo -n 'Local ULA' ;;
+	ff00::) echo -n 'Multicast' ;;
+	f?00::) echo -n 'Invalid' ;;
+	*) echo -n 'Unicast' ;;
 	esac
     fi
 }
