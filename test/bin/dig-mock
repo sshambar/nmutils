@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-VERSION=0.2.0
+VERSION=0.3.0
 
 VERBOSE='' RREC='' HOSTS=() BRIEF='' SERVER='' HEADER=''
 
@@ -125,18 +125,19 @@ match_query() { # <server> <fqdn> <ttl> <rrec> <value>
 #   [ <name> ] <rrec> <value>
 
 do_query() { # <filename>
-  local file=$1 IFS=$'\n' line found='' ttl=3600 lineno=0
+  local file=$1 IFS='' line found='' ttl=3600 lineno=0
   local name='' rrec='' domain='' server='' value=''
 
   [[ -f ${file} ]] || fail 1 "State file $file not found"
 
   while read -r line || [[ ${line} ]]; do
     ((lineno++)) || :
-    unset IFS
     [[ ${line} =~ ^# ]] && continue
     # shellcheck disable=SC2086
+    unset IFS
     set -- $line
-    if [[ ${3-} ]]; then
+    IFS=''
+    if [[ ${3-} ]] && ! [[ ${line} =~ ^[[:space:]] ]]; then
       # <name> <rrec> <value>
       lowercase name "$1"
       uppercase rrec "$2"
