@@ -11,7 +11,10 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
   { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
 
 # shellcheck source=/dev/null
-[[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"
+{ [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
+  { echo >&2 "Unable to load xtest_setup"; exit 2; }
+
+[[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
 
 NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
 
@@ -24,19 +27,17 @@ NMG_REQUIRED="99.0.0"
 # shellcheck source=/dev/null
 (. "${NMDDNS}" 2>/dev/null && {
   echo >&2 "FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
-  exit 1
-} || :) || exit 1
+  exit 1; } || :) || exit 1
 
 unset NMG_REQUIRED
 NMDDNS_REQUIRED="99.0.0"
 # shellcheck source=/dev/null
 (. "${NMDDNS}" 2>/dev/null && {
   echo >&2 "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
-  exit 1
-} || :) || exit 1
+  exit 1; } || :) || exit 1
 
 # min-version for tests
-NMDDNS_REQUIRED="1.3.8"
+NMDDNS_REQUIRED="1.4.0"
 
 # less noise
 export NMG_TAG=''
@@ -56,8 +57,6 @@ xwrap() {
 
 xtest::group4::ddns() {
   local out xpat xstate cnf
-  # check if ddns funcs avail
-  [ -z "$NMDDNS" ] && return
 
   # don't use helper until we're ready
   local NMDDNS_HELPER
@@ -198,6 +197,44 @@ xtest::group4::ddns() {
 	EOF
   ftest D12f "$out" " - logs and adds A"
 
+  xwrap nmddns_update A "203.0.113.10,203.0.113.20"
+  xtest D13 t "(A <2 pub>) returns true"
+  read -r -d '' out <<-EOF
+	Setting www.example.test A to 203.0.113.10,203.0.113.20
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	update add www.example.test 600 A 203.0.113.10
+	update add www.example.test 600 A 203.0.113.20
+	send
+	EOF
+  ftest D13f "$out" " - logs and adds both A records"
+
+  xwrap nmddns_update A "203.0.113.4,192.0.2.8"
+  xtest D14 t "(A <2 match>) returns true"
+  ftest D14f "" " - does not log"
+
+  DDNS_RREC_TXT_NAME=mail.example.test
+  DDNS_RREC_TXT_LISTSEP=:
+  xwrap nmddns_update TXT "\"some value\":\"another value\""
+  xtest D15 t "(TXT <2 new vals>) returns true"
+  read -r -d '' out <<-EOF
+	Setting mail.example.test TXT to "some value":"another value"
+	${NMDDNS_NSUPDATE} => nsupdate -t 3
+	server 127.0.0.1
+	zone example.test
+	update delete mail.example.test TXT
+	update add mail.example.test 600 TXT "some value"
+	update add mail.example.test 600 TXT "another value"
+	send
+	EOF
+  ftest D15f "$out" " - logs and adds both TXT records"
+
+  xwrap nmddns_update TXT "\"some value\":\"v=spf1 mx ~all\""
+  xtest D16 t "(TXT <2 old vals>) returns true"
+  ftest D16f "" " - does not log"
+
   nmddns_reset_config
 
   shtest::prefix "nmddns_update_all"
@@ -314,6 +351,7 @@ xtest::group4::ddns() {
   : "${DDNS_RREC_A_VALUE-} ${DDNS_NSUPDATE_TIMEOUT-} ${NMDDNS_HELPER-}"
   : "${DDNS_ZONE-} ${DDNS_RREC_MX_NAME-} ${DDNS_RREC_MX_FALLBACK-}"
   : "${DDNS_RREC_AAAA_NAME-} ${DDNS_TTL-} ${DDNS_RREC_MX_VALUE-}"
+  : "${DDNS_RREC_TXT_NAME-} ${DDNS_RREC_TXT_LISTSEP-}"
 }
 
 xtest::group5::helper() {
@@ -390,8 +428,6 @@ xtest::group5::helper() {
 }
 
 main() { # <args>
-
-  [[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
 
   # need output directory
   [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
