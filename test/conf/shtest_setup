@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.0 - Shell script testing functions
+# shtest v1.2.1 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -332,6 +332,7 @@ shtest::_check_entry() { # <id> [ <desc> ]
 shtest::check_result() { # <id> <ref> [ <desc> ] - OK if <ref> == $?, else FAIL
   # <ref> can be "t": $? == 0, "f": $? != 0, #: $? == #
   local rc=$? id=${1-} ref=${2-} desc=${3-}
+  local orc=${rc}
   [[ ${id} && ${ref} ]] ||
     shtest::fatal "Usage: shtest::check_result <id> <t | f | #> [ <desc> ]" 3
 
@@ -343,7 +344,7 @@ shtest::check_result() { # <id> <ref> [ <desc> ] - OK if <ref> == $?, else FAIL
   if [[ ${ref} == "${rc}" ]]; then
     shtest::_log_ok "${id}" "${desc}"
   elif [[ ${ref} == t ]]; then
-    shtest::_log_fail "${id}" "${desc}" "<true>" "<false>"
+    shtest::_log_fail "${id}" "${desc}" "<true>" "<false>(${orc})"
   elif [[ ${ref} == f ]]; then
     shtest::_log_fail "${id}" "${desc}" "<false>" "<true>"
   else
