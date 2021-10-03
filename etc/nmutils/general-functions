@@ -221,7 +221,7 @@
 #
 #   nmg_find_ip4_addrs [ <intf> [ <pattern> [ <ip-args> ] ] ]
 #
-#     Echos newline seperated addresses on <intf> (default all)
+#     Echos space seperated <addr/plen> addresses on <intf> (default all)
 #     matching <pattern> (default all). <ip-args> replace default
 #     "scope global".  Returns 0.
 #
@@ -265,7 +265,7 @@
 #
 #   nmg_find_ip6_addrs [ <intf> [ <pattern> [ <ip-args> ] ] ]
 #
-#     Echos newline seperated addresses on <intf> (default all)
+#     Echos space seperated <addr/plen> addresses on <intf> (default all)
 #     matching <pattern> (default all). <ip-args> replace default
 #     "scope global".  Returns 0.
 #
@@ -369,7 +369,7 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.0"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.1"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -980,10 +980,11 @@ nmg_check_ip4_addr() {
 
 nmg_find_ip4_addrs() {
   # [ <intf> [ <match> [ <ip-args> ] ] ]
-  local ips=()
+  local ip ips=() out=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} && {
-    printf %s "${ips[@]%% *}" || :; }
+  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} || return 0
+  for ip in "${ips[@]%% *}"; do out+=("${ip}"); done
+  printf %s "${out[*]}" || :
   return 0
 }
 
@@ -1235,10 +1236,11 @@ nmg_check_ip6_addr() {
 
 nmg_find_ip6_addrs() {
   # [ <intf> [ <pattern> [ <ip-args> ] ] ]
-  local ips=()
+  local ip ips=() out=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} && {
-    printf %s "${ips[@]%% *}" || :; }
+  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} || return 0
+  for ip in "${ips[@]%% *}"; do out+=("${ip}"); done
+  printf %s "${out[*]}" || :
   return 0
 }
 

@@ -9,3 +9,7 @@ addr 10.0.10.12/24 forever forever
 addr6 2001:db8:a0b:12f0::1/64 14400sec 86400sec
 addr6 fdac:3741:50f8:f623::1/48 86400sec 14400sec global
 addr6 fe80::31fd:68fd:ed8b:4d77/64 forever forever link
+dev eth2
+addr 10.1.10.12/24 forever forever
+addr 10.2.10.12/24 forever forever
+addr6 2001:db9:1::1/64 14400sec 86400sec
