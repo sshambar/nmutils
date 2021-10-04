@@ -216,7 +216,7 @@ NMDDNS_FLOCK="${NMDDNS_FLOCK:-flock}"
 NMG="${NMG:-${NMUTILS}/general-functions}"
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.5.0"
+NMG_REQUIRED="1.5.1"
 # shellcheck source=/dev/null
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
@@ -536,7 +536,7 @@ nmddns_spawn_update_all() {
   # <"up"|"down"> <config-file> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
   local action="${1-}" config="${2-}"
 
-  [[ ${action} =~ ^up|down$ ]] || {
+  [[ ${action} =~ ^(up|down)$ ]] || {
     nmg_err "nmddns_spawn_update_all: <action> must be 'up' of 'down'"
     return 1
   }
