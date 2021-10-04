@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-VERSION=0.4.0
+VERSION=0.5.0
 
 IP_MOCK_ADDRS=${IP_MOCK_ADDRS:-conf/ip-mock-addrs}
 
@@ -55,7 +55,7 @@ fail() {
 #  addr6 <ip6> [ <valid> [ <pref> [ <scope> [ <conf-flags> ] ] ] ]
 # <valid|pref> = <#>sec | forever
 # <scope> = host | link | global | <num>
-# <conf-flags> = noprefixroute nodad ...
+# <conf-flags> = noprefixroute nodad tentative...
 # <state> = BROADCAST,MULTICAST,UP,LOWER_UP
 ADDRS=()
 DEVS=()
@@ -94,8 +94,29 @@ usage_addr() {
   exit 255
 }
 
+addr_show_dev() {
+  [[ $dev == "$show_dev" ]] && return
+  show_dev=$dev
+  echo "$num: $dev: <$state> mtu $mtu qdisc $qdisc state $istate group default qlen 1000"
+  if [[ $IPV4 && $IPV6 ]]; then
+    if [[ $dev = lo ]]; then
+      echo -n "    link/loopback 00:00:00:00:00:00"
+    else
+      [[ $num -lt 10 ]] && b="0$num" || b="$num"
+      echo -n "    link/ether 08:00:27:1b:ff:$b"
+    fi
+    if [[ $state =~ BROADCAST ]]; then
+      echo " brd ff:ff:ff:ff:ff:ff"
+    else
+      echo " brd 00:00:00:00:00:00"
+    fi
+  fi
+  return 0
+}
+
 addr_show() {
-  local d e dev num=0 mtu type a b valid pref scope state istate qdisc
+  local d e dev num=0 mtu type a b valid pref scope state istate qdisc filter
+  local show_dev=''
   for e in "${ADDRS[@]}"; do
     # shellcheck disable=SC2086
     set -- $e
@@ -115,20 +136,6 @@ addr_show() {
       done
       istate=UP; qdisc=fq_codel
       [[ $dev == lo ]] && { istate=UNKNOWN; qdisc=noqueue; }
-      echo "$num: $dev: <$state> mtu $mtu qdisc $qdisc state $istate group default qlen 1000"
-      if [[ $IPV4 && $IPV6 ]]; then
-        if [[ $dev = lo ]]; then
-          echo -n "    link/loopback 00:00:00:00:00:00"
-        else
-          [[ $num -lt 10 ]] && b="0$num" || b="$num"
-          echo -n "    link/ether 08:00:27:1b:ff:$b"
-        fi
-        if [[ $state =~ BROADCAST ]]; then
-          echo " brd ff:ff:ff:ff:ff:ff"
-        else
-          echo " brd 00:00:00:00:00:00"
-        fi
-      fi
       # shellcheck disable=SC2086
       set -- $e
     fi
@@ -136,6 +143,14 @@ addr_show() {
     type=$2 a=$3 valid=${4:-forever} pref=${5-forever} scope=${6-global}
     [[ $SCOPE ]] && [[ $SCOPE != "$scope" ]] && continue
     shift 3; shift; shift; shift
+    for filter in ${FILTER[@]+"${FILTER[@]}"}; do
+      if [[ $filter =~ ^- ]]; then
+        [[ $* =~ (^| )${filter#-}($| ) ]] && continue 2
+      elif ! [[ $* =~ (^| )${filter#-}($| ) ]]; then
+        continue 2
+      fi
+    done
+    addr_show_dev
     if [[ $IPV4 ]] && [[ $type == addr ]]; then
       # poor-man broadcast hack
       [[ $state =~ BROADCAST ]] && b="brd ${a%.*}.255 " || b=
@@ -151,9 +166,9 @@ addr_show() {
 }
 
 OBJECT='' COMMAND=show IPV4=1 IPV6=1 DEV='' SCOPE='' IP4='' IP6=''
-VERBOSE='' VALID_LT='' PREF_LT=''
+VERBOSE='' VALID_LT='' PREF_LT='' FILTER=()
 parse_args() {
-  local state=object
+  local state=object nomatch
   for arg in "$@"; do
     case $state in
       object)
@@ -168,41 +183,72 @@ parse_args() {
           +fail*) IP_MOCK_FAIL=1 ;;
           -*) : ;; # ignore other options
           *) fail 1 "Object \"$arg\" is unknown, try \"ip help\"" ;;
-        esac ;;
+        esac
+        ;;
       addr)
         case $arg in
           add|change|replace|del|delete) COMMAND=$arg; state=ifaddr ;;
           show) COMMAND=$arg; state=options ;;
           help) usage_addr ;;
           *) fail 255 "Command \"$arg\" is unknown, try \"ip address help\"" ;;
-        esac ;;
+        esac
+        ;;
       dev) DEV=$arg; state=options ;;
       scope)
-        case $arg in
-          host|link|global|[0-9]+) SCOPE=$arg; state=options ;;
-          *) fail 255 "Error: argument \"$arg\" is wrong: invalid scope value." ;;
-        esac ;;
+        if [[ $arg =~ ^(host|link|global|[0-9]+)$ ]]; then
+          SCOPE=$arg; state=options
+        else
+          fail 255 "Error: argument \"$arg\" is wrong: invalid scope value."
+        fi
+        ;;
       valid_lft|preferred_lft)
-        if [[ $arg =~ [0-9]+ ]] || [[ $arg == forever ]]; then
+        if [[ $arg =~ ^([0-9]+)$ ]] || [[ $arg == forever ]]; then
           [[ $state == valid_lft ]] && VALID_LT=$arg || PREF_LT=$arg
           state=options
         else
           fail 255 "Error: argument \"$arg\" is wrong: $state value"
-        fi ;;
+        fi
+        ;;
       ifaddr)
-        if [[ $arg =~ [0-9a-fA-F:]+/[0-9]+ ]]; then
+        if [[ $arg =~ ^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{1,4}(/[0-9]+)?$ ]]; then
           IP6=$arg; IPV4=''
-        elif [[ $arg =~ [0-9]+.[0-9]+.[0-9]+.[0-9]+ ]]; then
+        elif [[ $arg =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|(/[0-9]+)?$)){4}$ ]]; then
           IP4=$arg; IPV6=''
         else
           fail 1 "Error: any valid prefix is expected rather than \"$arg\""
         fi
-        state=options ;;
+        state=options
+        ;;
       options)
-        case $arg in
-          dev|scope|valid_lft|preferred_lft) state=$arg ;;
-          *) fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage." ;;
-        esac ;;
+        if [[ ${OBJECT} == addr ]]; then
+          case $arg in
+            dev|scope|valid_lft|preferred_lft)
+              state=$arg
+              ;;
+            *)
+              nomatch=''
+              if [[ $arg =~ ^(home|mngtmpaddr|nodad|optimstic|noprefixroute|autojoin)$ ]]; then
+                FILTER+=("$arg") # match confflag
+              elif [[ $COMMAND == show ]]; then
+                if [[ $arg =~ ^[-]?(tentative|deprecated|dadfailed)$ ]]; then
+                  FILTER+=("$arg")
+                elif [[ $arg =~ ^(permanent|dynamic|secondary|primary|temporary)$ ]]; then
+                  FILTER+=("$arg")
+                else
+                  nomatch=1
+                fi
+              else
+                nomatch=1
+              fi
+              if [[ $nomatch ]]; then
+                fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage."
+              fi
+              ;;
+          esac
+        else
+          fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage."
+        fi
+        ;;
     esac
   done
 
