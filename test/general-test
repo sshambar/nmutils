@@ -30,7 +30,7 @@ NMG_REQUIRED="99.0.0"
   exit 1; } || :) || exit 1
 
 # min-version for tests
-NMG_REQUIRED="1.5.1"
+NMG_REQUIRED="1.5.2"
 
 # less noise
 export NMG_TAG=''
@@ -422,13 +422,14 @@ xtest::group3::ip() {
   xwrap nmg::query_ips avar "" 4 "ethx"
   xtest I3 1 "(4 ethx) returns 1"
   atest I3a avar anull " - clears avar"
-  ftest I3f "ERR: FAIL(1) $NMG_IP -4 addr show dev ethx scope global => Device \"ethx\" does not exist." " - logs error"
+  ftest I3f "ERR: FAIL(1) $NMG_IP -4 addr show dev ethx scope global => Device \"ethx\" does not exist." \
+        " - logs error"
 
   avar=("bogus")
   xwrap nmg::query_ips avar "" 5 "ethx"
   xtest I4 3 "(5) returns 3"
   atest I4a avar anull " - clears avar"
-  ftest I4f "ERR: nmg::query_ips: invalid ip version '5'" \
+  ftest I4f "ERR: nmg::query_ips: invalid <version><flag> '5'" \
         " - logs error"
 
   xwrap nmg::query_ips "bad#name" "" 4 "eth0"
@@ -463,8 +464,8 @@ xtest::group3::ip() {
   unset nmg_show_debug
 
   xwrap nmg::query_ips
-  xtest I10 3 "(<no args>) returns 3"
-  ftest I10f "ERR: nmg::query_ips: invalid ip version ''" " - logs error"
+  xtest I10 t "(<no args>) returns true"
+  ftest I10a "" " - does not log"
 
   xwrap nmg::query_ips "" retvar
   xtest I11 3 "(<retvar>) w/o retvar, returns 3"
@@ -476,18 +477,69 @@ xtest::group3::ip() {
   xwrap nmg::query_ips avar "" 4 "eth1" "^50.*"
   xtest I12 2 "(eth1 ^50.*) returns 2"
   atest I12a avar anull " - clears retvar"
-  ftest I12f "DBG: $NMG_IP -4 addr show dev eth1 scope global"$'\n'"DBG: nmg::query_ips: none found" " - logs debug (none found)"
+  ftest I12f "DBG: $NMG_IP -4 addr show dev eth1 scope global"$'\n'"DBG: nmg::query_ips: none found" \
+        " - logs debug (none found)"
 
   xwrap nmg::query_ips "" "nolog" 4 "eth0" "^192.*"
   xtest I13 t "(nolog eth0 ^192.*) returns true"
   ftest I13f "DBG: $NMG_IP -4 addr show dev eth0 scope global" " - logs debug"
   unset nmg_show_debug
 
+  aref=("127.0.0.1/8")
+  xwrap nmg::query_ips avar "" 4a "lo" "" "scope" "host"
+  xtest I14 t "(4a scope host) returns true"
+  atest I14a avar aref " - returns just address"
+
+  aref=("127.0.0.1/8 scope:host valid_lft:forever preferred_lft:forever")
+  xwrap nmg::query_ips avar "" 4p "lo" "" "scope" "host"
+  xtest I15 t "(4p scope host) returns true"
+  atest I15a avar aref " - returns all properties, no lifetimes"
+
+  aref=("127.0.0.1/8" "::1/128")
+  xwrap nmg::query_ips avar "" "a" "" "" "scope" "host"
+  xtest I16 t "(a scope host) returns true"
+  atest I16a avar aref " - returns ipv4+ipv6 addresses"
+
   shtest::prefix "nmg::mod_ip"
 
   xwrap nmg::mod_ip
   xtest I21 3 "(<no args>) returns 3"
   ftest I21f "ERR: nmg::mod_ip: unknown <cmd> ''" " - logs error"
+
+  shtest::prefix "nmg::wait_dad6"
+
+  xwrap nmg::wait_dad6
+  xtest I31 3 "(<no args>) returns 3"
+  ftest I31f "ERR: nmg::wait_dad6: missing <intf>" " - logs error"
+
+  xwrap nmg::wait_dad6 eth3
+  xtest I32 3 "(eth3) returns 3"
+  ftest I32f "ERR: nmg::wait_dad6: missing <addr>" " - logs error"
+
+  xwrap nmg::wait_dad6 eth3 "::1" x
+  xtest I33 3 "(eth3 ::1 x) returns 3"
+  ftest I33f "ERR: nmg::wait_dad6: invalid <timeout> 'x'" " - logs error"
+
+  xwrap nmg::wait_dad6 eth3 "::1"
+  xtest I34 2 "(eth3 ::1) returns 2"
+  ftest I34f "" " - does not log"
+
+  xwrap nmg::wait_dad6 eth3 "2001:db8:5::1/64"
+  xtest I35 1 "(eth3 2001:db8:5::1/64) returns 1"
+  ftest I35f "" " - does not log"
+
+  xwrap nmg::wait_dad6 eth2 "2001:db8:1::1/64" 0
+  xtest I36 2 "(eth2 2001:db8:1::1/64 0) returns 2"
+  ftest I36f "" " - does not log"
+
+  # this sleeps
+  xwrap nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
+  xtest I37 2 "(eth2 2001:db8:1::1/64 1) returns 2 after sleeping"
+  ftest I37f "" " - does not log"
+
+  xwrap nmg::wait_dad6 eth1 "2001:db8:a0b:12f0::1/64"
+  xtest I38 t "(eth1 2001:db8:a0b:12f0::1/64) returns true"
+  ftest I38f "" " - does not log"
 
   : "${aref-} ${avar-} ${anull-} ${nmg_show_debug-}" # for SC
 }
@@ -710,7 +762,7 @@ xtest::group3::ip6() {
 
   xwrap nmg_find_ip6_addrs "eth2"
   xtest P63 t "(eth2) returns true"
-  ftest2 P63f "" "2001:db9:1::1/64" " - returns matching address"
+  ftest2 P63f "" "2001:db8:1::1/64" " - returns matching address"
 
   xwrap nmg_find_ip6_addrs "eth1"
   xtest P64 t "(eth1) returns true"

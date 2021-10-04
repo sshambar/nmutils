@@ -12,4 +12,6 @@ addr6 fe80::31fd:68fd:ed8b:4d77/64 forever forever link
 dev eth2
 addr 10.1.10.12/24 forever forever
 addr 10.2.10.12/24 forever forever
-addr6 2001:db9:1::1/64 14400sec 86400sec
+addr6 2001:db8:1::1/64 14400sec 86400sec global tentative
+dev eth3
+addr6 2001:db8:5::1/64 14400sec 86400sec global tentative dadfailed

@@ -194,14 +194,25 @@
 #
 # IP functions
 #
-#   nmg::query_ips <retvar> <err-modes> 4|6
+#   nmg::query_ips <retvar> <err-modes> <[4|6][<flag>]>
 #                                  [ <intf> [ <match> [ <ip-args>... ] ] ]
 #
 #     Sets <retvar> to array of addresses on <intf> (all if unset) matching
-#     pattern <match> (all if unset) limited to ipv4 (4) or ipv6 (6).
-#     <retvar> items are each "<addr/prefix> <valid-life> <pref-life>".
+#     pattern <match> (all if unset) optionally limited to ipv4 (4)
+#     or ipv6 (6). By default, <retvar> items are each
+#         "<addr/prefix> <valid-life> <pref-life>".
 #     <ip-args>... replace default "'scope' 'global'" ip args.
 #     See <err-modes> above for options.  Returns 2 if none found.
+#     Optional <flag> can be:
+#        'a' - return only address
+#        'p' - replace lifetimes with property-list, eg format:
+#           "<addr/prefix> temporary scope:global valid_lft:forever..."
+#
+#   nmg::wait_dad6 <intf> <addr> [ <timeout> ]
+#
+#     Wait for <addr> on interface <intf> to complete duplicate address
+#     detection.  Returns 0 when non-tentative, 1 if DAD fails,
+#     2 after <timeout> seconds (default 5) or address removed.
 #
 #   nmg::mod_ip <retvar> <err-modes> <cmd> <intf> <addr/plen> [ <ip-args>... ]
 #
@@ -369,7 +380,7 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.1"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.2"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -634,7 +645,7 @@ nmg::_wrap() { # returns 0
 
 nmg::_cleararr() {
   # <retvar> <err-modes> <call-depth>
-  nmg::_clearvar "$1" "$2" $(($3 + 1)) || return
+  nmg::_clearvar "$1" "$2" $(($3+1)) || return
   [[ $1 ]] && { read 2>/dev/null -r -a "$1" || :; } </dev/null
   return 0
 }
@@ -653,7 +664,7 @@ nmg::_awrap() { # returns 0
   return 0
 }
 
-# used by nmg::_wrap
+# called from nmg::_wrap
 nmg::_run() { # returns 0
   # <cmd> [<cmd-args>...]
   local cmd=${1-} out=''
@@ -730,7 +741,7 @@ nmg_write() {
   return ${rc}
 }
 
-# used by nmg::_wrap
+# called from nmg::_wrap
 nmg::_read() { # returns 0
   # <filename>
   local file=${1-} out
@@ -803,49 +814,90 @@ nmg_is_running() {
   return 1
 }
 
-# used by nmg::_awrap
+# called from nmg::_query_ips
+nmg::_query_ips_append() {
+  [[ ${addr} && ${valid} && ${pref} ]] || return 0
+  _nmgvar+="${addr}"
+  if [[ ${flag} == p ]]; then
+    [[ ${#flags[*]} != 0 ]] && _nmgvar+=" ${flags[*]}"
+  elif [[ ${flag} != a ]]; then
+    _nmgvar+=" ${valid} ${pref}"
+  fi
+  _nmgvar+=$'\n'
+}
+
+# called from nmg::_awrap
 nmg::_query_ips() { # returns 0
-  # 4|6 [ <intf> [ <match> [ <ip-args>... ] ] ]
-  local args=() el pat state=text addr='' valid='' pref='' out
-  [[ ${1-} =~ ^(4|6)$ ]] || {
-    nmg::_err "invalid ip version '${1-}'" 3; _nmgrc=3; return; }
+  # [4|6][<flag>] [ <intf> [ <match> [ <ip-args>... ] ] ]
+  local args=() el pat state=text out addr='' valid='' pref='' flags=()
+
+  [[ ${1-} =~ ^(4|6)?(a|p)?$ ]] || {
+    nmg::_err "invalid <version><flag> '${1-}'" 3; _nmgrc=3; return; }
   [[ ${2-} ]] && args+=("dev" "$2")
   if [[ ${4+x} ]]; then
     [[ $4 ]] && args+=("${@:4}")
   else
     args+=("scope" "global")
   fi
+  local flag=${1-} pat=${3-} vers=''
+  [[ ${flag} =~ ^(4|6) ]] && { vers=${flag:0:1}; flag=${flag#?}; }
+
   # convert ignore->nolog, so we can catch failure
-  nmg::saferun out "${_nmglog//ignore/nolog}" "$NMG_IP" "-$1" \
+  nmg::saferun out "${_nmglog//ignore/nolog}" "$NMG_IP" ${vers:+"-${vers}"} \
                addr show "${args[@]-}" || {
     _nmgrc=$?; [[ ${_nmglog//ignore} != "${_nmglog}" ]] && _nmgrc=0
     _nmgvar=${out}; return; }
 
   _nmgrc=2
-  pat=${3:-^[0-9a-fA-F:]+/[0-9]+$}; [[ $1 == 4 ]] && pat=${3:-^[0-9.]+/[0-9]+$}
   for el in $out; do
     case ${state} in
       text)
         case ${el} in
-          inet|inet6|valid_lft|preferred_lft) state=${el} ;;
+          inet|inet6)
+            nmg::_query_ips_append
+            addr='' valid='' pref='' flags=() state=${el}
+            ;;
+          valid_lft|preferred_lft)
+            state=${el}
+            ;;
+          scope|brd|any|metric)
+            state="kw:${el}"
+            ;;
+          permanent|dynamic|secondary|primary|tentative|deprecated|dadfailed|\
+            temporary|home|mngtmpaddr|nodad|optimstic|noprefixroute|autojoin|\
+            stable-privacy)
+            flags+=("${el}")
+            ;;
         esac
         ;;
       inet|inet6)
-        state=text addr='' valid='' pref=''
-        [[ ${el} =~ ${pat} ]] && addr=${el}
+        if [[ ${pat} ]]; then
+          [[ ${el} =~ ${pat} ]] && addr=${el}
+        elif [[ ${vers} == 4 ]]; then
+          [[ ${state} == inet ]] && addr=${el}
+        elif [[ ${vers} == 6 ]]; then
+          [[ ${state} == inet6 ]] && addr=${el}
+        else
+          addr=${el}
+        fi
+        state=text
         ;;
       valid_lft|preferred_lft)
+        flags+=("${state}:${el}")
         if [[ ${el} =~ ^([0-9]+sec|forever)$ ]]; then
           [[ ${state} == valid_lft ]] && valid=${el} || pref=${el}
         fi
         state=text
         ;;
+      kw:*)
+        flags+=("${state#kw:}:${el}")
+        state=text
+        ;;
     esac
-    if [[ ${addr} && ${valid} && ${pref} ]]; then
-      _nmgvar+="${addr} ${valid} ${pref}"$'\n'
-      addr='' valid='' pref='' _nmgrc=0
-    fi
   done
+
+  nmg::_query_ips_append
+  [[ ${_nmgvar} ]] && _nmgrc=0
 
   [[ ${_nmgrc} != 0 ]] && { _nmglog+=" debug"; nmg::_err "none found" 3; }
   return 0
@@ -855,10 +907,48 @@ nmg::query_ips() {
   local _nmgrc=1; nmg::_awrap "$@"; return ${_nmgrc}
 }
 
-# used by nmg::_awrap
+nmg::wait_dad6() {
+  # <intf> <addr> [ <timeout> ]
+  local -i i
+  nmg::_reqarg "${1-}" "intf" || return
+  nmg::_reqarg "${2-}" "addr" || return
+  local timeout addrs=() sleep="0.5"
+  printf 2>/dev/null -v timeout "%d" "${3:-5}" || timeout=-1
+  (( timeout >= 0 )) || { nmg::_perr "invalid <timeout> '$3'"; return 3; }
+  (( timeout=timeout*2 )) || :
+
+  nmg::query_ips addrs "" 6p "$1" "^$2" "" || :
+
+  if [[ ${addrs[*]-} =~ (^| )tentative($| ) ]]; then
+    for ((i=0; i<timeout; i++)); do
+      [[ ${addrs[*]} =~ (^| )dadfailed($| ) ]] && break
+      [[ ${i} == 0 ]] && nmg_debug "nmg::wait_dad6: waiting on DAD for $2"
+      sleep 2>/dev/null "${sleep}" || {
+        (( timeout=timeout/2 )) || :; sleep=1; sleep 1; }
+      nmg::query_ips addrs "" 6p "$1" "^$2" "" || :
+      [[ ${addrs[*]-} =~ (^| )tentative($| ) ]] || break
+    done
+  fi
+
+  if [[ -z ${addrs[*]-} ]]; then
+    nmg_debug "nmg::wait_dad6: address $2 removed"
+    return 2
+  elif [[ ${addrs[*]} =~ (^| )tentative($| ) ]]; then
+    if [[ ${addrs[*]} =~ (^| )dadfailed($| ) ]]; then
+      nmg_debug "nmg::wait_dad6: address $2 failed DAD"
+      return 1
+    else
+      nmg_debug "nmg::wait_dad6: timeout waiting on DAD for $2"
+      return 2
+    fi
+  fi
+  return 0
+}
+
+# called from nmg::_awrap
 nmg::__mod_ip() {
   # <add|del|change><4|6> <intf> <addr/plen> [ <ip-args>... ]
-  local cmd=${1-} v intf=${2-} addr=${3-} addr_list=() cur_addr rc=0 arg
+  local cmd=${1-} v intf=${2-} addr=${3-} cur_addr=() rc=0 arg
   shift 3 || set --
 
   [[ ${cmd} =~ ^(add|del|change)(4|6)$ ]] || {
@@ -881,15 +971,14 @@ nmg::__mod_ip() {
   fi
 
   # check if addr already on interface
-  nmg::query_ips addr_list "" "${v}" "${intf}" "^${addr}$" "" || :
-  cur_addr=${addr_list[0]+${addr_list[0]%% *}}
+  nmg::query_ips cur_addr "" "${v}a" "${intf}" "^${addr}$" "" || :
 
   if [[ ${cmd} == add ]]; then
-    [[ ${cur_addr} ]] && {
+    [[ ${cur_addr-} ]] && {
       nmg_debug "Address ${addr} already on ${intf}"; _nmgrc=2; return; }
     nmg_info "Adding ${addr} to ${intf}"
   elif [[ ${cmd} == change ]]; then
-    if [[ ${cur_addr} ]]; then
+    if [[ ${cur_addr-} ]]; then
       # any ip-args to change?
       [[ $# == 0 ]] && { _nmgrc=0; return; }
       nmg_info "Changing ${addr} on ${intf}"
@@ -898,7 +987,7 @@ nmg::__mod_ip() {
     fi
   else
     # if not present, quietly return 2
-    [[ ${cur_addr} ]] || { _nmgrc=2; return; }
+    [[ ${cur_addr-} ]] || { _nmgrc=2; return; }
     nmg_info "Removing ${addr} from ${intf}"
   fi
 
@@ -980,11 +1069,10 @@ nmg_check_ip4_addr() {
 
 nmg_find_ip4_addrs() {
   # [ <intf> [ <match> [ <ip-args> ] ] ]
-  local ip ips=() out=()
+  local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 4 "${1-}" "${2-}" ${3-} || return 0
-  for ip in "${ips[@]%% *}"; do out+=("${ip}"); done
-  printf %s "${out[*]}" || :
+  nmg::query_ips ips "" 4a "${1-}" "${2-}" ${3-} || return 0
+  printf %s "${ips[*]}" || :
   return 0
 }
 
@@ -1135,7 +1223,7 @@ nmg::is_ip6_prefix() {
   [[ ${1-} =~ ^[0-9a-fA-F:]+::/[0-9]+$ ]] || return 1
 }
 
-# used by nmg::_wrap
+# called from nmg::_wrap
 nmg::_create_ip6_prefix() { # returns 0
   # <ip6-prefix/plen> <site> [ <site-len> ]
   local pfx=${1-} asite=${2-} aslen=${3-}
@@ -1236,11 +1324,10 @@ nmg_check_ip6_addr() {
 
 nmg_find_ip6_addrs() {
   # [ <intf> [ <pattern> [ <ip-args> ] ] ]
-  local ip ips=() out=()
+  local ips=()
   # shellcheck disable=SC2086
-  nmg::query_ips ips "" 6 "${1-}" "${2-}" ${3-} || return 0
-  for ip in "${ips[@]%% *}"; do out+=("${ip}"); done
-  printf %s "${out[*]}" || :
+  nmg::query_ips ips "" 6a "${1-}" "${2-}" ${3-} || return 0
+  printf %s "${ips[*]}" || :
   return 0
 }
 
@@ -1259,7 +1346,7 @@ nmg_del_ip6_addr() {
   local _nmgrc=3; nmg::_mod_ip "" nmgout del6 "$@"; return ${_nmgrc}
 }
 
-# used by nmg::_wrap
+# called from nmg::_wrap
 nmg::_create_ip6_host() { # returns 0
   # <intf> [ <node> ]
   local intf=${1-} node=${2-} link_addrs
@@ -1269,9 +1356,9 @@ nmg::_create_ip6_host() { # returns 0
   if [[ -z ${node} || ${node} == auto ]]; then
 
     node=''
-    if nmg::query_ips link_addrs "nolog" 6 "${intf}" "" "scope" "link"; then
+    if nmg::query_ips link_addrs "nolog" 6a "${intf}" "" "scope" "link"; then
 
-      for node in "${link_addrs[@]%% *}"; do
+      for node in "${link_addrs[@]}"; do
         node="${node##*::}"; node="${node%/*}"
         [[ ${node} ]] && break
       done
@@ -1295,7 +1382,7 @@ nmg_create_ip6_host() {
   nmg::create_ip6_host host "$@" && { printf %s "${host}" || :; }
 }
 
-# used by nmg::_wrap
+# called from nmg::_wrap
 nmg::_create_ip6_addr() {
   # <prefix/plen> <host-part>
   local pfx=${1-} node=${2-} plen
