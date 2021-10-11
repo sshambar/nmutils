@@ -1,0 +1,557 @@
+#!/bin/bash
+# -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
+#
+# nmcli-mock - nmcli command wrapper/replacement for testing
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Copyright (C) 2021 Scott Shambarger
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+VERSION=0.1.0
+
+# app in not case sensitive
+shopt -s nocasematch
+
+# MOCK_VALUES file has the following format:
+# -CONN-STATUS
+# `nmcli -t -f all -m m con show`
+# -CONN-ITEMS
+# `nmcli -t -m m con show $(nmcli -t -f name con show)`
+# -DEV-STATUS
+# `nmcli -t -f all -m m dev status`
+# -DEV-ITEMS
+# `nmcli -t -f all -m m dev show`
+# -GEN-STATUS
+# `nmcli -t -f all -m m general`
+NMCLI_MOCK_VALUES=${NMCLI_MOCK_VALUES:-conf/nmcli-mock-values}
+
+NMCLI_MOCK_FAIL=${NMCLI_MOCK_FAIL-}
+
+# only show these fields
+FIELDS=''
+# set for terse
+TERSE=''
+# may be tabular or multiline
+MODE=''
+# empty to non-escape
+ESCAPE=1
+
+ORIG_ARGS="$*"
+
+err() {
+  printf >&2 "%s\n" "$*"
+}
+
+fail() {
+  local -i rc=1
+  printf 2>/dev/null -v rc "%d" "$1"
+  [[ $rc == 0 ]] && rc=1
+  shift
+  err "$*"
+  exit "$rc"
+}
+
+[[ ${NMCLI_MOCK_FAIL} ]] &&
+  fail "${NMCLI_MOCK_FAIL}" "nmcli mock fail ${NMCLI_MOCK_FAIL}"
+
+usage40() {
+  printf >&2 "  %-40s %s\n" "$1" "$2"
+}
+
+usage() {
+  err "Usage: nmcli [OPTIONS] OBJECT { COMMAND | help }"
+  err
+  err "OPTIONS"
+  usage40 "-e, --escape yes|no" "escape columns separators in values"
+  usage40 "-f, --fields <field,....>|all|common" "specify fields to output"
+  usage40 "-g, --get-values <field,....>|all|common" "shoftcut for -m tabular -t -f"
+  usage40 "-h, --help" "print this help"
+  usage40 "-m, --mode tabular|multiline" "output mode"
+  usage40 "-t, --terse" "terse output"
+  err
+  err "OBJECT"
+  err "g[eneral]       NetworkManager's general status and operations"
+  err "c[connection]   NetworkManager's connections"
+  err "d[evice]        devices managed by NetworkManager"
+  err
+  exit 0
+}
+
+fail_arg() {
+  # arg
+  fail 2 "Error: argument '$1' not understood. Try passing --help instead."
+}
+
+pre_match() {
+  # <arg> <full-word>
+  local i
+  [[ $1 ]] || return 1
+  (( ${#1} > ${#2} )) && return 1
+  for (( i=0; i<${#1}; i++)); do
+    [[ ${1:$i:1} == ${2:$i:1} ]] || return 1
+  done
+  return 0
+}
+
+mock_cmd() {
+  # echo commands if requested
+  [[ ${MOCK_ECHO} ]] && echo "nmcli ${ORIG_ARGS}"
+}
+
+CONN_STATUS=()
+CONNS=()
+DEV_STATUS=()
+DEVS=()
+GENERAL=()
+
+mode_assign() {
+  # <mode> <details>
+  [[ $1 && $2 ]] || return 0
+  case $1 in
+    CONN-STATUS) CONN_STATUS+=("$2") ;;
+    CONN-ITEMS) CONNS+=("$2") ;;
+    DEV-STATUS) DEV_STATUS+=("$2") ;;
+    DEV-ITEMS) DEVS+=("$2") ;;
+    GEN-STATUS) GENERAL+=("$2") ;;
+  esac
+  return 0
+}
+
+load_values() {
+  # <filename>
+  local file=$1 mode='' sep=''
+  [[ -f ${file} ]] || { fail 1 "$1 file $file not found"; }
+  local line details=''
+  while read -r line || [[ ${line} ]]; do
+    [[ -z ${line} || ${line} =~ ^# ]] && continue
+    if [[ ${line} =~ ^- ]]; then
+      mode_assign "${mode}" "${details}"
+      details=''
+      mode=${line#-}
+      case ${mode} in
+        CONN-STATUS) sep="NAME" ;;
+        CONN-ITEMS) sep="connection.id" ;;
+        DEV-STATUS) sep="DEVICE" ;;
+        DEV-ITEMS) sep="GENERAL.DEVICE" ;;
+        GEN-STATUS) sep="RUNNING" ;;
+        *) mode='' sep='' ;;
+      esac
+    else
+      if [[ ${line%%:*} == "${sep}" ]]; then
+        mode_assign "${mode}" "${details}"
+        details=''
+      fi
+      details+="${line}"$'\n'
+    fi
+  done < "${file}"
+  mode_assign "${mode}" "${details}"
+  return 0
+}
+
+TABLE_BREAK=''
+print_values() {
+  # <names> <values>...
+  local names=$1; shift
+  [[ ${names} ]] || return 0
+  local i j v anames=() avals=() asize=() fmt='' name
+  { read -r -a anames -d '' || :; } <<< "${names}"
+  if [[ ${MODE} != tabular ]]; then
+    fmt="%-40s%s"
+    [[ ${TERSE} ]] && fmt="%s%s"
+    [[ ${TABLE_BREAK} ]] && echo; TABLE_BREAK=''
+    for values in "$@"; do
+      i=0
+      while read -r v; do
+        [[ $v || ${TERSE} ]] || v="--"
+        printf "${fmt}\n" "${anames[$i]}:" "$v"
+        ((i++)) || :
+      done <<< "${values}"
+    done
+    return 0
+  fi
+  if [[ ${TERSE} ]]; then
+    for values in "$@"; do
+      while read -r v; do
+        [[ ${ESCAPE} ]] && v=${v//:/\\:}
+        fmt+="${fmt:+:}%s" avals+=("$v")
+      done <<< "${values}"
+      printf "${fmt}\n" "${avals[@]}"
+    done
+    return 0
+  fi
+  [[ ${TABLE_BREAK} ]] && echo; TABLE_BREAK=1
+  for ((i=0; i<${#anames[*]}; i++)); do
+    name=${anames[$i]#*.}
+    anames[$i]=${name} asize[$i]=${#name}
+  done
+  for values in "$@"; do
+    avals=()
+    while read -r v; do avals+=("${v:---}"); done <<< "${values}"
+    for ((i=0; i<${#avals[*]}; i++)); do
+      val=${avals[$i]}
+      if (( ${#asize[*]} > i )); then
+        (( ${#val} > ${asize[$i]} )) && asize[$i]=${#val}
+      else
+        asize[$i]=${#val}
+      fi
+    done
+  done
+  for ((j=0; j<i; j++)); do fmt+="${fmt:+  }%-${asize[$j]}s"; done
+  [[ ${#anames[*]} != 0 ]] && printf "${fmt}\n" "${anames[@]}"
+  for values in "$@"; do
+    avals=()
+    while read -r v; do avals+=("${v:---}"); done <<< "${values}"
+    printf "${fmt}\n" "${avals[@]}"
+  done
+}
+
+print_section_values() {
+  # <match> <array-name>...
+  local match=$1 src="$2[@]" entry label value field found='' output=''
+  local table='' names='' values='' cur_label='' IFS=$'\n'
+
+  shift 2
+  for entry in "${!src}"; do
+    set -- ${entry}
+    while [[ ${1-} ]]; do
+      label=${1%%:*}
+      value=${1:${#label}:${#1}}; value=${value#:}
+      if [[ ${label%%.*} != ${table} ]]; then
+        print_values "${names}" "${values}"
+        table='' names='' values=''
+      fi
+      if [[ ${label} == "${match%%:*}" ]]; then
+        if [[ ${match#*:} ]]; then
+          [[ ${found} ]] && break
+          [[ $1 == "${match}" ]] && found=1
+        else
+          [[ ${found} ]] && TABLE_BREAK=1 || found=1
+        fi
+      fi
+      if [[ ${found} ]]; then
+        if [[ ${FIELDS} ]]; then
+          for field in ${FIELDS//,/$'\n'}; do
+            # special internal negative-match
+            if [[ ${field} =~ ^- ]]; then
+              [[ ${field} == "-${label%.*}" ]] && { output=''; break; }
+              output=1; continue
+            elif [[ ${field} == "${label}" ||
+                    ${match%%.*}.${field} == "${label}" ]]; then
+              table=invalid output=1
+            elif [[ ${field%.*} == "${field}" ]] &&
+                   pre_match "${field}." "${label}"; then
+              output=1
+            fi
+            [[ ${output} ]] && break
+          done
+        else
+          output=1
+        fi
+        if [[ ${output} ]]; then
+          output=''
+          if [[ -z ${table} ]]; then
+            table=${label%%.*}
+            [[ ${MODE} == tabular ]] && {
+              # add group names
+              names="name"
+              [[ GENERAL:IP4:IP6:DHCP4:DHCP6 =~ ${table} ]] && names="GROUP"
+              [[ ${match%%:*} == "GENERAL.DEVICE" &&
+                   GENERAL:CAPABILITIES:INTERFACE-FLAGS:WIRED-PROPERTIES:CONNECTIONS =~ ${table} ]] &&
+                names="NAME"
+              values="${table}"
+            }
+          fi
+          [[ ${MODE} == tabular ]] && label=${label%%\[*}
+          if [[ ${label} != "${cur_label}" ]]; then
+            [[ ${names} ]] && { names+=$'\n' values+=$'\n'; }
+            names+="${label}" cur_label=${label}
+          else
+            values+=" | "
+          fi
+          values+=${value}
+        fi
+      fi
+      shift
+    done
+    print_values "${names}" "${values}"
+    table='' names='' values=''
+    [[ ${found} && ${match#*:} ]] && break
+  done
+  [[ ${found} ]] || return
+}
+
+print_field_values() {
+  # <array-name> <fields>
+  local src="$1[@]"
+  local i conn field output match label value entry items anames avals
+
+  shift
+  local afields=("$@") names='' avalues=() IFS=$'\n'
+
+  load_values "${NMCLI_MOCK_VALUES}"
+
+  for entry in "${!src}"; do
+    set -- ${entry}
+    anames=() avals=()
+    while [[ ${1-} ]]; do
+      match='' label=${1%%:*}
+      value=${1:${#label}:${#1}}; value=${value#:}
+      for field in "${afields[@]-}"; do
+        if [[ -z ${field} || ${label} == "${field}" ]]; then
+          if [[ -z ${TERSE} ]]; then
+            # friendly-names
+            if [[ ${label} == TYPE ]]; then
+              [[ ${value} == 802-3-ethernet ]] && value=ethernet
+            fi
+          fi
+          anames+=("${label}")
+          avals+=("${value}")
+          break
+        fi
+      done
+      shift
+    done
+    names='' items=''
+    if [[ ${afields[*]-} ]]; then
+      for field in "${afields[@]-}"; do
+        for ((i=0; i<${#anames[*]}; i++)); do
+          [[ ${field} == "${anames[$i]}" ]] && break
+        done
+        (( i < ${#anames[*]} )) && value=${avals[$i]} || value=''
+        names+="${names:+$'\n'}${field}"
+        items+="${items:+$'\n'}${value}"
+      done
+    else
+      for ((i=0; i<${#anames[*]}; i++)); do
+        names+="${names:+$'\n'}${anames[$i]}"
+        items+="${items:+$'\n'}${avals[$i]}"
+      done
+    fi
+    if [[ ${MODE} == tabular && -z ${TERSE} ]]; then
+      avalues+=("${items}")
+    else
+      print_values "${names}" "${items}"
+      names=''
+    fi
+  done
+  print_values "${names}" "${avalues[@]-}"
+}
+
+set_fields() { # sets fields
+  # <allowed-,> [ <prefix> ]
+  local field match found
+  for field in ${FIELDS//,/ }; do
+    [[ ${field} == all ]] && fail 2 "Error: ${2-}field 'all' has to be alone"
+    found=''
+    for match in ${1//,/ }; do
+      [[ ${field} == "${match}" || ${field%.*} == "${match}" ]] && {
+        found=1; break
+      }
+    done
+    [[ ${found} ]] ||
+      fail 2 "Error: ${2-}invalid field '${field}'; allowed fields: $1."
+    fields+=("${match}")
+  done
+  return 0
+}
+
+GENERAL_FIELDS="RUNNING,VERSION,STATE,STARTUP,CONNECTIVITY,NETWORKING,WIFI-HW,WIFI,WWAN-HW,WWAN"
+
+do_gen_status() {
+  MODE=${MODE:-tabular}
+  FIELDS=${FIELDS:-STATE,CONNECTIVITY,WIFI-HW,WIFI,WWAN-HW,WWAN}
+  [[ ${FIELDS} == all ]] && FIELDS=''
+  set_fields "${GENERAL_FIELDS}"
+  print_field_values "GENERAL" "${fields[@]}"
+  return 0
+}
+
+do_general() {
+  local c cmd req=${1:-status}
+
+  if pre_match "${req}" "status"; then
+    do_gen_status
+    return 0
+  fi
+
+  for cmd in hostname permissions logging reload; do
+    if pre_match "${req}" "${cmd}"; then
+      mock_cmd
+      return 0
+    fi
+  done
+
+  fail_arg "${req}"
+}
+
+CONN_STATUS_FIELDS="NAME,UUID,TYPE,TIMESTAMP,TIMESTAMP-REAL,AUTOCONNECT,AUTOCONNECT-PRIORITY,READONLY,DBUS-PATH,ACTIVE,DEVICE,STATE,ACTIVE-PATH,SLAVE,FILENAME"
+
+do_conn_status() {
+  local fields=()
+  MODE=${MODE:-tabular}
+  FIELDS=${FIELDS:-NAME,UUID,TYPE,DEVICE}
+  [[ ${FIELDS} == all ]] && FIELDS=''
+  set_fields "${CONN_STATUS_FIELDS}"
+  print_field_values "CONN_STATUS" "${fields[@]}"
+}
+
+CONN_SHOW_FIELDS="6lowpan,802-11-olpc-mesh,802-11-wireless,802-11-wireless-security,802-1x,802-3-ethernet,adsl,bluetooth,bond,bridge,bridge-port,cdma,connection,dcb,dummy,ethtool,generic,gsm,hostname,infiniband,ip-tunnel,ipv4,ipv6,macsec,macvlan,match,ovs-bridge,ovs-dpdk,ovs-external-ids,ovs-interface,ovs-patch,ovs-port,ppp,pppoe,proxy,serial,sriov,tc,team,team-port,tun,user,veth,vlan,vpn,vrf,vxlan,wifi-p2p,wimax,wireguard,wpan,GENERAL,IP4,DHCP4,IP6,DHCP6,VPN"
+
+do_conn_show() {
+  # <conn_id>
+  local fields=()
+  MODE=${MODE:-multiline}
+  if [[ ${FIELDS} == all ]]; then
+    FIELDS="-GENERAL,-IP4,-DHCP4,-IP6,-DHCP6,-VPN"
+  else
+    set_fields "${CONN_SHOW_FIELDS}"
+  fi
+  print_section_values "connection.id:$1" "CONNS" ||
+    fail 10 "Error: $1 - no such conection profile."
+}
+
+do_connection() {
+  local c cmd req=${1:-show}
+
+  if pre_match "${req}" "show"; then
+    if [[ ${2-} ]]; then
+      shift
+      load_values "${NMCLI_MOCK_VALUES}"
+      for c in "$@"; do do_conn_show "$c"; TABLE_BREAK=1; done
+    else
+      do_conn_status
+    fi
+    return 0
+  fi
+
+  for cmd in up down modify add edit clone delete monitor reload \
+                load import export; do
+    if pre_match "${req}" "${cmd}"; then
+      mock_cmd
+      return 0
+    fi
+  done
+
+  fail_arg "${req}"
+}
+
+DEV_STATUS_FIELDS="DEVICE,TYPE,STATE,IP4-CONNECTIVITY,IP6-CONNECTIVITY,DBUS-PATH,CONNECTION,CON-UUID,CON-PATH"
+
+do_dev_status() {
+  local fields=()
+  [[ $1 ]] && fail 2 "Error: invalid extra argument '$1'."
+  MODE=${MODE:-tabular}
+  FIELDS=${FIELDS:-DEVICE,TYPE,STATE,CONNECTION}
+  [[ ${FIELDS} == all ]] && FIELDS=''
+  set_fields "${DEV_STATUS_FIELDS}" "'device status': "
+  print_field_values "DEV_STATUS" "${fields[@]}"
+}
+
+DEV_SHOW_FIELDS="GENERAL,CAPABILITIES,INTERFACE-FLAGS,WIFI-PROPERTIES,AP,WIRED-PROPERTIES,WIMAX-PROPERTIES,NSP,IP4,DHCP4,IP6,DHCP6,BOND,TEAM,BRIDGE,VLAN,BLUETOOTH,CONNECTIONS"
+
+do_dev_show() {
+  local fields=()
+  MODE=${MODE:-multiline}
+  FIELDS=${FIELDS:-GENERAL.DEVICE,GENERAL.TYPE,GENERAL.HWADDR,GENERAL.MTU,GENERAL.STATE,GENERAL.CONNECTION,GENERAL.CON-PATH,WIRED-PROPERTIES,IP4,IP6}
+  [[ ${FIELDS} == all ]] && FIELDS=''
+  set_fields "${DEV_SHOW_FIELDS}" "'device show': "
+  print_section_values "GENERAL.DEVICE:$1" "DEVS" ||
+    fail 10 "Error: Device '$1' not found."
+}
+
+do_device() {
+  local d cmd req=${1:-status}
+
+  shift || :
+  if pre_match "${req}" "status"; then
+    do_dev_status "$@"
+  elif pre_match "${req}" "show"; then
+    load_values "${NMCLI_MOCK_VALUES}"
+    if [[ ${1-} ]]; then
+      for d in "$@"; do do_dev_show "$d"; TABLE_BREAK=1; done
+    else
+      do_dev_show
+    fi
+    return 0
+  fi
+
+  for cmd in status show set connect reapply modify disconnect delete \
+                monitor wifi lldp; do
+    if pre_match "${req}" "${cmd}"; then
+      mock_cmd
+      return 0
+    fi
+  done
+
+  fail_arg "${req}"
+}
+
+while [[ ${1-} =~ ^- ]]; do
+  OPTERR='' OPTARG=''
+  OPT=${1#-}; OPT=${OPT#-}
+  if pre_match "$OPT" "escape"; then
+    case ${2-} in
+      yes) ESCAPE=1 ;;
+      no) ESCAPE='' ;;
+      *) OPTERR=$1 OPTARG=${2-} ;;
+    esac
+    shift
+  elif pre_match "$OPT" "fields"; then
+    [[ ${2-} ]] && FIELDS=$2 || OPTERR=$1
+    shift
+  elif pre_match "$OPT" "get-values"; then
+    [[ ${2-} ]] && FIELDS=$2 || OPTERR=$1
+    MODE=tabular TERSE=1
+    shift
+  elif pre_match "$OPT" "help"; then
+    usage
+  elif pre_match "$OPT" "mode"; then
+    if pre_match ${2-} "tabular"; then
+      MODE=tabular
+    elif pre_match ${2-} "multiline"; then
+      MODE=multiline
+    else
+      OPTERR=$1 OPTARG=${2-}
+    fi
+    shift
+  elif pre_match "$OPT" "terse"; then
+    TERSE=1
+  else
+    fail 2 "Error: Option '$1' is unknown, try 'nmcli -help'."
+  fi
+  [[ ${OPTARG} ]] &&
+    fail 2 "Error: '$OPTARG' is not a valid argument for '$OPTERR' option."
+  [[ ${OPTERR} ]] && fail 2 "Error: missing argument for '$OPTERR' option."
+  shift
+done
+
+OBJECT=${1-}
+shift || :
+
+if pre_match "$OBJECT" "help"; then
+  usage
+elif pre_match "$OBJECT" "general"; then
+  do_general "$@"
+elif pre_match "$OBJECT" "connection"; then
+  do_connection "$@"
+elif pre_match "$OBJECT" "device"; then
+  do_device "$@"
+elif [[ $OBJECT ]]; then
+  fail_arg "${OBJECT}"
+else
+  do_summary
+fi
+
+exit 0
