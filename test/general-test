@@ -25,12 +25,12 @@ shtest::parse "${NMG}" || shtest::fatal
 NMG_REQUIRED="99.0.0"
 
 # shellcheck source=/dev/null
-(. "${NMG}" 2>/dev/null && {
-  echo >&2 "FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
-  exit 1; } || :) || exit 1
+(. "${NMG}" 2>/dev/null &&
+   xtest::fail "FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}" ||
+     :) || exit 1
 
 # min-version for tests
-NMG_REQUIRED="1.5.2"
+NMG_REQUIRED="1.5.3"
 
 # less noise
 export NMG_TAG=''
@@ -41,11 +41,22 @@ export NMG_TAG=''
 # these tests require MOCK_ECHO=1 to check command actions
 export MOCK_ECHO=1
 
+# need output directory
+[[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+XLOG="$TEST_OUT/general.log" XERR="$TEST_OUT/general.err"
+
 xwrap() {
   local cmd=${1-}
   [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
   shift
   "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xwrap_cleanup() {
+  local rc=$?
+  [[ -e ${XERR} ]] && { cat "${XERR}"; rm -f "${XERR}"; }
+  [[ -e ${XLOG} ]] && { cat "${XLOG}"; rm -f "${XLOG}"; }
+  exit ${rc}
 }
 
 xtest::group1::log() {
@@ -400,7 +411,7 @@ xtest::group3::cmd() {
 }
 
 xtest::group3::ip() {
-  local avar=() aref=() anull=()
+  local var='' avar=() aref=() anull=()
 
   shtest::title "IP Tests (ip group)"
 
@@ -500,11 +511,35 @@ xtest::group3::ip() {
   xtest I16 t "(a scope host) returns true"
   atest I16a avar aref " - returns ipv4+ipv6 addresses"
 
+  aref=("2001:db8:871a:28c1::1/64")
+  xwrap nmg::query_ips avar "" 6a "eth0" "2001:db8:871a:28c1:0::1/64"
+  xtest I17 t "(<ip6-with-0s>) returns true"
+  atest I17a avar aref " - returns ipv6 addresses"
+
+  xwrap nmg::query_ips avar "" 6a "eth0" "2001:db8:871a:28c1::"
+  xtest I18 t "(<ip6-prefix>) returns true"
+  atest I18a avar aref " - returns ipv6 addresses"
+
+  xwrap nmg::query_ips avar "" 6a "eth0" "2001:db8:871a:28c1:x:"
+  xtest I19 2 "(<bad-search>) returns 2"
+  ftest I19f "" " - does not log"
+
   shtest::prefix "nmg::mod_ip"
 
   xwrap nmg::mod_ip
   xtest I21 3 "(<no args>) returns 3"
   ftest I21f "ERR: nmg::mod_ip: unknown <cmd> ''" " - logs error"
+
+  var='bogus'
+  xwrap nmg::mod_ip var "" "add6" "eth1" "fdac:3741:50f8:f623::1/48" "preferred_lft" 0
+  xtest I22 t "(add existing) returns true"
+  vtest I22v "ip -6 addr replace fdac:3741:50f8:f623::1/48 dev eth1 preferred_lft 0" " - sets var to output"
+  ftest I22f "Replacing fdac:3741:50f8:f623::1/48 on eth1" " - logs action"
+
+  xwrap nmg::mod_ip var "" "change6" "eth1" "fdac:3741:50f8:f623::1/48" "valid_lft" 0 "preferred_lft" 0
+  xtest I23 t "(change existing) returns true"
+  vtest I23v "ip -6 addr change fdac:3741:50f8:f623::1/48 dev eth1 valid_lft 0 preferred_lft 0" " - sets var to output"
+  ftest I23f "Changing fdac:3741:50f8:f623::1/48 on eth1" " - logs action"
 
   shtest::prefix "nmg::wait_dad6"
 
@@ -533,9 +568,11 @@ xtest::group3::ip() {
   ftest I36f "" " - does not log"
 
   # this sleeps
+  sleep() { echo "sleep $*"; }
   xwrap nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
   xtest I37 2 "(eth2 2001:db8:1::1/64 1) returns 2 after sleeping"
-  ftest I37f "" " - does not log"
+  ftest2 I37f "" "sleep 0.5"$'\n'"sleep 0.5" " - performs sleep"
+  unset sleep
 
   xwrap nmg::wait_dad6 eth1 "2001:db8:a0b:12f0::1/64"
   xtest I38 t "(eth1 2001:db8:a0b:12f0::1/64) returns true"
@@ -606,8 +643,9 @@ xtest::group3::ip4() {
         " - logs error"
 
   xwrap nmg_add_ip4_addr "lo" "127.0.0.1/8"
-  xtest V24 2 "(<existing addr>) returns 2"
-  ftest V24f "" " - performs no action"
+  xtest V24 t "(<existing addr>) returns true"
+  ftest V24f "Replacing 127.0.0.1/8 on lo"$'\n'"$NMG_IP => ip -4 addr replace 127.0.0.1/8 dev lo" \
+        " - performs replace"
 
   xwrap nmg_add_ip4_addr "eth0" "10.5.5.10"
   xtest V25 t "(<new addr w/ plen>) returns true"
@@ -623,6 +661,39 @@ xtest::group3::ip4() {
   xtest V27 255 "(<bad ip-args>) returns 255"
   ftest V27f "Adding 10.10.5.11/24 to eth1"$'\n'"ERR: FAIL(255) $NMG_IP -4 addr add 10.10.5.11/24 dev eth1 invalid => Error: either \"local\" is duplicate, or \"invalid\" is a garbage." \
         " - logs error"
+
+  xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24" "valid_lft" "forever"
+  xtest V28 t "(<ip-args>) returns true"
+  ftest V28f "Adding 10.10.5.11/24 to eth1"$'\n'"$NMG_IP => ip -4 addr add 10.10.5.11/24 dev eth1 valid_lft forever" \
+        " - performs add with args"
+
+  xwrap nmg_add_ip4_addr "eth1" "10.0.10.12/24" "valid_lft" "forever"
+  xtest V29 t "(<existing> <ip-args>) returns true"
+  ftest V29f "Replacing 10.0.10.12/24 on eth1"$'\n'"$NMG_IP => ip -4 addr replace 10.0.10.12/24 dev eth1 valid_lft forever" \
+        " - performs replace with args"
+
+  shtest::prefix "nmg_change_ip4_addr"
+
+  xwrap nmg_change_ip4_addr "eth1" "10.0.10.12/24" "preferred_lft" "0"
+  xtest V31 t "(<pref-life=0>) returns true"
+  ftest V31f "Changing 10.0.10.12/24 on eth1"$'\n'"$NMG_IP => ip -4 addr change 10.0.10.12/24 dev eth1 preferred_lft 0" \
+        " - performs change"
+
+  xwrap nmg_change_ip4_addr "eth1" "10.10.10.12/24" "preferred_lft" "0"
+  xtest V32 t "(<new addr>) returns true"
+  ftest V32f "Adding 10.10.10.12/24 to eth1"$'\n'"$NMG_IP => ip -4 addr replace 10.10.10.12/24 dev eth1 preferred_lft 0" \
+        " - performs replace"
+
+  shtest::prefix "nmg_del_ip4_addr"
+
+  xwrap nmg_del_ip4_addr "eth1" "10.0.10.12/24"
+  xtest V41 t "(<existing addr>) returns true"
+  ftest V41f "Removing 10.0.10.12/24 from eth1"$'\n'"$NMG_IP => ip -4 addr del 10.0.10.12/24 dev eth1" \
+        " - performs delete"
+
+  xwrap nmg_del_ip4_addr "eth1" "10.10.10.12/24"
+  xtest V42 2 "(<addr-missing>) returns 2"
+  ftest V42f "" " - performs no action"
 }
 
 xtest::group3::ip6() {
@@ -634,6 +705,7 @@ xtest::group3::ip6() {
 
   xwrap nmg_check_ip6_addr fc80::1
   xtest P1 13 "('fc80::1') returns 13"
+  ftest P1f "" " - does not log"
 
   xwrap nmg_check_ip6_addr fc80::1 1
   xtest P2 t "('fc80::1' 1) <private>, returns true"
@@ -721,9 +793,9 @@ xtest::group3::ip6() {
   xtest P43 3 "(<no intf>) returns 3"
   ftest P43f "ERR: nmg::create_ip6_host: missing <intf>" " - logs error"
 
-  xwrap nmg::create_ip6_host var "eth3" "auto"
+  xwrap nmg::create_ip6_host var "ethx" "auto"
   xtest P44 1 "(<bad intf>) returns 1"
-  ftest P44f "ERR: nmg::create_ip6_host: Unable to determine an auto host-part for interface eth3" " - logs error"
+  ftest P44f "ERR: nmg::create_ip6_host: Unable to determine an auto host-part for interface ethx" " - logs error"
 
   xwrap nmg::create_ip6_host var "eth0" "1"
   xtest P45 t "(eth0 1) returns true"
@@ -768,6 +840,69 @@ xtest::group3::ip6() {
   xtest P64 t "(eth1) returns true"
   ftest2 P64f "" "2001:db8:a0b:12f0::1/64 fdac:3741:50f8:f623::1/48" \
          " - returns matching addresses"
+
+  shtest::prefix "nmg::expand_ip6"
+
+  var='bogus'
+  xwrap nmg::expand_ip6 var "" ""
+  xtest P71 1 "(<no-addr>) returns 1"
+  vtest P71v "" " - clears retvar"
+  ftest P71f "ERR: nmg::expand_ip6: invalid ip6 format ''" " - logs error"
+
+  xwrap nmg::expand_ip6 var "" "::1/128"
+  xtest P72 t "(::1/128) returns true"
+  vtest P72v "0:0:0:0:0:0:0:1/128" " - sets retvar"
+
+  xwrap nmg::expand_ip6 var "" "fe80::1"
+  xtest P73 t "(fe80::1) returns true"
+  vtest P73v "fe80:0:0:0:0:0:0:1" " - sets retvar"
+
+  xwrap nmg::expand_ip6 var "" "fe80:100::1"
+  xtest P74 t "(fe80:100::1) returns true"
+  vtest P74v "fe80:100:0:0:0:0:0:1" " - sets retvar"
+
+  xwrap nmg::expand_ip6 var "" "fe80:100::"
+  xtest P75 t "(fe80:100::) returns true"
+  vtest P75v "fe80:100:0:0:0:0:0:0" " - sets retvar"
+
+  xwrap nmg::expand_ip6 var "" "FE80:00::100"
+  xtest P76 t "(FE80:00::100) returns true"
+  vtest P76v "fe80:0:0:0:0:0:0:100" " - sets retvar"
+
+  xwrap nmg::expand_ip6 var "retvar nolog" "FE80::1/x"
+  xtest P77 1 "(retval FE80::1/x) returns 1"
+  vtest P77v "invalid ip6 format 'FE80::1/x'" " - sets retvar to error"
+  ftest P77f "" " - does not log"
+
+  xwrap nmg::expand_ip6 var "" "1:2:3:4:5:6:7:8:1"
+  xtest P78 1 "(<long ip>) returns 1"
+  ftest P78f "ERR: nmg::expand_ip6: invalid ip6 format '1:2:3:4:5:6:7:8:1'" \
+        " - logs error"
+
+  xwrap nmg::expand_ip6 var "" "1:23451::1"
+  xtest P79 1 "(<bad ip>) returns 1"
+  ftest P79f "ERR: nmg::expand_ip6: invalid ip6 format '1:23451::1'" \
+        " - logs error"
+
+  xwrap nmg::expand_ip6 var "" "FE80::1" "%04x"
+  xtest P80 t "(FE80::1 %04x) returns true"
+  vtest P80v "fe80:0000:0000:0000:0000:0000:0000:0001" " - sets retvar"
+
+  shtest::prefix "nmg::is_ip6_prefix"
+
+  xwrap nmg::is_ip6_prefix "FE80::1x"
+  xtest P91 1 "(FE80::1x) returns 1"
+  ftest P91f "" " - does not log"
+
+  xwrap nmg::is_ip6_prefix "FE80::1"
+  xtest P92 1 "(FE80::1) returns 1"
+  ftest P92f "" " - does not log"
+
+  xwrap nmg::is_ip6_prefix "FE80::1/64"
+  xtest P93 1 "(FE80::1/64) returns 1"
+
+  xwrap nmg::is_ip6_prefix "FE80::/8"
+  xtest P94 t "(FE80::/8) returns true"
 }
 
 xtest::group3::file() {
@@ -893,7 +1028,7 @@ xtest::group3::file() {
   rm -f "$TEST_OUT/"*".match"
   xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" nmg_info
   xtest F44 t "(<no match>) returns true"
-  ftest F44f "" " - does not log"
+  ftest F44f "" " - makes no callbacks"
 
   touch "$TEST_OUT/xx.match" "$TEST_OUT/yy.match"
   xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" nmg_info
@@ -903,6 +1038,10 @@ xtest::group3::file() {
   xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" nmg_info arg
   xtest F46 t "(<2 matches>) returns true"
   ftest F46f "$TEST_OUT/xx.match xx arg"$'\n'"$TEST_OUT/yy.match yy arg" " - makes callbacks"
+
+  xwrap nmg::foreach_filematch "$TEST_OUT/SUB.match" "@SUB@" nmg_info arg
+  xtest F47 t "(<no-pat>) returns true"
+  ftest F47f "" " - makes no callbacks"
 
   rm -f "$TEST_OUT/"*".match"
 
@@ -1296,12 +1435,10 @@ xtest::group4::config() {
 }
 
 main() {
-
-  # need output directory
-  [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
-
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
-  local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
+
+  # reset (in subshell)
+  shtest::reset
 
   export nmg_log_stderr=4
 
@@ -1322,7 +1459,7 @@ main() {
   return 0
 }
 
-main "$@"
+(main "$@") || xwrap_cleanup
 
 # Local Variables:
 # mode: sh
