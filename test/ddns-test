@@ -25,19 +25,17 @@ shtest::parse "${NMDDNS}" || shtest::fatal
 NMG_REQUIRED="99.0.0"
 
 # shellcheck source=/dev/null
-(. "${NMDDNS}" 2>/dev/null && {
-  echo >&2 "FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
-  exit 1; } || :) || exit 1
+(. "${NMDDNS}" 2>/dev/null &&
+   xtest::fail "FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}" || :) || exit 1
 
 unset NMG_REQUIRED
 NMDDNS_REQUIRED="99.0.0"
 # shellcheck source=/dev/null
-(. "${NMDDNS}" 2>/dev/null && {
-  echo >&2 "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
-  exit 1; } || :) || exit 1
+(. "${NMDDNS}" 2>/dev/null &&
+   xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}" || :) || exit 1
 
 # min-version for tests
-NMDDNS_REQUIRED="1.4.0"
+NMDDNS_REQUIRED="1.4.1"
 
 # less noise
 export NMG_TAG=''
@@ -48,11 +46,22 @@ export NMG_TAG=''
 # these tests require MOCK_ECHO=1 to check command actions
 export MOCK_ECHO=1
 
+# need output directory
+[[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+XLOG="$TEST_OUT/ddns.log" XERR="$TEST_OUT/ddns.err"
+
 xwrap() {
   local cmd=${1-}
   [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
   shift
   "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xwrap_cleanup() {
+  local rc=$?
+  [[ -e ${XERR} ]] && { cat "${XERR}"; rm -f "${XERR}"; }
+  [[ -e ${XLOG} ]] && { cat "${XLOG}"; rm -f "${XLOG}"; }
+  exit ${rc}
 }
 
 xtest::group4::ddns() {
@@ -344,6 +353,22 @@ xtest::group4::ddns() {
   shtest::check_file D34o "$xstate" "arg=update $cnf A  $xpat" " - runs helper"
   rm -f "$XFILE" "$xstate"
 
+  shtest::prefix "nmddns_spawn_update_all"
+
+  unset NMDDNS_HELPER
+
+  xwrap nmddns_spawn_update_all up "$cnf"
+  xtest D41 t "(up) returns true"
+  read -r -d '' out <<-EOF
+  	Removing www.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
+	EOF
+  ftest D41f "${out}" " - removes current entry"
+
   nmddns_cleanup
 
   # for SC
@@ -428,12 +453,10 @@ xtest::group5::helper() {
 }
 
 main() { # <args>
-
-  # need output directory
-  [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
-
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
-  local XLOG="$TEST_OUT/xtest log" XERR="$TEST_OUT/xtest err"
+
+  # reset (in subshell)
+  shtest::reset
 
   export nmg_log_stderr=4
 
@@ -454,7 +477,7 @@ main() { # <args>
   return 0
 }
 
-main "$@"
+(main "$@") || xwrap_cleanup
 
 # Local Variables:
 # mode: sh

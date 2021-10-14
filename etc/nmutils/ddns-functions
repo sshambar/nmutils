@@ -185,7 +185,7 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.0"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.1"
 
 # set default paths if missing
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -553,10 +553,11 @@ nmddns_spawn_update_all() {
   [[ ${name_found} ]] || return 0
 
   # we have a valid config, spawn the helper
-  nmg_daemon "${NMDDNS_HELPER}" "$@" && return
+  [[ ${NMDDNS_HELPER-} ]] &&
+    nmg_daemon "${NMDDNS_HELPER}" "$@" && return
 
   # make timeouts much faster, or NetworkManager will kill us
-  nmddns::_short_timeout
+  nmddns::_short_timeouts
 
   # helper not found, or can't be started, update directly.
   shift 2
