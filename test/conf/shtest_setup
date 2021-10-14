@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.1 - Shell script testing functions
+# shtest v1.2.2 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -603,6 +603,7 @@ shtest::_handle_exit() { # <$?>
   [[ ${_shtest_next} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
     eval "${BASH_REMATCH[1]//\$?/\${_shtest_rc}}" || _shtest_rc=$?
   }
+  [ "${BASH_VERSINFO[0]}" -ge 4 ] || exit ${_shtest_rc}
   return ${_shtest_rc}
 }
 
