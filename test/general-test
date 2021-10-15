@@ -14,9 +14,14 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 { [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
   { echo >&2 "Unable to load xtest_setup"; exit 2; }
 
-[[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
+[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
 
-NMG="${NMG:-${NMUTILS}/general-functions}"
+# don't let general-functions use external commands
+# (except those defined in config)
+# shellcheck disable=SC2123
+PATH=''
+
+NMG=${NMG:-${NMUTILS}/general-functions}
 
 # ensure includes pass parse test
 shtest::parse "${NMG}" || shtest::fatal
@@ -30,7 +35,7 @@ NMG_REQUIRED="99.0.0"
      :) || exit 1
 
 # min-version for tests
-NMG_REQUIRED="1.5.3"
+NMG_REQUIRED="1.5.4"
 
 # less noise
 export NMG_TAG=''
@@ -43,6 +48,8 @@ export MOCK_ECHO=1
 
 # need output directory
 [[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+# realpath test requires TEST_OUT to be relative
+[[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
 XLOG="$TEST_OUT/general.log" XERR="$TEST_OUT/general.err"
 
 xwrap() {
@@ -52,10 +59,15 @@ xwrap() {
   "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
 }
 
+xrm() {
+  [[ ${1-} && -f $1 ]] || return 0
+  command -p rm -f "$@"
+}
+
 xwrap_cleanup() {
   local rc=$?
-  [[ -e ${XERR} ]] && { cat "${XERR}"; rm -f "${XERR}"; }
-  [[ -e ${XLOG} ]] && { cat "${XLOG}"; rm -f "${XLOG}"; }
+  [[ -e ${XERR} ]] && { command -p cat "${XERR}"; xrm "${XERR}"; }
+  [[ -e ${XLOG} ]] && { command -p cat "${XLOG}"; xrm "${XLOG}"; }
   exit ${rc}
 }
 
@@ -312,9 +324,9 @@ xtest::group3::cmd() {
   local var=''
 
   # used for several tests
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "#!/bin/sh"$'\n'"echo >&2 \"arg=\$1\"; exit \$1" > "$XFILE"
-  chmod +x "$XFILE"
+  command -p chmod +x "$XFILE"
 
   shtest::title "Command Tests (cmd group)"
 
@@ -917,7 +929,7 @@ xtest::group3::file() {
   xtest F1 3 "(<no args>) returns 3"
   ftest F1f "ERR: nmg_write: missing <filename>" " - logs error"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   local nmg_dryrun=5
   xwrap nmg_write "$XFILE" "content"
   xtest F2 5 "(<dry-run 5>) returns 5"
@@ -929,14 +941,14 @@ xtest::group3::file() {
   ftest F3f "DRY-RUN: nmg_write($XFILE)" " - logs info"
   unset nmg_dryrun
 
-  touch "$XFILE"
-  chmod a-w "$XFILE"
+  command -p touch "$XFILE"
+  command -p chmod a-w "$XFILE"
   xwrap nmg_write "$XFILE" "content"
   xtest F4 1 "(<write prot>) returns 1"
   ftest F4f "ERR: FAIL(1) nmg_write($XFILE) => Permission denied" \
         " - logs error"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   xwrap nmg_write "$XFILE" "content"
   xtest F5 t "(<file>) returns true"
   ftest F5f "" " - should not log"
@@ -963,7 +975,7 @@ xtest::group3::file() {
   vtest F12v "empty <filename>" " - should set retvar=err"
   ftest F12f "nmg::read: empty <filename>" " - should log info"
 
-  rm -f "$XNOFILE"
+  xrm "$XNOFILE"
   var="bogus"
   xwrap nmg::read var "ignore retvar" "$XNOFILE"
   xtest F13 t "('not-there' ignore) returns true"
@@ -984,13 +996,13 @@ xtest::group3::file() {
   vtest F16v "" " - should clear var"
   ftest F16f "" " - should not log"
 
-  chmod a-r "$XFILE"
+  command -p chmod a-r "$XFILE"
   xwrap nmg::read var "retvar" "$XFILE"
   xtest F17 1 "(<read protected file> retvar) returns 1"
   vtest F17v "'$XFILE' Permission denied" " - set retvar=err"
   ftest F17f "ERR: nmg::read: '$XFILE' Permission denied" " - logs error"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "some"$'\n'"contents" > "$XFILE"
   xwrap nmg::read var "" "$XFILE"
   xtest F18 t "(<file>) returns true"
@@ -1003,7 +1015,7 @@ xtest::group3::file() {
   xtest F31 3 "(<no args>) returns 3"
   ftest F31f "ERR: nmg_remove: missing <filename>" " - logs error"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "some"$'\n'"contents" > "$XFILE"
   xwrap nmg_remove "$XFILE"
   xtest F32 t "(<file>) returns true"
@@ -1025,12 +1037,12 @@ xtest::group3::file() {
   xtest F43 3 "(<no callback>) returns 3"
   ftest F43f "ERR: nmg::foreach_filematch: missing <callback>" " - logs error"
 
-  rm -f "$TEST_OUT/"*".match"
+  xrm "$TEST_OUT/"*".match"
   xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" nmg_info
   xtest F44 t "(<no match>) returns true"
   ftest F44f "" " - makes no callbacks"
 
-  touch "$TEST_OUT/xx.match" "$TEST_OUT/yy.match"
+  command -p touch "$TEST_OUT/xx.match" "$TEST_OUT/yy.match"
   xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" nmg_info
   xtest F45 t "(<2 matches>) returns true"
   ftest F45f "$TEST_OUT/xx.match xx"$'\n'"$TEST_OUT/yy.match yy" " - makes callbacks"
@@ -1043,7 +1055,26 @@ xtest::group3::file() {
   xtest F47 t "(<no-pat>) returns true"
   ftest F47f "" " - makes no callbacks"
 
-  rm -f "$TEST_OUT/"*".match"
+  shtest::prefix "nmg::realpath"
+
+  xwrap nmg::realpath
+  xtest F51 3 "(<no args>) returns 3"
+  ftest F51f "ERR: nmg::realpath: missing <retvar>" " - logs error"
+
+  xwrap nmg::realpath var "$TEST_OUT/a\' test"
+  xtest F52 t "($TEST_OUT/file) returns true"
+  if [[ $var =~ "/a\' test" ]]; then
+    xtest F52v t " - sets var to full path"
+  else
+    vtest F52v "<full-path>/a\' test" " - sets var to full path"
+  fi
+  ftest F52f "" " - does not log"
+
+  xwrap nmg::realpath var "$XNOFILE/a\' test"
+  xtest F53 2 "(<bad-dir>) returns 2"
+  ftest F53f "ERR: nmg::realpath: failed to locate ${XNOFILE}/a\' test" " - logs error"
+
+  xrm "$TEST_OUT/"*".match"
 
   : "${nmg_dryrun-}" # for SC
 }
@@ -1372,12 +1403,12 @@ xtest::group4::config() {
   xtest C1 1 "(<no args>) returns 1"
   ftest C1f "" " - should not log"
 
-  rm -f "$XNOFILE"
+  xrm "$XNOFILE"
   xwrap nmg_read_config "$XNOFILE"
   xtest C2 1 "('not-there') returns 1"
   ftest C2f "" " - should not log"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "TEST1=1"$'\n'"{ # parse error" > "$XFILE"
   xwrap nmg_read_config "$XFILE"
   xtest C3 2 "(<bad file>) returns 2"
@@ -1387,7 +1418,7 @@ xtest::group4::config() {
   xtest C4 2 "(<bad file> nolog) returns 2"
   ftest C4f "" " - should not log"
 
-  chmod a-r "$XFILE"
+  command -p chmod a-r "$XFILE"
   xwrap nmg_read_config "$XFILE"
   xtest C5 2 "(<read prot) returns 2"
   ftest C5f "ERR: nmg_read_config($XFILE): access denied" \
@@ -1397,7 +1428,7 @@ xtest::group4::config() {
   xtest C6 2 "(<read prot> nolog) returns 2"
   ftest C6f "" " - should not log"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "echo >&2 to stderr"$'\n'"echo to stdout" > "$XFILE"
   xwrap nmg_read_config "$XFILE"
   xtest C7 t "(<file w/ output>) returns true"
@@ -1418,12 +1449,12 @@ xtest::group4::config() {
   vtest C21v "new value" " - correctly load values"
   ftest C21f "" " - should not log"
 
-  rm -f "$XNOFILE"
+  xrm "$XNOFILE"
   (xwrap nmg_required_config "$XNOFILE"; echo "not reached")
   xtest C22 t "('not-there') exits 0"
   ftest C22f "" " - should not log"
 
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "TEST1=1"$'\n'"{ # parse error" > "$XFILE"
   var=0
   (xwrap nmg_required_config "$XFILE"; echo "not reached") || var=$?
@@ -1440,9 +1471,8 @@ main() {
   # reset (in subshell)
   shtest::reset
 
-  export nmg_log_stderr=4
-
   # fd 4 used for logger
+  export nmg_log_stderr=4
   exec 4>&2
 
   shtest::reg_file "$XLOG"
@@ -1451,9 +1481,9 @@ main() {
   xtest::run_tests "general-functions Test Summary" "$@"
 
   # cleanup
-  [[ -f $XFILE ]] && rm -f "$XFILE"
-  [[ -f $XLOG ]] && rm -f "$XLOG"
-  [[ -f $XERR ]] && rm -f "$XERR"
+  [[ -f $XFILE ]] && xrm "$XFILE"
+  [[ -f $XLOG ]] && xrm "$XLOG"
+  [[ -f $XERR ]] && xrm "$XERR"
   exec 4>&-
 
   return 0

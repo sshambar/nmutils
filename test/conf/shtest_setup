@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.2 - Shell script testing functions
+# shtest v1.2.3 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -146,6 +146,16 @@
 #
 # shellcheck shell=bash
 
+shtest::_rm() {
+  [[ ${1-} && -f $1 ]] || return 0
+  command -p rm -f "$@"
+}
+
+shtest::_touch() {
+  [[ ${1-} ]] || return 0
+  command -p touch "$@" || :
+}
+
 shtest::cleanup() {
   # any cleanup?
   [[ ${_SHTEST_STATE[0]-} ]] || return 0
@@ -161,7 +171,7 @@ shtest::cleanup() {
   trap - ERR
   # cleanup strict tracking file
   if [[ ${_SHTEST_STATE[2]-} ]]; then
-     [[ -f "${_SHTEST_STATE[2]}" ]] && rm -f "${_SHTEST_STATE[2]}"
+     shtest::_rm "${_SHTEST_STATE[2]}"
      # unset strict mode
      set +eu
   fi
@@ -199,7 +209,7 @@ shtest::_reset_state() {
   if [[ ${_SHTEST_STATE[2]} ]]; then
     [[ $- =~ e ]] || set -eEu
     [[ -f "${_SHTEST_STATE[2]}" ]] && {
-      rm -f "${_SHTEST_STATE[2]}"; return 1; }
+      shtest::_rm "${_SHTEST_STATE[2]}"; return 1; }
   fi
   return 0
 }
@@ -479,7 +489,7 @@ shtest::check_reg_files() { # <id> <desc> [ <file#-contents>... ]
     shift || set --
   done
   _SHTEST_STATE[11]='' # reset multi-test
-  [[ ${fails} != ${_SHTEST_STATE[1]} ]] && {
+  [[ ${fails} != "${_SHTEST_STATE[1]}" ]] && {
     # multiple file failures is only a single test failure
     _SHTEST_STATE[1]=$((++fails))
     _SHTEST_FAILED+=("${id}")
@@ -539,7 +549,7 @@ shtest::parse() { # <file>
     shtest::log "Usage: shtest::parse <file>"; return 1; }
   [[ -f ${file} ]] || {
     shtest::log "shtest::parse(${file}) not found"; return 1; }
-  bash -n "${file}" || {
+  "${BASH}" -n "${file}" || {
     shtest::log "shtest::parse(${file}) failed"; return 1; }
 }
 
@@ -578,7 +588,7 @@ shtest::_handle_err() {
     [[ ${FUNCNAME[1]} =~ ^${wl}$ ]] && return
   done
   # may be in subshell, so touch file to communicate strict failure
-  touch "${_SHTEST_STATE[2]}" || :
+  shtest::_touch "${_SHTEST_STATE[2]}"
   # rest is backtrace if requested
   [[ ${_SHTEST_STATE[6]} ]] || return 0
   shtest::_backtrace 2
@@ -610,7 +620,7 @@ shtest::_handle_exit() { # <$?>
 shtest::strict() { # [ "trace" ]
   [[ ${1-} == trace ]] && _SHTEST_STATE[6]=1
   [[ ${_SHTEST_STATE[2]} ]] && return 0
-  _SHTEST_STATE[2]=$(mktemp -u -t "shtest-strict-XXXXXX") || :
+  _SHTEST_STATE[2]=$(command -p mktemp -u -t "shtest-strict-XXXXXX") || :
   [[ ${_SHTEST_STATE[2]} ]] ||
     shtest::fatal "shtest::strict: Unable to setup tmpfile"
   _SHTEST_STATE[4]=$(trap -p EXIT)

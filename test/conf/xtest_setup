@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.0.0 - shtest suite in a box
+# xtest_setup v1.0.1 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -128,7 +128,7 @@ xtest::_run_tests() { # <args>...
   local arg all reqs=()
 
   { read -r -a all -d '' || :; } \
-    <<< "$(compgen -A function xtest::group | sort)"
+    <<< "$(compgen -A function xtest::group | command -p sort)"
 
   for arg in "$@"; do
     if [[ "${all[*]}" =~ (^| )(xtest::group.::"$arg")($| ) ]]; then

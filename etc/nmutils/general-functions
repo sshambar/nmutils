@@ -27,13 +27,13 @@
 #       NMG_TAG="nmg"
 #
 #       # set NMUTILS/NMCONF early, and allow environment to override
-#       NMUTILS="${NMUTILS:-/etc/nmutils}"
-#       NMCONF="${NMCONF:-${NMUTILS}/conf}"
+#       NMUTILS=${NMUTILS:-/etc/nmutils}
+#       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
 #       # optional required
 #       NMG_REQUIRED="1.4.1"
 #
-#       NMG="${NMG:-${NMUTILS}/general-functions}"
+#       NMG=${NMG:-${NMUTILS}/general-functions}
 #       { [[ -r ${NMG} ]] && . "${NMG}"; } || NMG=''
 #
 #   Use of NM* variables above is optional (NMG here indicates nmg_* functions
@@ -106,6 +106,10 @@
 #     Replaces <wild> in <pattern> with '*', and for each matching file calls
 #       <callback> <filename> <match> [ <args>... ]
 #     where <match> is part of <filename> that matched '*'.
+#
+#   nmg::realpath <retvar> [ <path> ]
+#
+#     Sets <retvar> to full path of <path> (default `pwd`)
 #
 # Execution functions (all functions return any error codes):
 #
@@ -385,23 +389,23 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.3"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.4"
 
 # set default paths if missing
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-$NMUTILS/conf}"
+NMUTILS=${NMUTILS:-/etc/nmutils}
+NMCONF=${NMCONF:-$NMUTILS/conf}
 
 ########## Defaults (customize in $NMCONF/general.conf)
 
 # A few settings for debugging
 #   nmg_dryrun - if set, action commands are not run but return setting
 #       as error code (may be 0)
-nmg_dryrun="${nmg_dryrun-}"
+nmg_dryrun=${nmg_dryrun-}
 #   nmg_show_debug - if set logs debug level messages (normally not logged)
-nmg_show_debug="${nmg_show_debug-}"
+nmg_show_debug=${nmg_show_debug-}
 #   nmg_log_stderr=<fileno> - log to <fileno> (>=2), or stderr (other)
 #       default (empty): use default logger
-nmg_log_stderr="${nmg_log_stderr-}"
+nmg_log_stderr=${nmg_log_stderr-}
 
 ########## Default paths
 
@@ -435,7 +439,7 @@ command &>/dev/null -v "${NMG_LOGGER}" || nmg_log_stderr=1
 
 nmg::_logfd() { # returns log <fileno>
   local -i fd
-  printf 2>/dev/null -v fd "%d" "${nmg_log_stderr-}" || fd=2
+  printf 2>/dev/null -v fd %d "${nmg_log_stderr-}" || fd=2
   [[ ${fd} -lt 2 ]] && fd=2
   return ${fd}
 }
@@ -547,11 +551,13 @@ nmg_read_config() {
 
   nmg_debug "Reading config file '${file}'"
   shopt -u sourcepath
-  msg=$(bash 2>&1 -n "${file}" || return) || {
-    [[ ${nolog} ]] ||
-      nmg_err "Failed to parse config file '${file}': ${msg//$'\n'/ }"
-    return 2
-  }
+  if [[ -x ${BASH} ]]; then
+    msg=$("${BASH}" 2>&1 -n "${file}" || return) || {
+      [[ ${nolog} ]] ||
+        nmg_err "Failed to parse config file '${file}': ${msg//$'\n'/ }"
+      return 2
+    }
+  fi
   # shellcheck source=/dev/null
   . "${file}" &>/dev/null && return
 
@@ -702,7 +708,7 @@ nmg::_run() { # returns 0
   if [[ ${_nmgrc} != 0 ]]; then
     # clean up error messages for command not found etc...
     if [[ ${_nmgrc} == 127 ]] || [[ ${_nmgrc} == 126 ]]; then
-      out=${out##*${cmd}: }
+      out=${out##*"${cmd}: "}
     fi
     _nmgfunc=''
     nmg::_err "FAIL(${_nmgrc}) ${cmd}${*:+ $*}${out:+ => ${out}}"
@@ -777,7 +783,7 @@ nmg::_read() { # returns 0
   unset out # out will not be set if read fails
   local IFS='' # keep trailing newlines
   { read -r -d '' out || :; } 2>/dev/null < "${file}"
-  [[ ${out+x} ]] && { _nmgvar="${out}"; _nmgrc=0; return; }
+  [[ ${out+x} ]] && { _nmgvar=${out}; _nmgrc=0; return; }
 
   # use subshell to collect stderr
   out=$(: 2>&1 >/dev/null < "${file}" || :)
@@ -801,20 +807,35 @@ nmg::foreach_filematch() {
   nmg::_reqarg "${1-}" "pattern" || return
   nmg::_reqarg "${2-}" "wild" || return
   nmg::_reqarg "${3-}" "callback" || return
-  [[ $1 =~ $2 ]] || return 0
-  local _pre="${1%$2*}" _post="${1##*$2}" _file _match
+  [[ $1 =~ "$2" ]] || return 0
+  local _pre=${1%"$2"*} _post=${1##*"$2"} _file _match
 
   for _file in "${_pre}"*"${_post}"; do
 
     # any matches? (handle unset nullglob)
-    [[ ${_file} == "${1/$2/*}" ]] && break
+    [[ ${_file} == "${_pre}*${_post}" ]] && break
 
     # get match
-    _match="${_file#${_pre}}"; _match="${_match%${_post}}"
+    _match=${_file#"${_pre}"}; _match=${_match%"${_post}"}
     "$3" "${_file}" "${_match}" "${@:4}"
   done
 
   return 0
+}
+
+nmg::realpath() {
+  # <retvar> <dir>
+  nmg::_clearvar "${1-}" nmgret || return
+  local __a=${2:-.} __b __p=''
+  if command &>/dev/null -v realpath; then
+    read -r __p < <(realpath 2>/dev/null "${__a}") || :
+  else
+    __b=${__a##*/} __p=${__a%"${__b}"}
+    __p=$(cd "${__p}" &>/dev/null && pwd -P) || :
+    [[ ${__p} ]] && __p="${__p}/${__b}"
+  fi
+  [[ ${__p} ]] || { nmg::_perr "failed to locate ${2-}"; return 2; }
+  printf -v "$1" %s "${__p}"
 }
 
 nmg_is_running() {
@@ -836,7 +857,7 @@ nmg_is_running() {
 # called from nmg::_query_ips
 nmg::_query_ips_append() {
   [[ ${addr} && ${valid} && ${pref} ]] || return 0
-  _nmgvar+="${addr}"
+  _nmgvar+=${addr}
   if [[ ${flag} == p ]]; then
     [[ ${#flags[*]} != 0 ]] && _nmgvar+=" ${flags[*]}"
   elif [[ ${flag} != a ]]; then
@@ -940,7 +961,7 @@ nmg::wait_dad6() {
   nmg::_reqarg "${1-}" "intf" || return
   nmg::_reqarg "${2-}" "addr" || return
   local timeout addrs=() sleep="0.5"
-  printf 2>/dev/null -v timeout "%d" "${3:-5}" || timeout=-1
+  printf 2>/dev/null -v timeout %d "${3:-5}" || timeout=-1
   (( timeout >= 0 )) || { nmg::_perr "invalid <timeout> '$3'"; return 3; }
   (( timeout=timeout*2 )) || :
 
@@ -985,7 +1006,7 @@ nmg::__mod_ip() {
 
   [[ $addr ]] || { nmg::_err "missing <addr/plen>"; return; }
 
-  v=${cmd#${cmd%?}}; cmd=${cmd%?}
+  v=${cmd#"${cmd%?}"}; cmd=${cmd%?}
 
   # check if address looks legit
   "nmg_check_ip${v}_addr" "${addr%%/*}" || rc=$?
@@ -1068,7 +1089,7 @@ nmg_del_ip4_addr() {
 
 nmg_check_ip4_addr() {
   # <ip4-addr> [ <private-ok> ]
-  local ip4="${1-}" priv_ok="${2-}"
+  local ip4=${1-} priv_ok=${2-}
 
   # check if have address
   [[ ${ip4} ]] || return 1
@@ -1090,8 +1111,8 @@ nmg_check_ip4_addr() {
   [[ ${ip4} =~ ^10\. ]] && return 13
   if [[ ${ip4} =~ ^172\. ]]; then
     # isolate second byte to check 16-31 range
-    local n="${ip4#172.}"
-    n="${n%%.*}"
+    local n=${ip4#172.}
+    n=${n%%.*}
     (( n >= 16 && n <= 31 )) && return 13
   fi
 
@@ -1126,7 +1147,7 @@ nmg_hex_to_dec() {
 nmg::2hex() {
   # <retvar> <value>
   nmg::_clearvar "${1-}" nmgret || return
-  printf 2>/dev/null -v "$1" "%x" "${2:-0}" || {
+  printf 2>/dev/null -v "$1" %x "${2:-0}" || {
     nmg::_perr "invalid <value> '${2-}'"
     nmg::_clearvar "$1" ""; return 1; }
 }
@@ -1145,8 +1166,8 @@ nmg::transpose() {
   local __r=${2-} __m __p
   if [[ ${3-} && ${4-} && ${#3} == "${#4}" ]]; then
     while [[ ${__r} =~ ([${3-}]) ]]; do
-      __m=${BASH_REMATCH[1]}; __p=${3%${__m}*}
-      __r=${__r//${__m}/${4:${#__p}:1}}
+      __m=${BASH_REMATCH[1]}; __p=${3%"${__m}"*}
+      __r=${__r//"${__m}"/${4:${#__p}:1}}
     done
   fi
   [[ ${__u} ]] && shopt -s nocasematch
@@ -1267,7 +1288,7 @@ nmg::_expand_ip6() { # returns 0
     [[ ${ip6} =~ ^:: ]] && ip6="0${ip6}"
     [[ ${ip6} =~ ::$ ]] && ip6="${ip6}0"
     local sub='::::::::' colons=${ip6//[^:]}
-    sub=${sub/${colons}}
+    sub=${sub/"${colons}"}
     [[ ${sub} ]] && ip6=${ip6/::/${sub//:/:0}:0}
   }
   [[ ${ip6} =~ ^(0?[0-9a-fA-F]{1,4}:){7}0?[0-9a-fA-F]{1,4}$ ]] ||
@@ -1303,10 +1324,10 @@ nmg::_create_ip6_prefix() { # returns 0
   [[ $asite ]] || { nmg::_err "missing <site>"; _nmgrc=3; return; }
 
   # hex2dec
-  printf 2>/dev/null -v site "%d" "0x${asite//:/}" || {
+  printf 2>/dev/null -v site %d "0x${asite//:/}" || {
     nmg::_err "invalid site '${asite}'"; return; }
 
-  printf 2>/dev/null -v slen "%d" "${aslen:-64}" || {
+  printf 2>/dev/null -v slen %d "${aslen:-64}" || {
     nmg::_err "invalid site-len '${aslen}'"; return; }
   (( slen == 0 )) && slen=64
 
@@ -1324,7 +1345,7 @@ nmg::_create_ip6_prefix() { # returns 0
   # parse address into pquad array
   local IFS=':'; n=0
   for quad in ${pfx}; do
-    printf 2>/dev/null -v quad "%d" "0x${quad:-0}" || {
+    printf 2>/dev/null -v quad %d "0x${quad:-0}" || {
       nmg::_err "invalid ip6-prefix '${pfx}'"; return; }
     (( pquad[n] = quad, pquad[n] &= 0xffff, n++ )) || :
     (( n > 3 )) && break
@@ -1426,7 +1447,7 @@ nmg::_create_ip6_host() { # returns 0
     if nmg::query_ips link_addrs "nolog" 6a "${intf}" "" "scope" "link"; then
 
       for node in "${link_addrs[@]}"; do
-        node="${node#*::}"; node="${node%/*}"
+        node=${node#*::}; node=${node%/*}
         [[ ${node} ]] && break
       done
     fi
@@ -1519,7 +1540,7 @@ nmg::prop_has_value() {
   local fval word
   nmg::prop_get_value fval "${1-}" "${2-}" || return 1
   if [[ ${4-} ]]; then
-    for word in ${fval//$4/ }; do
+    for word in ${fval//"$4"/ }; do
       [[ ${word} == "${3-}" ]] && return
     done
   else
