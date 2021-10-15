@@ -24,7 +24,7 @@ fail() {
 # echo commands if requested
 if [[ ${MOCK_ECHO} ]]; then
   echo "nsupdate $*"
-  cat -
+  command -p cat -
 fi
 
 exit 0

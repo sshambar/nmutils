@@ -27,13 +27,13 @@
 #       NMG_TAG="ddns"
 #
 #       # set NMUTILS/NMCONF early, and allow environment to override
-#       NMUTILS="${NMUTILS:-/etc/nmutils}"
-#       NMCONF="${NMCONF:-$NMUTILS/conf}"
+#       NMUTILS=${NMUTILS:-/etc/nmutils}
+#       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
 #       # optional required
 #       NMDDNS_REQUIRED="1.3.7"
 #
-#       NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
+#       NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
 #       { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || NMDDNS=''
 #
 #   Use of NM* variables above is optional (NMDDNS here indicates
@@ -185,38 +185,38 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.1"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.2"
 
 # set default paths if missing
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-${NMUTILS}/conf}"
+NMUTILS=${NMUTILS:-/etc/nmutils}
+NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## Global defaults (customize in $NMCONF/general.conf)
 
-DDNS_GLOBAL_LOCKFILE="${DDNS_GLOBAL_LOCKFILE-}"
-DDNS_GLOBAL_FLOCK_TIMEOUT="${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}"
-DDNS_GLOBAL_DIG_TIMEOUT="${DDNS_GLOBAL_DIG_TIMEOUT:-3}"
-DDNS_GLOBAL_DIG_RETRIES="${DDNS_GLOBAL_DIG_RETRIES:-2}"
-DDNS_GLOBAL_DIG_OPTIONS="${DDNS_GLOBAL_DIG_OPTIONS-}"
-DDNS_GLOBAL_NSUPDATE_TIMEOUT="${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}"
-DDNS_GLOBAL_NSUPDATE_OPTIONS="${DDNS_GLOBAL_NSUPDATE_OPTIONS-}"
+DDNS_GLOBAL_LOCKFILE=${DDNS_GLOBAL_LOCKFILE-}
+DDNS_GLOBAL_FLOCK_TIMEOUT=${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}
+DDNS_GLOBAL_DIG_TIMEOUT=${DDNS_GLOBAL_DIG_TIMEOUT:-3}
+DDNS_GLOBAL_DIG_RETRIES=${DDNS_GLOBAL_DIG_RETRIES:-2}
+DDNS_GLOBAL_DIG_OPTIONS=${DDNS_GLOBAL_DIG_OPTIONS-}
+DDNS_GLOBAL_NSUPDATE_TIMEOUT=${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}
+DDNS_GLOBAL_NSUPDATE_OPTIONS=${DDNS_GLOBAL_NSUPDATE_OPTIONS-}
 
 ########## Support programs
 
-NMDDNS_HELPER="${NMDDNS_HELPER:-nmddns-helper}"
-NMDDNS_DIG="${NMDDNS_DIG:-dig}"
-NMDDNS_NSUPDATE="${NMDDNS_NSUPDATE:-nsupdate}"
+NMDDNS_HELPER=${NMDDNS_HELPER:-nmddns-helper}
+NMDDNS_DIG=${NMDDNS_DIG:-dig}
+NMDDNS_NSUPDATE=${NMDDNS_NSUPDATE:-nsupdate}
 
 # set NMDDNS_FLOCK to empty to disable all locking
-NMDDNS_FLOCK="${NMDDNS_FLOCK:-flock}"
+NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 
 ########## SCRIPT START
 
 # load general-functions
-NMG="${NMG:-${NMUTILS}/general-functions}"
+NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.5.1"
+NMG_REQUIRED="1.5.4"
 # shellcheck source=/dev/null
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
@@ -256,18 +256,20 @@ nmddns::_short_timeouts() {
 # internal
 nmddns::_update() {
   # <name> <rrec> <value>
-  local ddns_name="$1" ddns_rrec="$2" ddns_value="$3" cur_value name sep
+  local ddns_name=$1 ddns_rrec=$2 ddns_value=$3 cur_value name sep
 
-  DDNS_SERVER="${DDNS_SERVER:-127.0.0.1}"
+  DDNS_SERVER=${DDNS_SERVER:-127.0.0.1}
 
   # check if server already has correct entry
   nmg_debug "Looking up current ${ddns_rrec} on server ${DDNS_SERVER}"
 
-  local qtime="${DDNS_DIG_TIMEOUT:-${DDNS_GLOBAL_DIG_TIMEOUT:-3}}"
-  local qretry="${DDNS_DIG_RETRIES:-${DDNS_GLOBAL_DIG_RETRIES:-2}}"
-  local qopts="${DDNS_DIG_OPTIONS:-$DDNS_GLOBAL_DIG_OPTIONS}"
+  local qtime=${DDNS_DIG_TIMEOUT:-${DDNS_GLOBAL_DIG_TIMEOUT:-3}}
+  local qretry=${DDNS_DIG_RETRIES:-${DDNS_GLOBAL_DIG_RETRIES:-2}}
+  local qopts=${DDNS_DIG_OPTIONS:-$DDNS_GLOBAL_DIG_OPTIONS}
   # shellcheck disable=SC2086
-  if ! nmg::run cur_value "" "${NMDDNS_DIG}" "@${DDNS_SERVER}" +short +retry="${qretry}" +time="${qtime}" ${qopts} "${ddns_rrec}" "${ddns_name}"; then
+  if ! nmg::run cur_value "" "${NMDDNS_DIG}" "@${DDNS_SERVER}" \
+       +short +retry="${qretry}" +time="${qtime}" ${qopts} \
+       "${ddns_rrec}" "${ddns_name}"; then
     if [[ ${ddns_value} ]]; then
       nmg_err "Update ${ddns_name} ${ddns_rrec} to ${ddns_value} failed"
     else
@@ -311,8 +313,8 @@ nmddns::_update() {
   fi
 
   # update the entry (15 sec timeout)
-  local timeout="${DDNS_NSUPDATE_TIMEOUT:-${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}}"
-  local options="${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}"
+  local timeout=${DDNS_NSUPDATE_TIMEOUT:-${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}}
+  local options=${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}
   # shellcheck disable=SC2086
   nmg_cmd "${NMDDNS_NSUPDATE}" -t "${timeout}" ${options} <<- EOF
 	server ${DDNS_SERVER}
@@ -336,13 +338,13 @@ nmddns_reset_config() {
 
 nmddns_read_config() {
   # <config-file>
-  local config="${1-}"
+  local config=${1-}
 
   # clear config
   nmddns_reset_config
 
   # lockfile defaults to config-file (as it will exist if used)
-  DDNS_LOCKFILE="${DDNS_GLOBAL_LOCKFILE-${config}}"
+  DDNS_LOCKFILE=${DDNS_GLOBAL_LOCKFILE-${config}}
 
   # read config if any
   nmg_read_config "${config}" || return
@@ -374,7 +376,7 @@ nmddns_required_config() {
 
 nmddns_update() {
   # <rrec> [<value> [<state-pat>]]
-  local rrec="${1-}" value="${2-}" state_pat="${3-}" name ddns_name state
+  local rrec=${1-} value=${2-} state_pat=${3-} name ddns_name state
   local new_value priv_ok timeout
 
   [[ ${rrec} ]] || {
@@ -393,11 +395,11 @@ nmddns_update() {
     state_pat=''
   }
 
-  state="${state_pat//@RREC@/${rrec}}"
+  state=${state_pat//@RREC@/${rrec}}
   if [[ ${value} ]]; then
 
     # strip "/<prefix>" on A/AAAA values
-    [[ ${rrec} =~ ^(A|AAAA)$ ]] && value="${value%%/*}"
+    [[ ${rrec} =~ ^(A|AAAA)$ ]] && value=${value%%/*}
 
     # set state if requested
     [[ ${state} ]] && { nmg_write "${state}" "${value}" || :; }
@@ -448,7 +450,7 @@ nmddns_update() {
   fi
 
   if [[ ${DDNS_LOCKFILE-} ]] && command &>/dev/null -v "${NMDDNS_FLOCK}"; then
-    timeout="${DDNS_FLOCK_TIMEOUT:-${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}}"
+    timeout=${DDNS_FLOCK_TIMEOUT:-${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}}
     ("${NMDDNS_FLOCK}" -w "${timeout}" 9 || {
        nmg_err "Timeout getting DDNS lock for ${rrec}"; exit 1; }
      nmddns::_update "${ddns_name}" "${rrec}" "${value}"
@@ -463,7 +465,7 @@ nmddns_update() {
 
 nmddns_spawn_update() {
   # <ddns-file> <rrec> [<value> [<state-pat>]]
-  local config="${1-}" rrec="${2-}" name ddns_name
+  local config=${1-} rrec=${2-} name ddns_name
 
   [[ ${rrec} ]] || return 0
 
@@ -488,7 +490,7 @@ nmddns_spawn_update() {
 
 nmddns_update_all() {
   # <"up"|"down"> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
-  local action="$1" addr4="${2-}" addr6="${3-}" state_pat="${4-}"
+  local action=$1 addr4=${2-} addr6=${3-} state_pat=${4-}
   local name rrec value
 
   for name in "${!DDNS_RREC_@}"; do
@@ -506,10 +508,10 @@ nmddns_update_all() {
 	# special case values for A and AAAA
 	case ${rrec} in
 	  A)
-	    value="${addr4}"
+	    value=${addr4}
 	    ;;
 	  AAAA)
-	    value="${addr6}"
+	    value=${addr6}
 	    ;;
 	  *)
             name="DDNS_RREC_${rrec}_VALUE"; value=${!name-}
@@ -534,7 +536,7 @@ nmddns_update_all() {
 
 nmddns_spawn_update_all() {
   # <"up"|"down"> <config-file> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
-  local action="${1-}" config="${2-}"
+  local action=${1-} config=${2-}
 
   [[ ${action} =~ ^(up|down)$ ]] || {
     nmg_err "nmddns_spawn_update_all: <action> must be 'up' of 'down'"

@@ -14,9 +14,9 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 { [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
   { echo >&2 "Unable to load xtest_setup"; exit 2; }
 
-[[ $EUID == 0 ]] && shtest::fatal "Never run as root!"
+[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
 
-NMDDNS="${NMDDNS:-${NMUTILS}/ddns-functions}"
+NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
 
 # ensure includes pass parse test
 shtest::parse "${NMDDNS}" || shtest::fatal
@@ -35,7 +35,12 @@ NMDDNS_REQUIRED="99.0.0"
    xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}" || :) || exit 1
 
 # min-version for tests
-NMDDNS_REQUIRED="1.4.1"
+NMDDNS_REQUIRED="1.4.2"
+
+# don't let general-functions use external commands
+# (except those defined in config)
+# shellcheck disable=SC2123
+PATH=''
 
 # less noise
 export NMG_TAG=''
@@ -57,10 +62,15 @@ xwrap() {
   "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
 }
 
+xrm() {
+  [[ ${1-} ]] || return 0
+  command -p rm -f "$@"
+}
+
 xwrap_cleanup() {
   local rc=$?
-  [[ -e ${XERR} ]] && { cat "${XERR}"; rm -f "${XERR}"; }
-  [[ -e ${XLOG} ]] && { cat "${XLOG}"; rm -f "${XLOG}"; }
+  [[ -e ${XERR} ]] && { cat "${XERR}"; xrm "${XERR}"; }
+  [[ -e ${XLOG} ]] && { cat "${XLOG}"; xrm "${XLOG}"; }
   exit ${rc}
 }
 
@@ -130,7 +140,7 @@ xtest::group4::ddns() {
   DDNS_RREC_A_PRIVATE=1
   xpat="$TEST_OUT/xtest-state @RREC@"
   xstate=${xpat//@RREC@/A}
-  rm -f "$xstate"
+  xrm "$xstate"
   xwrap nmddns_update A 192.168.55.1/24 "$xpat"
   xtest D6 t "(A <private>) PRIVATE=1 returns true"
   read -r -d '' out <<-EOF
@@ -144,10 +154,10 @@ xtest::group4::ddns() {
 	EOF
   ftest D6f "$out" " - logs and sets A (no plen)"
   shtest::check_file D6s "$xstate" "192.168.55.1" " - generates state file (no plen)"
-  rm -f "$xstate"
+  xrm "$xstate"
 
   xstate="$TEST_OUT/xtest-state"
-  rm -f "$xstate"
+  xrm "$xstate"
   xwrap nmddns_update A "" "$xstate"
   xtest D7 t "(<bad state-pat>) returns true"
   read -r -d '' out <<-EOF
@@ -162,7 +172,7 @@ xtest::group4::ddns() {
   ftest D7f "$out" " - logs error and performs action"
   [[ -f $xstate ]]
   xtest D7s f " - should not create state file"
-  rm -f "$xstate"
+  xrm "$xstate"
 
   xwrap nmddns_update
   xtest D8 f "(<no args>) returns false"
@@ -309,7 +319,7 @@ xtest::group4::ddns() {
 
   shtest::prefix "nmddns_spawn_update"
 
-  rm -f "$XNOFILE"
+  xrm "$XNOFILE"
   xwrap nmddns_spawn_update "$XNOFILE"
   xtest D31 t "(<no conf>) returns true"
   ftest D31f "" " - does nothing"
@@ -318,19 +328,19 @@ xtest::group4::ddns() {
   xpat="$TEST_OUT/xtest-state @RREC@"
   xstate=${xpat//@RREC@/A}
 
-  rm -f "$xstate"; touch "$xstate"
+  xrm "$xstate"; command -p touch "$xstate"
   xwrap nmddns_spawn_update "$cnf" "" "" "$xpat"
   xtest D32 t "(<no rrec>) returns true"
   ftest D32f "" " - does nothing"
   [[ -f $xstate ]]
   xtest D32s t " - leaves state file"
 
-  touch "$xstate"
+  command -p touch "$xstate"
   xwrap nmddns_spawn_update "$cnf" A "" "$xpat"
   xtest D33 t "(A) returns true"
   [[ -f $xstate ]]
   xtest D33s f " - removes state file"
-  rm -f "$xstate"
+  xrm "$xstate"
   read -r -d '' out <<-EOF
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 2
@@ -342,16 +352,16 @@ xtest::group4::ddns() {
   ftest D33f "$out" " - logs error, removes A rrec"
 
   xstate="$TEST_OUT/xfile.out"
-  rm -f "$XFILE"
+  xrm "$XFILE"
   echo "#!/bin/sh"$'\n'"echo >\"$xstate\" \"arg=\$*\"" > "$XFILE"
-  chmod +x "$XFILE"
+  command -p chmod +x "$XFILE"
   NMDDNS_HELPER=$XFILE
   xwrap nmddns_spawn_update "$cnf" A "" "$xpat"
   xtest D34 t "(<remove A>) returns true"
   ftest D34f "" " - does not log"
   shtest::last_check_ok && wait $!
   shtest::check_file D34o "$xstate" "arg=update $cnf A  $xpat" " - runs helper"
-  rm -f "$XFILE" "$xstate"
+  xrm "$XFILE" "$xstate"
 
   shtest::prefix "nmddns_spawn_update_all"
 
@@ -393,8 +403,7 @@ xtest::group5::helper() {
 
   state0="${RUNDIR}/ddns-eth0-AAAA.state"
   state1="${RUNDIR}/ddns-eth1-A.state"
-  rm -f "$state0"
-  rm -f "$state1"
+  xrm "$state0" "$state1"
 
   echo "2001:db8:4860:4860::8888/64" > "$state0"
   echo "10.0.10.12/24" > "$state1"
@@ -429,7 +438,7 @@ xtest::group5::helper() {
 	EOF
   ftest H4f "$out" " - updates rrec"
 
-  rm -f "$state0" "$state1"
+  xrm "$state0" "$state1"
   xwrap "${NMDDNS_HELPER}"
   xtest H5 t "(<no args>) missing 2 states, returns true"
   read -r -d '' out <<-EOF
@@ -448,8 +457,8 @@ xtest::group5::helper() {
 	EOF
   ftest H5f "$out" " - removes rrecs"
 
-  rm -f "$state0"
-  rm -f "$state1"
+  xrm "$state0"
+  xrm "$state1"
 }
 
 main() { # <args>
@@ -458,9 +467,8 @@ main() { # <args>
   # reset (in subshell)
   shtest::reset
 
-  export nmg_log_stderr=4
-
   # fd 4 used for logger
+  export nmg_log_stderr=4
   exec 4>&2
 
   shtest::reg_file "$XLOG"
@@ -469,9 +477,7 @@ main() { # <args>
   xtest::run_tests "ddns-functions Test Summary" "$@"
 
   # cleanup
-  [[ -f $XFILE ]] && rm -f "$XFILE"
-  [[ -f $XLOG ]] && rm -f "$XLOG"
-  [[ -f $XERR ]] && rm -f "$XERR"
+  xrm "$XFILE" "$XLOG" "$XERR"
   exec 4>&-
 
   return 0
