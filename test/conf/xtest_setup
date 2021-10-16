@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.0.1 - shtest suite in a box
+# xtest_setup v1.1.0 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -48,7 +48,7 @@
 #   xtest::run_tests <title> [ <args> ]
 #
 #     Parses command-line <args>, runs requested tests and creates
-#     summary report with <title>, and cleans up.
+#     summary report with <title>, and resets.
 #
 # Shortcuts:
 #
@@ -124,20 +124,21 @@ xtest::_usage() { # <modes>
   exit 1
 }
 
-xtest::_run_tests() { # <args>...
-  local arg all reqs=()
+# sets _reqs, _all
+xtest::_parse_args() { # <args>...
+  local _arg IFS; unset IFS
 
-  { read -r -a all -d '' || :; } \
+  { read -r -a _all -d '' || :; } \
     <<< "$(compgen -A function xtest::group | command -p sort)"
 
-  for arg in "$@"; do
-    if [[ "${all[*]}" =~ (^| )(xtest::group.::"$arg")($| ) ]]; then
-      reqs+=("${BASH_REMATCH[2]}")
+  for _arg in "$@"; do
+    if [[ "${_all[*]}" =~ (^| )(xtest::group.::"$_arg")($| ) ]]; then
+      _reqs+=("${BASH_REMATCH[2]}")
     else
-      case $arg in
+      case ${_arg} in
         all) : ;;
         strict|trace)
-          shtest::strict "${arg[@]/strict/}"
+          shtest::strict "${_arg[@]/strict/}"
           shtest::global_whitelist "xtest::group*" "xwrap"
           ;;
         verbose)
@@ -147,30 +148,38 @@ xtest::_run_tests() { # <args>...
           shtest::quiet
           ;;
         +*)
-          arg=${arg#+}; [[ $arg ]] || xtest::_usage "${all[@]}"
-          shtest::add_focus "${arg}"
+          _arg=${_arg#+}; [[ ${_arg} ]] || xtest::_usage "${_all[@]}"
+          shtest::add_focus "${_arg}"
           ;;
         help)
-          xtest::_usage "${all[@]}"
+          xtest::_usage "${_all[@]}"
           ;;
         *)
-          xtest::err "Unknown option: ${arg}"
-          xtest::_usage "${all[@]}"
+          xtest::err "Unknown option: ${_arg}"
+          xtest::_usage "${_all[@]}"
           ;;
       esac
     fi
   done
 
-  local func_env
-  for arg in "${reqs[@]:-${all[@]}}"; do
-    [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env func_env
-    "$arg"
+  return 0
+}
+
+xtest::_run_tests() { # <args>...
+  local _cmd _all _reqs=() _func_env
+
+  xtest::_parse_args "$@"
+
+  for _cmd in "${_reqs[@]:-${_all[@]}}"; do
+    [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _func_env
+    "${_cmd}"
     shtest::prefix
     [[ ${_XTEST_ENV_TESTS} ]] && {
-      shtest::check_env "env-${arg##*:}" func_env "check config environment"
+      shtest::check_env "env-${_cmd##*:}" _func_env "check config environment"
     }
   done
-  : "${func_env-}" # for SC
+
+  : "${_func_env-}" # for SC
 }
 
 xtest::no_env_tests() {
@@ -192,7 +201,7 @@ xtest::run_tests() { # <title> <args>...
   shtest::summary_report "${_xtest_title}" ||
     shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
 
-  shtest::cleanup
+  shtest::reset
   : "${_xtest_env-}" # for SC
 }
 
