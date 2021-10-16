@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.4 - Shell script testing functions
+# shtest v1.2.5 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -24,9 +24,9 @@
 #
 #     Displays test descriptions even when test passes.
 #
-#   shtest::quiet
+#   shtest::quiet [ 0 ]
 #
-#     Display only summary report.
+#     Display only summary report.  Passing 0 resets to normal logging.
 #
 #   shtest::log <msg>
 #
@@ -220,27 +220,20 @@ shtest::_log() { # <msg>
   printf >&"${_SHTEST_STATE[10]:-88}" "%s\n" "$*"
 }
 
-shtest::_checkinit() {
-  [[ ${_SHTEST_STATE[0]+set} == set ]] && return
-  echo >&2 "FATAL: You must call shtest::reset after shtest::cleanup"
+shtest::_checkinit() { # [ <backtrace-level>(1) ]
+  local lvl=${1:-1}
+  [[ ${_SHTEST_STATE[0]+set} == set ]] && {
+    [[ ${_SHTEST_STATE[0]} ]] && return
+    # lvl == 0 allows _SHTEST_STATE[0]=='' (shtest::fatal etc)
+    [[ ${lvl} == 0 ]] && return
+  }
+  (( lvl > 0 )) || lvl=1
+  shtest::fatal "${FUNCNAME[${lvl}]}: You must call shtest::reset after shtest::cleanup" $((lvl+1))
   exit 1
 }
 
-shtest::log_setfd() { # <fd>/0
-  shtest::_checkinit
-  [[ ${1-} ]] || { echo -n "${_SHTEST_STATE[10]:-88}"; return 0; }
-  [[ $1 == 0 ]] && { _SHTEST_STATE[10]=''; return 0; }
-  local -i fd
-  printf 2>/dev/null -v fd "%d" "${1-}" || fd=0
-  [[ ${fd} -lt 1 ]] && shtest::fatal "shtest::set_logfd: bad fd '$1'"
-  _SHTEST_STATE[10]=${fd}
-}
-
 shtest::log() { # <msg>
-  [[ ${_SHTEST_STATE[0]+set} == set ]] || {
-    echo >&2 "FATAL: You must call shtest::reset after shtest::cleanup"
-    exit 1
-  }
+  shtest::_checkinit 0
   [[ ${_SHTEST_STATE[8]} ]] && return 0
   shtest::_log "$*"
 }
@@ -250,17 +243,17 @@ shtest::_fmtlog() { # <format> <args>
   [[ ${1-} ]] || return 0
   # shellcheck disable=SC2059
   printf -v msg "$@" ||
-    shtest::fatal "shtest::_fmtlog: bad format: $1" 3
+    shtest::fatal "shtest::_fmtlog: bad format: $1" 1
   shtest::log "${msg}"
 }
 
 # assumes lowest two stack frames can be skipping in backtrace
 shtest::_backtrace() { # <skip>
   local i depth=${#FUNCNAME[@]} func lno src skip
-  printf 2>/dev/null -v skip "%d" "${1-1}" || skip=1
-  [[ ${skip} -lt 1 ]] && skip=1
+  printf 2>/dev/null -v skip "%d" "${1-0}" || skip=0
+  [[ ${skip} -lt 0 ]] && skip=0
   shtest::log "Backtrace:"
-  for (( i=skip; i < depth; i++ )); do
+  for (( i=skip+2; i < depth; i++ )); do
     func=${FUNCNAME[${i}]}
     lno=${BASH_LINENO[(( i - 1 ))]}
     src=${BASH_SOURCE[${i}]}
@@ -273,6 +266,10 @@ shtest::fatal() { # <msg> [ <backtrace-skip> ]
   [[ ${_SHTEST_FATAL-} ]] &&
     { echo >&2 "shtest::fatal: called itself!"; exit 1; }
   _SHTEST_FATAL=1
+  [[ ${_SHTEST_STATE[0]+set} != set ]] && {
+    # enable log
+    _SHTEST_STATE[0]='' _SHTEST_STATE[10]=2
+  }
   _SHTEST_STATE[8]= # unmute
   if [[ ${1-} ]]; then
     shtest::log "FATAL: $1"
@@ -284,6 +281,16 @@ shtest::fatal() { # <msg> [ <backtrace-skip> ]
   exit 1
 }
 
+shtest::log_setfd() { # <fd>/0
+  shtest::_checkinit
+  [[ ${1-} ]] || { echo -n "${_SHTEST_STATE[10]:-88}"; return 0; }
+  [[ $1 == 0 ]] && { _SHTEST_STATE[10]=''; return 0; }
+  local -i fd
+  printf 2>/dev/null -v fd "%d" "${1-}" || fd=0
+  [[ ${fd} -lt 1 ]] && shtest::fatal "shtest::set_logfd: bad fd '$1'" 1
+  _SHTEST_STATE[10]=${fd}
+}
+
 shtest::_log_ok() { # <id> <description>
   local desc=''
   _SHTEST_STATE[7]=1
@@ -293,7 +300,10 @@ shtest::_log_ok() { # <id> <description>
   return 0
 }
 
-shtest::last_check_ok() { [[ ${_SHTEST_STATE[7]} ]]; }
+shtest::last_check_ok() {
+  shtest::_checkinit
+  [[ ${_SHTEST_STATE[7]} ]]
+}
 
 shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
   local id=${1-} desc="${2:+ | ${_SHTEST_STATE[5]}}${2:-}"
@@ -313,20 +323,23 @@ shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
 }
 
 shtest::title() { # <title>
+  shtest::_checkinit
   _SHTEST_STATE[5]=
   shtest::_reset_state || :
   [[ $* ]] && shtest::log $'\n'"===== $* ====="$'\n'
 }
 
 shtest::prefix() { # <description-prefix>
+  shtest::_checkinit
   _SHTEST_STATE[5]="${1-}"
 }
 
 shtest::_check_entry() { # <id> [ <desc> ]
   local id=$1 desc=${2-} IFS; unset IFS
+  shtest::_checkinit 2
   ((_SHTEST_STATE[0]++)) || :
   [[ ${_SHTEST_TESTLIST[*]-} =~ (^| )${id}($| ) ]] &&
-    shtest::fatal "Duplicate test <id> '${id}'"
+    shtest::fatal "${FUNCNAME[1]}: Duplicate test <id> '${id}'" 2
   _SHTEST_TESTLIST+=("${id}")
   [[ ${#_SHTEST_FOCUS[*]} != 0 ]] && {
     IFS='|'
@@ -342,7 +355,7 @@ shtest::check_result() { # <id> <ref> [ <desc> ] - OK if <ref> == $?, else FAIL
   local rc=$? id=${1-} ref=${2-} desc=${3-}
   local orc=${rc}
   [[ ${id} && ${ref} ]] ||
-    shtest::fatal "Usage: shtest::check_result <id> <t | f | #> [ <desc> ]" 3
+    shtest::fatal "Usage: shtest::check_result <id> <t | f | #> [ <desc> ]" 1
 
   shtest::_check_entry "${id}" "${desc}" || return 0
 
@@ -365,9 +378,9 @@ shtest::check_value() { # <id> <varname> [ <ref> [ <desc> ] ]
   local id=${1-} varname=${2-} ref=${3-} desc=${4-}
   [[ ${varname} && ${id} ]] || {
     if [[ ${varname} == var ]]; then
-      shtest::fatal "Usage: shtest::check_var <id> [ <value> [ <desc> ] ]" 4
+      shtest::fatal "Usage: shtest::check_var <id> [ <value> [ <desc> ] ]" 2
     else
-      shtest::fatal "Usage: shtest::check_value <id> <varname> [ <value> [ <desc> ] ]" 3
+      shtest::fatal "Usage: shtest::check_value <id> <varname> [ <value> [ <desc> ] ]" 1
     fi
   }
 
@@ -395,11 +408,11 @@ shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
   local id=${1-} an=${2-} rn=${3-} desc=${4-} alist rlist irn ian i IFS
   unset IFS
   if ! [[ ${id} && ${an} && ${rn} ]]; then
-    shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 3
+    shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 1
   fi
   # check valid variable names
   if [[ ${an//[a-zA-Z0-0_]/} || ${rn//[a-zA-Z0-0_]/} ]]; then
-    shtest::fatal "shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 3
+    shtest::fatal "shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 1
   fi
   shtest::_check_entry "${id}" "${desc}" || return 0
 
@@ -449,7 +462,7 @@ shtest::_check_file() { # <id> <filename> <contents> <desc>, sets $rc
 shtest::check_file() { # <id> <filename> <contents> [ <desc> ]
   local id=${1-} file=${2-} ref=${3-} desc=${4-} rc
   [[ ${id} && ${file} && ${ref+set} ]] || \
-    shtest::fatal "Usage: shtest::check_file <id> <filename> <contents> [ <desc> ]" 3
+    shtest::fatal "Usage: shtest::check_file <id> <filename> <contents> [ <desc> ]" 1
   shtest::_check_entry "${id}" "${desc}" || return 0
   shtest::_check_file  "${id}" "${file}" "${ref}" "${desc}"
   [[ ${rc} == 0 ]] && shtest::_log_ok "${id}" "${desc}"
@@ -457,6 +470,7 @@ shtest::check_file() { # <id> <filename> <contents> [ <desc> ]
 }
 
 shtest::reg_file() { # [ <filename> ]
+  shtest::_checkinit
   [[ ${1-} ]] || {
     local file
     for file in "${_SHTEST_REG_FILES[@]-}"; do
@@ -469,6 +483,7 @@ shtest::reg_file() { # [ <filename> ]
 
 shtest::dereg_file() { # <filename>
   local i
+  shtest::_checkinit
   [[ ${1-} ]] || return 0
   for i in ${!_SHTEST_REG_FILES[*]}; do
     [[ ${_SHTEST_REG_FILES[${i}]} == "$1" ]] && unset _SHTEST_REG_FILES["${i}"]
@@ -478,7 +493,7 @@ shtest::dereg_file() { # <filename>
 shtest::check_reg_files() { # <id> <desc> [ <file#-contents>... ]
   local id=${1-} desc=${2-} file rc fails num
   [[ ${id} ]] ||
-    shtest::fatal "Usage: shtest::check_reg_files <id> <desc> [ <file#-contents>... ]" 3
+    shtest::fatal "Usage: shtest::check_reg_files <id> <desc> [ <file#-contents>... ]" 1
   shtest::_check_entry "${id}" "${desc}" || return 0
   shift 2 || set --
   fails=${_SHTEST_STATE[1]} num=0
@@ -510,6 +525,7 @@ shtest::_toreg() { # <retvar> <name/pattern>
 
 shtest::add_focus() { # <id/pattern>
   local p
+  shtest::_checkinit
   shtest::_toreg p "${1-}" || return
   _SHTEST_FOCUS+=("${p}")
   # mutes log/_log except during test
@@ -519,19 +535,20 @@ shtest::add_focus() { # <id/pattern>
 
 shtest::save_env() { # <varname>
   local IFS; unset IFS
-  [[ ${1-} ]] || shtest::fatal "Usage: shteset::save_env <varname>" 3
-  { read -r -a "$1" -d '' || :; } <<< "$1"$'\n'"$(compgen -v)"
+  [[ ${1-} ]] || shtest::fatal "Usage: shteset::save_env <varname>" 1
+  printf -v "$1" %s "" || shtest::fatal "shteset::save_env: invalid <varname> '$1'" 1
+  { read -r -a "$1" -d '' || :; } <<< "$(compgen -v)"
   return 0
 }
 
 shtest::check_env() { # <id> <varname> [ <desc> ]
   local IFS; unset IFS
   [[ ${1-} && ${2-} ]] ||
-    shtest::fatal "Usage: shtest::check_env <id> <varname> [ <desc> ]" 3
+    shtest::fatal "Usage: shtest::check_env <id> <varname> [ <desc> ]" 1
 
   shtest::_check_entry "$1" "${3-}" || return 0
 
-  local _SHTEST_NAME _SHTEST_ENV="${2}[@]" _SHTEST_NEWVARS=()
+  local _SHTEST_NAME _SHTEST_ENV="${2}[*]" _SHTEST_NEWVARS=()
   for _SHTEST_NAME in $(compgen -v); do
     [[ ${!_SHTEST_ENV} =~ (^| )${_SHTEST_NAME}($| ) ]] && continue
     [[ ${_SHTEST_NAME} =~ ^_SHTEST_(NEWVARS|NAME|ENV)$ ]] && continue
@@ -548,6 +565,7 @@ shtest::check_env() { # <id> <varname> [ <desc> ]
 
 shtest::parse() { # <file>
   local file=${1-}
+  shtest::_checkinit
   [[ ${file} ]] || {
     shtest::log "Usage: shtest::parse <file>"; return 1; }
   [[ -f ${file} ]] || {
@@ -558,6 +576,7 @@ shtest::parse() { # <file>
 
 shtest::summary_report() { # [ <title> ]
   local rc=0
+  shtest::_checkinit
   shtest::_reset_state || :
   shtest::_log $'\n'"%%%%% ${1:-SUMMARY REPORT} %%%%%"$'\n'
   shtest::_log "     TESTS RUN: ${_SHTEST_STATE[0]}"
@@ -576,9 +595,17 @@ shtest::summary_report() { # [ <title> ]
   return ${rc}
 }
 
-shtest::quiet() {
+shtest::quiet() { # [ 0 ]
   # mutes all except _log
-  [[ ${_SHTEST_STATE[8]-} ]] || _SHTEST_STATE[8]=2
+  shtest::_checkinit
+  if [[ ${#_SHTEST_FOCUS[*]} != 0 ]]; then
+   _SHTEST_STATE[8]=1
+  elif [[ ${1-} == 0 ]]; then
+    _SHTEST_STATE[8]=''
+  else
+    _SHTEST_STATE[8]=2
+  fi
+  return 0
 }
 
 shtest::_handle_err() {
@@ -592,7 +619,7 @@ shtest::_handle_err() {
   shtest::_touch "${_SHTEST_STATE[2]}"
   # rest is backtrace if requested
   [[ ${_SHTEST_STATE[6]} ]] || return 0
-  shtest::_backtrace 2
+  shtest::_backtrace 0
 }
 
 shtest::_handle_exit() { # <$?>
@@ -608,7 +635,7 @@ shtest::_handle_exit() { # <$?>
     shtest::log "Unexpected exit ${_shtest_rc}"
   fi
   # always show backtrace on unexpected exit
-  shtest::_backtrace 2
+  shtest::_backtrace 0
   local _shtest_next=${_SHTEST_STATE[4]-}
   shtest::cleanup
   [[ ${_shtest_next} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
@@ -619,6 +646,7 @@ shtest::_handle_exit() { # <$?>
 }
 
 shtest::strict() { # [ "trace" ]
+  shtest::_checkinit
   [[ ${1-} == trace ]] && _SHTEST_STATE[6]=1
   [[ ${_SHTEST_STATE[2]} ]] && return 0
   _SHTEST_STATE[2]=$(command -p mktemp -u -t "shtest-strict-XXXXXX") || :
@@ -632,6 +660,7 @@ shtest::strict() { # [ "trace" ]
 
 shtest::whitelist() { # <pattern>...
   local p
+  shtest::_checkinit
   for p in "$@"; do
     shtest::_toreg p "${p}" || return
     _SHTEST_WHITELIST+=("${p}")
@@ -640,6 +669,7 @@ shtest::whitelist() { # <pattern>...
 
 shtest::global_whitelist() { # <pattern>...
   local p
+  shtest::_checkinit
   for p in "$@"; do
     shtest::_toreg p "${p}" || return
     _SHTEST_GLOBAL_WHITELIST+=("${p}")
@@ -648,12 +678,15 @@ shtest::global_whitelist() { # <pattern>...
 
 shtest::verbose() { # [ <level> ]
   local v=${1-1}
+  shtest::_checkinit
   [[ ${v} == 0 ]] && v=
   _SHTEST_STATE[3]=${v}
 }
 
 shtest::reset() {
   local i state=("${_SHTEST_STATE[@]-}")
+  # remove focus mute
+  [[ ${state[8]-} == 1 ]] && state[8]=''
   shtest::cleanup
   shtest::_init_globals
   # restore logging state

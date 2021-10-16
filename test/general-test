@@ -71,6 +71,11 @@ xwrap_cleanup() {
   exit ${rc}
 }
 
+read_value() { # <var> (<stdin)
+  local IFS; unset IFS
+  read -r -d '' "$1" || :
+}
+
 xtest::group1::log() {
   local nmg_show_debug=''
 
@@ -154,7 +159,7 @@ xtest::group1::log() {
 }
 
 xtest::group2::err() {
-  local _nmgrc=0 _nmglog='' _nmgvar='' IFS=-
+  local _nmgrc=0 _nmglog='' _nmgvar=''
 
   shtest::title "nmg::_err Tests (err group)"
 
@@ -231,13 +236,13 @@ xtest::group2::err() {
 xtest::group3::prop() {
   local var=''
   local dict
-  read -r -d '' dict <<-EOF
-first:val
-empty:
-item:value
-mitem:xx,yy
-last:test
-EOF
+  read_value dict <<- EOF
+	first:val
+	empty:
+	item:value
+	mitem:xx,yy
+	last:test
+	EOF
 
   shtest::title "Property Tests (prop group)"
 
@@ -589,9 +594,6 @@ xtest::group3::ip() {
   xwrap nmg::wait_dad6 eth1 "2001:db8:a0b:12f0::1/64"
   xtest I38 t "(eth1 2001:db8:a0b:12f0::1/64) returns true"
   ftest I38f "" " - does not log"
-
-#  [[ ${IFS} == - ]]
-#  xtest ifs-ip t "IFS should not be modified"
 
   : "${aref-} ${avar-} ${anull-} ${nmg_show_debug-}" # for SC
 }
@@ -957,15 +959,23 @@ xtest::group3::file() {
   xwrap nmg_write "$XFILE" "content"
   xtest F5 t "(<file>) returns true"
   ftest F5f "" " - should not log"
+  shtest::check_file F5c "$XFILE" "content" " - file should have content"
 
-  shtest::prefix
+  read_value var <<- EOF
+	content
+	  second line
+	EOF
+  xwrap nmg_write "$XFILE" "$var"
+  xtest F6 t "(<multi-line file>) returns true"
+  ftest F6f "" " - should not log"
+  shtest::check_file F6c "$XFILE" "$var" " - file should have content"
 
-  echo -n >"${XLOG}"
-  unset var; read -r -d '' var &>"${XERR}" < "${XFILE}"
-  ftest F6r "" "reading file should not generate stderr"
-  [[ ${var+set} == set ]]
-  xtest F6s t "file should be readable"
-  vtest F6v "content" "file should have content"
+  command -p chmod -w "$XFILE"
+  xwrap nmg_write "$XFILE" "should fail"
+  xtest F7 f "(<protected file>) returns false"
+  ftest F7f "ERR: FAIL(1) nmg_write($XFILE) => Permission denied" \
+        " - should log error"
+  command -p chmod +w "$XFILE"
 
   shtest::prefix "nmg::read"
 
