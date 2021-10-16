@@ -35,7 +35,7 @@ NMG_REQUIRED="99.0.0"
      :) || exit 1
 
 # min-version for tests
-NMG_REQUIRED="1.5.4"
+NMG_REQUIRED="1.5.5"
 
 # less noise
 export NMG_TAG=''
@@ -60,7 +60,7 @@ xwrap() {
 }
 
 xrm() {
-  [[ ${1-} && -f $1 ]] || return 0
+  [[ ${1-} ]] || return 0
   command -p rm -f "$@"
 }
 
@@ -154,7 +154,7 @@ xtest::group1::log() {
 }
 
 xtest::group2::err() {
-  local _nmgrc=0 _nmglog='' _nmgvar=''
+  local _nmgrc=0 _nmglog='' _nmgvar='' IFS=-
 
   shtest::title "nmg::_err Tests (err group)"
 
@@ -580,7 +580,7 @@ xtest::group3::ip() {
   ftest I36f "" " - does not log"
 
   # this sleeps
-  sleep() { echo "sleep $*"; }
+  sleep() { echo "sleep" "$@"; }
   xwrap nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
   xtest I37 2 "(eth2 2001:db8:1::1/64 1) returns 2 after sleeping"
   ftest2 I37f "" "sleep 0.5"$'\n'"sleep 0.5" " - performs sleep"
@@ -589,6 +589,9 @@ xtest::group3::ip() {
   xwrap nmg::wait_dad6 eth1 "2001:db8:a0b:12f0::1/64"
   xtest I38 t "(eth1 2001:db8:a0b:12f0::1/64) returns true"
   ftest I38f "" " - does not log"
+
+#  [[ ${IFS} == - ]]
+#  xtest ifs-ip t "IFS should not be modified"
 
   : "${aref-} ${avar-} ${anull-} ${nmg_show_debug-}" # for SC
 }
@@ -834,6 +837,8 @@ xtest::group3::ip6() {
   xwrap nmg::create_ip6_addr var "abCD::/64" "EFEF:1234"
   xtest P55 t "(pfx host) returns true"
   vtest P55v "abcd::efef:1234/64" " - sets retvar to lowercase addr"
+
+  shtest::prefix "nmg_find_ip6_addrs"
 
   # test locating address
   xwrap nmg_find_ip6_addrs "" "^fdac.*"
@@ -1466,7 +1471,7 @@ xtest::group4::config() {
 }
 
 main() {
-  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file"
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file" IFS=-
 
   # reset (in subshell)
   shtest::reset
@@ -1480,16 +1485,18 @@ main() {
 
   xtest::run_tests "general-functions Test Summary" "$@"
 
+  [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
+
   # cleanup
-  [[ -f $XFILE ]] && xrm "$XFILE"
-  [[ -f $XLOG ]] && xrm "$XLOG"
-  [[ -f $XERR ]] && xrm "$XERR"
+  xrm "$XFILE" "$XLOG" "$XERR"
   exec 4>&-
 
   return 0
 }
 
-(main "$@") || xwrap_cleanup
+(main "$@")
+# shellcheck disable=SC2181
+[[ $? -ne 0 ]] && xwrap_cleanup
 
 # Local Variables:
 # mode: sh
