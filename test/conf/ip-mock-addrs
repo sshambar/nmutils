@@ -25,6 +25,6 @@ addr6 fdc0:4455:b240::1/64 forever forever global noprefixroute
 addr6 fe80::32fb:93c5:6555:845a/64 forever forever link noprefixroute
 dev br1
 addr 192.168.99.1/24 forever forever global noprefixroute br0
-addr6 2001:db8:100::32fb:93c5:555:1/64 forever forever global noprefixroute
-addr6 2001:db8:200::32fb:93c5:555:1/64 forever forever global noprefixroute
+addr6 2001:db8:100:2:32fb:93c5:555:1/64 forever forever global noprefixroute
+addr6 2001:db8:200:2:32fb:93c5:555:1/64 forever forever global noprefixroute
 addr6 fe80::32fb:93c5:555:1/64 forever forever link noprefixroute

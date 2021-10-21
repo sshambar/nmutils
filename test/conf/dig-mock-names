@@ -14,6 +14,7 @@ www     A 192.0.2.8
 ipv6    AAAA 2001:DB8:4860:4860::8844
 mail    TXT "v=spf1 mx ~all"
         TXT "some value"
+home    AAAA 2001:db8:100:2:32fb:93c5:555:1
 $ORIGIN .
 example.test MX 10 mail.example.test.
 

@@ -37,22 +37,24 @@ NMDDNS_REQUIRED="99.0.0"
 # min-version for tests
 NMDDNS_REQUIRED="1.4.3"
 
-# don't let general-functions use external commands
-# (except those defined in config)
-# shellcheck disable=SC2123
-PATH=''
-
 # less noise
 export NMG_TAG=''
 
 # shellcheck source=/dev/null
 . "${NMDDNS}" || exit 1
 
+# don't let general-functions use external commands
+# (except those defined in config)
+# shellcheck disable=SC2123
+PATH=''
+
 # these tests require MOCK_ECHO=1 to check command actions
 export MOCK_ECHO=1
 
+# need rundir
+[[ $RUNDIR && -d $RUNDIR ]] || xtest::fail "\$RUNDIR doesn't exist!"
 # need output directory
-[[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
 XLOG="$TEST_OUT/ddns.log" XERR="$TEST_OUT/ddns.err"
 
 xwrap() {
@@ -106,13 +108,22 @@ xtest::group4::ddns() {
   export DIG_MOCK_FAIL=5
   xwrap nmddns_update A
   xtest D2 25 "(<dig fail 5>) returns 25"
-  ftest D2f "ERR: FAIL(5) ${NMDDNS_DIG} @127.0.0.1 +short +retry=2 +time=3 +time=1 +retry=2 A www.example.test => dig mock fail 5"$'\n'"ERR: Removal of www.example.test A failed" " - logs error"
+  read_value out <<-EOF
+	ERR: FAIL(5) ${NMDDNS_DIG} @127.0.0.1 +short +retry=2 +time=3 +time=1 +retry=2 A www.example.test
+	ERR: Removal of www.example.test A failed
+	EOF
+  ftest D2f "$out" " - logs error"
   unset DIG_MOCK_FAIL
 
   export NSUPDATE_MOCK_FAIL=5
   xwrap nmddns_update A
   xtest D3 5 "(<nsupdate fail 5>) returns 5"
-  ftest D3f "Removing www.example.test A"$'\n'"ERR: FAIL(5) ${NMDDNS_NSUPDATE} -t 3 => nsupdate mock fail 5"$'\n'"ERR: DNS update to server 127.0.0.1 failed for www.example.test A" " - logs error"
+  read_value out <<-EOF
+	Removing www.example.test A
+	ERR: FAIL(5) ${NMDDNS_NSUPDATE} -t 3
+	ERR: DNS update to server 127.0.0.1 failed for www.example.test A
+	EOF
+  ftest D3f "$out" " - logs error"
   unset NSUPDATE_MOCK_FAIL
 
   xwrap nmddns_update A 192.168.55.1
@@ -396,7 +407,7 @@ xtest::group4::ddns() {
 
 xtest::group5::helper() {
 
-  local out state0 state1
+  local out state0 state1 state2
 
   shtest::title "nmddns-helper tests"
 
@@ -408,10 +419,12 @@ xtest::group5::helper() {
 
   state0="${RUNDIR}/ddns-eth0-AAAA.state"
   state1="${RUNDIR}/ddns-eth1-A.state"
-  xrm "$state0" "$state1"
+  state2="${RUNDIR}/ddns-br1-from-wan0-AAAA.state"
+  xrm "$state0" "$state1" "$state2"
 
   echo "2001:db8:4860:4860::8888/64" > "$state0"
   echo "10.0.10.12/24" > "$state1"
+  echo "2001:db8:100:2:32fb:93c5:555:1/64" > "$state2"
   xwrap "${NMDDNS_HELPER}"
   xtest H2 t "(<no args>) 2 curr ip, returns true"
   ftest H2f "" " - does not log"
@@ -462,8 +475,7 @@ xtest::group5::helper() {
 	EOF
   ftest H5f "$out" " - removes rrecs"
 
-  xrm "$state0"
-  xrm "$state1"
+  xrm "$state0" "$state1" "$state2"
 }
 
 main() { # <args>

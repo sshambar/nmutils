@@ -29,16 +29,21 @@ DIG_MOCK_NAMES=${DIG_MOCK_NAMES:-conf/dig-mock-names}
 # used to trigger failure
 DIG_MOCK_FAIL=${DIG_MOCK_FAIL-}
 
-err() { printf >&2 "%s\n" "$*"; }
-verbose() { [[ $VERBOSE ]] && err "$*"; }
+err() {
+  local IFS; unset IFS
+  printf >&2 "%s\n" "$*"
+}
+
 fail() {
   local -i rc=1
   printf 2>/dev/null -v rc "%d" "$1"
   [[ $rc == 0 ]] && rc=1
   shift
-  err "$*"
+  [[ $1 ]] && err "$@"
   exit "$rc"
 }
+
+verbose() { [[ $VERBOSE ]] && err "$@"; }
 
 usage() {
   echo "Usage: ${0##*/} [@server] [q-type] {q-opt} host"
@@ -71,6 +76,7 @@ uppercase() { # <retvar> <string>
 }
 
 display_item() { # <fqdn> <ttl> <rrec> <value>
+  local IFS; unset IFS
   printf "%-23s %-7d IN      %-7s %s\n" "${1%.}." "${@:2:3}"
 }
 
@@ -109,7 +115,7 @@ match_query() { # <server> <fqdn> <ttl> <rrec> <value>
   local server=$1 fqdn=$2 rrec=$4
   local ttl=$3 val=$5
 
-  verbose "matching $*"
+  verbose "matching" "$@"
   [[ ${SERVER} && ${server} ]] && {
     [[ ${SERVER} == "${server}" ]] || return 1; }
   shift
@@ -141,7 +147,7 @@ do_query() { # <filename>
       # <name> <rrec> <value>
       lowercase name "$1"
       uppercase rrec "$2"
-      value=${*:3}
+      unset IFS; value=${*:3}; IFS=''
     elif [[ ${2-} ]]; then
       case $1 in
         \$ORIGIN) lowercase domain "${2%.}" ;;
@@ -150,7 +156,7 @@ do_query() { # <filename>
         *)
           [[ ${name} ]] || fail 1 "State file ${file}#${lineno}: missing <name>"
           uppercase rrec "$1"
-          value=${*:2}
+          unset IFS; value=${*:2}; IFS=''
           ;;
       esac
     elif [[ ${1-} ]]; then
@@ -178,7 +184,7 @@ is_rrec() { # <arg>
 }
 
 parse_args() {
-  local arg nextarg='' warn=''
+  local arg nextarg='' warn='' IFS; unset IFS
   ARGS="$*" # keep for header
   for arg in "$@"; do
     [[ ${arg} ]] || "dig: '' is not a legal name (unexpected end of input)"
@@ -222,12 +228,13 @@ parse_args() {
   return 0
 }
 
-[[ ${MOCK_DEBUG} ]] && { err "${0##*/} $*"; VERBOSE=1; }
+[[ ${MOCK_DEBUG} ]] && { err "${0##*/}" "$@"; VERBOSE=1; }
 
 parse_args "$@"
 
-[[ ${DIG_MOCK_FAIL} ]] &&
-  fail "${DIG_MOCK_FAIL}" "dig mock fail ${DIG_MOCK_FAIL}"
+[[ ${DIG_MOCK_FAIL-} ]] && fail "${DIG_MOCK_FAIL}" "${DIG_MOCK_OUTPUT-}"
+
+[[ ${DIG_MOCK_OUTPUT-} ]] && { echo "${DIG_MOCK_OUTPUT}"; exit 0; }
 
 verbose "Using state file: ${file}"
 

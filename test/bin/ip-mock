@@ -25,19 +25,9 @@ IP_MOCK_ADDRS=${IP_MOCK_ADDRS:-conf/ip-mock-addrs}
 
 IP_MOCK_FAIL=${IP_MOCK_FAIL-}
 
-usage() {
-  err "Usage: ${0##*/} [ OPTIONS ] OBJECT { COMMAND | help }"
-  err "where  OBJECT := { address }"
-  err "       OPTIONS := { -4 | -6 | -v | -V[ersion] }"
-  exit 1
-}
-
 err() {
+  local IFS; unset IFS
   printf >&2 "%s\n" "$*"
-}
-
-verbose() {
-  [[ $VERBOSE ]] && err "$*"
 }
 
 fail() {
@@ -45,8 +35,19 @@ fail() {
   printf 2>/dev/null -v rc "%d" "$1"
   [[ $rc == 0 ]] && rc=1
   shift
-  err "$*"
+  [[ $1 ]] && err "$@"
   exit "$rc"
+}
+
+verbose() {
+  [[ $VERBOSE ]] && err "$@"
+}
+
+usage() {
+  err "Usage: ${0##*/} [ OPTIONS ] OBJECT { COMMAND | help }"
+  err "where  OBJECT := { address }"
+  err "       OPTIONS := { -4 | -6 | -v | -V[ersion] }"
+  exit 1
 }
 
 # State file format:
@@ -266,11 +267,13 @@ parse_args() {
   esac
 }
 
-[[ ${MOCK_DEBUG} ]] && { err "${0##*/} $*"; VERBOSE=1; }
+[[ ${MOCK_DEBUG} ]] && { err "${0##*/}" "$@"; VERBOSE=1; }
 
 parse_args "$@"
 
-[[ ${IP_MOCK_FAIL} ]] && fail "$IP_MOCK_FAIL" "ip mock fail $IP_MOCK_FAIL"
+[[ ${IP_MOCK_FAIL-} ]] && fail "${IP_MOCK_FAIL}" "${IP_MOCK_OUTPUT-}"
+
+[[ ${IP_MOCK_OUTPUT-} ]] && { echo "${IP_MOCK_OUTPUT}"; exit 0; }
 
 verbose "OBJECT=$OBJECT COMMAND=$COMMAND"
 verbose "IPV4=$IPV4 IP4=$IP4"
@@ -282,7 +285,9 @@ case $OBJECT in
   addr)
     read_addr_state "$IP_MOCK_ADDRS"
     case $COMMAND in
-      add|change|replace|del|delete) [[ ${MOCK_ECHO} ]] && echo "ip $*" ;;
+      add|change|replace|del|delete)
+        [[ ${MOCK_ECHO} ]] && echo "ip" "$@"
+        ;;
       show) addr_show;;
       *) fail 1 "Command \"$COMMAND\" not implemented"
     esac

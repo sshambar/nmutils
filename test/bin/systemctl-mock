@@ -11,7 +11,7 @@ err() {
 }
 
 fail() {
-  local -i rc=1
+  local -i rc=1 IFS; unset IFS
   printf 2>/dev/null -v rc "%d" "$1"
   [[ $rc == 0 ]] && rc=1
   shift

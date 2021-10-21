@@ -3,9 +3,8 @@
 # nsupdate-mock for test scripts
 #
 
-NSUPDATE_MOCK_FAIL=${NSUPDATE_MOCK_FAIL-}
-
 err() {
+  local IFS; unset IFS
   printf >&2 "%s\n" "$*"
 }
 
@@ -14,16 +13,18 @@ fail() {
   printf 2>/dev/null -v rc "%d" "$1"
   [[ $rc == 0 ]] && rc=1
   shift
-  err "$*"
+  [[ $1 ]] && err "$@"
   exit "$rc"
 }
 
-[[ ${NSUPDATE_MOCK_FAIL} ]] &&
-  fail "${NSUPDATE_MOCK_FAIL}" "nsupdate mock fail ${NSUPDATE_MOCK_FAIL}"
+[[ ${NSUPDATE_MOCK_FAIL-} ]] &&
+  fail "${NSUPDATE_MOCK_FAIL}" "${NSUPDATE_MOCK_OUTPUT-}"
+
+[[ ${NSUPDATE_MOCK_OUTPUT-} ]] && { echo "${NSUPDATE_MOCK_OUTPUT}"; exit 0; }
 
 # echo commands if requested
 if [[ ${MOCK_ECHO} ]]; then
-  echo "nsupdate $*"
+  echo "nsupdate" "$@"
   command -p cat -
 fi
 
