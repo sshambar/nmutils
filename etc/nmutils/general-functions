@@ -106,6 +106,7 @@
 #     Replaces <wild> in <pattern> with '*', and for each matching file calls
 #       <callback> <filename> <match> [ <args>... ]
 #     where <match> is part of <filename> that matched '*'.
+#     If <callback> fails, callbacks stop and filematch returns value.
 #
 #   nmg::realpath <retvar> [ <path> ]
 #
@@ -389,7 +390,7 @@
 #
 # shellcheck shell=bash
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.5"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.6"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -819,7 +820,7 @@ nmg::foreach_filematch() {
 
     # get match
     _match=${_file#"${_pre}"}; _match=${_match%"${_post}"}
-    "${_func}" "${_file}" "${_match}" "$@"
+    "${_func}" "${_file}" "${_match}" "$@" || return
   done
 
   return 0
@@ -829,13 +830,13 @@ nmg::realpath() {
   # <retvar> <dir>
   nmg::_clearvar "${1-}" nmgret || return
   local __a=${2:-.} __b __p=''
-  if command &>/dev/null -v realpath; then
-    read -r __p < <(realpath 2>/dev/null "${__a}") || :
-  else
+  command &>/dev/null -v realpath && {
+    read -r __p < <(realpath 2>/dev/null "${__a}") || __p=''; }
+  [[ ${__p} ]] || {
     __b=${__a##*/} __p=${__a%"${__b}"}
     __p=$(cd "${__p}" &>/dev/null && pwd -P) || :
     [[ ${__p} ]] && __p="${__p}/${__b}"
-  fi
+  }
   [[ ${__p} ]] || { nmg::_perr "failed to locate ${2-}"; return 2; }
   printf -v "$1" %s "${__p}"
 }
@@ -1135,7 +1136,7 @@ nmg_find_ip4_addrs() {
 nmg::2dec() {
   # <retvar> <value>
   nmg::_clearvar "${1-}" nmgret || return
-  printf 2>/dev/null -v "$1" "%d" "${2:-0}" || {
+  printf 2>/dev/null -v "$1" %d "${2:-0}" || {
     nmg::_perr "invalid <value> '${2-}'"
     nmg::_clearvar "$1" ""; return 1; }
 }
@@ -1327,10 +1328,10 @@ nmg::_create_ip6_prefix() { # returns 0
 
   # hex2dec
   printf 2>/dev/null -v site %d "0x${asite//:/}" || {
-    nmg::_err "invalid site '${asite}'"; return; }
+    nmg::_err "invalid <site> '${asite}'"; return; }
 
   printf 2>/dev/null -v slen %d "${aslen:-64}" || {
-    nmg::_err "invalid site-len '${aslen}'"; return; }
+    nmg::_err "invalid <site-len> '${aslen}'"; return; }
   (( slen == 0 )) && slen=64
 
   # use aslen on result
@@ -1543,8 +1544,7 @@ nmg::prop_get_value() {
 
 nmg::prop_has_value() {
   # <props> <name> <value> [ <sep> ]
-  local fval word IFS
-  unset IFS
+  local fval word IFS; unset IFS
   nmg::prop_get_value fval "${1-}" "${2-}" || return 1
   if [[ ${4-} ]]; then
     for word in ${fval//"$4"/ }; do

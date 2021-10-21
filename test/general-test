@@ -16,11 +16,6 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 
 [[ $EUID == 0 ]] && xtest::fail "Never run as root!"
 
-# don't let general-functions use external commands
-# (except those defined in config)
-# shellcheck disable=SC2123
-PATH=''
-
 NMG=${NMG:-${NMUTILS}/general-functions}
 
 # ensure includes pass parse test
@@ -35,7 +30,7 @@ NMG_REQUIRED="99.0.0"
      :) || exit 1
 
 # min-version for tests
-NMG_REQUIRED="1.5.5"
+NMG_REQUIRED="1.5.6"
 
 # less noise
 export NMG_TAG=''
@@ -43,11 +38,16 @@ export NMG_TAG=''
 # shellcheck source=/dev/null
 . "${NMG}" || exit 1
 
+# don't let general-functions use external commands
+# (except those defined in config)
+# shellcheck disable=SC2123
+PATH=''
+
 # these tests require MOCK_ECHO=1 to check command actions
 export MOCK_ECHO=1
 
 # need output directory
-[[ $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset!"
+[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
 # realpath test requires TEST_OUT to be relative
 [[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
 XLOG="$TEST_OUT/general.log" XERR="$TEST_OUT/general.err"
@@ -773,13 +773,13 @@ xtest::group3::ip6() {
   xwrap nmg::create_ip6_prefix var "fddd:1234::/64" "zz"
   xtest P25 1 "(<bad site>) returns 1"
   vtest P25v "" " - sets var=''"
-  ftest P25f "ERR: nmg::create_ip6_prefix: invalid site 'zz'" \
+  ftest P25f "ERR: nmg::create_ip6_prefix: invalid <site> 'zz'" \
         " - logs error"
 
   xwrap nmg::create_ip6_prefix var "fddd:1234::/64" "1:eeff" "zz"
   xtest P26 1 "(<bad site-len>) returns 1"
   vtest P26v "" " - sets var=''"
-  ftest P26f "ERR: nmg::create_ip6_prefix: invalid site-len 'zz'" \
+  ftest P26f "ERR: nmg::create_ip6_prefix: invalid <site-len> 'zz'" \
         " - logs error"
 
   xwrap nmg::create_ip6_prefix var "fddd:1234::/60" "1:eeff" "128"
@@ -1069,6 +1069,15 @@ xtest::group3::file() {
   xwrap nmg::foreach_filematch "$TEST_OUT/SUB.match" "@SUB@" nmg_info arg
   xtest F47 t "(<no-pat>) returns true"
   ftest F47f "" " - makes no callbacks"
+
+  xtest_file_cb() {
+    nmg_info "$1 $2 fail"
+    return 3
+  }
+  xwrap nmg::foreach_filematch "$TEST_OUT/@SUB@.match" "@SUB@" xtest_file_cb
+  xtest F48 3 "(<2 matches, callback fails>) returns fail code"
+  ftest F48f "$TEST_OUT/xx.match xx fail" " - makes 1 callback"
+  unset xtest_file_cb
 
   shtest::prefix "nmg::realpath"
 
