@@ -1490,7 +1490,7 @@ xtest::group4::config() {
 }
 
 main() {
-  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file" IFS=-
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/general file" IFS=-
 
   # reset (in subshell)
   shtest::reset

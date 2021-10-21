@@ -154,7 +154,7 @@ xtest::group4::ddns() {
   unset DDNS_RREC_A_FALLBACK
 
   DDNS_RREC_A_PRIVATE=1
-  xpat="$TEST_OUT/xtest-state @RREC@"
+  xpat="$TEST_OUT/ddns-state @RREC@"
   xstate=${xpat//@RREC@/A}
   xrm "$xstate"
   xwrap nmddns_update A 192.168.55.1/24 "$xpat"
@@ -172,7 +172,7 @@ xtest::group4::ddns() {
   shtest::check_file D6s "$xstate" "192.168.55.1" " - generates state file (no plen)"
   xrm "$xstate"
 
-  xstate="$TEST_OUT/xtest-state"
+  xstate="$TEST_OUT/ddns-state"
   xrm "$xstate"
   xwrap nmddns_update A "" "$xstate"
   xtest D7 t "(<bad state-pat>) returns true"
@@ -341,7 +341,7 @@ xtest::group4::ddns() {
   ftest D31f "" " - does nothing"
 
   cnf="$TEST_CONF/test-ddns.conf"
-  xpat="$TEST_OUT/xtest-state @RREC@"
+  xpat="$TEST_OUT/ddns-state @RREC@"
   xstate=${xpat//@RREC@/A}
 
   xrm "$xstate"; command -p touch "$xstate"
@@ -367,7 +367,7 @@ xtest::group4::ddns() {
 	EOF
   ftest D33f "$out" " - logs error, removes A rrec"
 
-  xstate="$TEST_OUT/xfile.out"
+  xstate="$TEST_OUT/ddns-test.exe"
   xrm "$XFILE"
   echo "#!/bin/sh"$'\n'"echo >\"$xstate\" \"arg=\$*\"" > "$XFILE"
   command -p chmod +x "$XFILE"
@@ -479,7 +479,7 @@ xtest::group5::helper() {
 }
 
 main() { # <args>
-  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/xtest file" IFS=-
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/ddns file" IFS=-
 
   # reset (in subshell)
   shtest::reset
