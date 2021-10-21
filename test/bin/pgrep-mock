@@ -1,0 +1,22 @@
+#!/bin/bash
+
+err() {
+  local IFS; unset IFS
+  printf >&2 "%s\n" "$*"
+}
+
+fail() {
+  local -i rc=1
+  printf 2>/dev/null -v rc "%d" "$1"
+  [[ $rc == 0 ]] && rc=1
+  shift
+  [[ $1 ]] && err "$@"
+  exit "$rc"
+}
+
+[[ ${PGREP_MOCK_FAIL-} ]] &&
+  fail "${PGREP_MOCK_FAIL}" "${PGREP_MOCK_OUTPUT-}"
+
+[[ ${PGREP_MOCK_OUTPUT-} ]] && { echo "${PGREP_MOCK_OUTPUT}"; exit 0; }
+
+exit 0
