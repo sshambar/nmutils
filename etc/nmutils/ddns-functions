@@ -183,7 +183,7 @@
 #
 #   NMDDNS_VERSION - current file version
 #
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC1090
 
 [[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.3"
 
@@ -217,7 +217,6 @@ NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
 NMG_REQUIRED="1.5.5"
-# shellcheck source=/dev/null
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
 

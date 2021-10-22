@@ -4,15 +4,13 @@
 # Test suite for dhclient-ipv6-prefix
 #   - this is a companion to ipv6-prefix-test
 #
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC1090,SC2123
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-# shellcheck source=/dev/null
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
   { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
 
-# shellcheck source=/dev/null
 { [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
   { echo >&2 "Unable to load xtest_setup"; exit 2; }
 
@@ -668,24 +666,32 @@ xtest::group3::lan() {
   return 0
 }
 
+xtest::group3::wan() {
+
+  local new_ip6_prefix='' new_iaid=''
+  local new_max_life='' new_life_starts='' new_preferred_life=''
+  local old_ip6_prefix='' old_iaid='' cur_ip6_prefix='' cur_iaid=''
+  local cur_max_life='' cur_life_starts=''
+
+  shtest::title "WAN Address Assignment Tests (wan group)"
+
+}
+
 load_script() {
 
   shtest::title "Loading script"
 
-  # shellcheck source=/dev/null
   (xwrap . "${_TEST_SCRIPT}"; echo >>"$XLOG" "loaded $?")
   ftest load "loaded 0" " - script loads without error"
   shtest::last_check_ok || xtest::fail "Loading '${_TEST_SCRIPT}' failed"
 
   # load script in current subshell
-  # shellcheck source=/dev/null
   xwrap . "${_TEST_SCRIPT}"
 
   [[ ${WAN_LAN_INTFS} ]] ||
     xtest::fail "Config file '${_CONF_FILE}' failed to load"
 
   # reset path
-  # shellcheck disable=SC2123
   PATH=''
 }
 
@@ -698,7 +704,6 @@ main() {
   local TEST_DDNS_HELPER=''
 
   # restrict use of external commands (except those defined in config)
-  # shellcheck disable=SC2123
   PATH=''
 
   # reset (in subshell)

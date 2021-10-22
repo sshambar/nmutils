@@ -4,15 +4,13 @@
 # Test suite for 08-ipv6-prefix
 #   - this is a companion to dhscript-prefix-test
 #
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC1090,SC2123
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-# shellcheck source=/dev/null
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
   { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
 
-# shellcheck source=/dev/null
 { [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
   { echo >&2 "Unable to load xtest_setup"; exit 2; }
 
@@ -199,17 +197,14 @@ load_script() {
 
   shtest::title "Loading script"
 
-  # shellcheck source=/dev/null
   (xwrap . "${_TEST_SCRIPT}" dummy general; echo >>"$XLOG" "loaded $?")
   ftest load "loaded 0" " - script loads without error"
   shtest::last_check_ok || xtest::fail "Loading '${_TEST_SCRIPT}' failed"
 
   # load script in current subshell
-  # shellcheck source=/dev/null
   xwrap . "${_TEST_SCRIPT}" dummy general
 
   # reset PATH
-  # shellcheck disable=SC2123
   PATH=''
 }
 
@@ -222,7 +217,6 @@ main() {
   local TEST_DDNS_HELPER=''
 
   # restrict use of external commands (except those defined in config)
-  # shellcheck disable=SC2123
   local PATH=''
 
   # reset (in subshell)

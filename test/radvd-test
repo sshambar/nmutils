@@ -4,6 +4,7 @@
 #
 # Set the following in your radvd-gen.conf file to test:
 #
+# shellcheck disable=SC1090
 
 [ "$1" = "-h" ] && {
   echo "Usage: ${0##*/} [ <radvd-gen-args> ]"
@@ -17,7 +18,6 @@ fail() {
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-# shellcheck source=/dev/null
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
   fail "Unable to load ${TEST_COMMON}"
 

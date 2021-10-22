@@ -388,7 +388,7 @@
 #
 #   NMG_VERSION - current file version
 #
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC1090,SC1091
 
 [[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.6"
 
@@ -432,7 +432,6 @@ NMG_LOGGER_USEID=
 ########## SCRIPT START
 
 # optional shared config defaults
-# shellcheck source=/dev/null
 [[ -r "${NMCONF}/general.conf" ]] && . "${NMCONF}/general.conf"
 
 # if no logger, use stderr
@@ -560,12 +559,10 @@ nmg_read_config() {
       return 2
     }
   fi
-  # shellcheck source=/dev/null
   . "${file}" &>/dev/null && return
 
   # capture error for logging
   [[ ${nolog} ]] || {
-    # shellcheck source=/dev/null
     msg=$(. "${file}" 2>&1 >/dev/null || :)
     nmg_err "Failed to load config file '${file}': ${msg//$'\n'/ }"
   }

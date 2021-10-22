@@ -3,15 +3,13 @@
 #
 # Test suite for ddns-functions
 #
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC1090,SC2123
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-# shellcheck source=/dev/null
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
   { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
 
-# shellcheck source=/dev/null
 { [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
   { echo >&2 "Unable to load xtest_setup"; exit 2; }
 
@@ -25,13 +23,11 @@ shtest::parse "${NMDDNS}" || shtest::fatal
 # verify required
 NMG_REQUIRED="99.0.0"
 
-# shellcheck source=/dev/null
 (. "${NMDDNS}" 2>/dev/null &&
    xtest::fail "FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}" || :) || exit 1
 
 unset NMG_REQUIRED
 NMDDNS_REQUIRED="99.0.0"
-# shellcheck source=/dev/null
 (. "${NMDDNS}" 2>/dev/null &&
    xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}" || :) || exit 1
 
@@ -41,12 +37,10 @@ NMDDNS_REQUIRED="1.4.3"
 # less noise
 export NMG_TAG=''
 
-# shellcheck source=/dev/null
 . "${NMDDNS}" || exit 1
 
 # don't let general-functions use external commands
 # (except those defined in config)
-# shellcheck disable=SC2123
 PATH=''
 
 # these tests require MOCK_ECHO=1 to check command actions
