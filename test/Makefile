@@ -29,7 +29,7 @@ TEST_OUT := $(TEST_ROOT)/results
 TEST_EXPECT := $(TEST_ROOT)/expected
 # replacement ip/systemctl binaries
 TEST_IP := $(TEST_BIN)/ip-mock
-TEST_SYSTEMCTL := $(TEST_BIN)/systemctl-mock
+TEST_SYSTEMCTL := $(TEST_BIN)/dummy-mock
 
 # default addrs for ip-mock
 IP_MOCK_ADDRS := $(TEST_CONF)/ip-mock-addrs

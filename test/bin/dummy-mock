@@ -1,0 +1,29 @@
+#!/bin/bash
+
+#
+# General placeholder command
+#
+# DUMMY_MOCK_FAIL (optional) - !0 fail code
+#
+# DUMMY_MOCK_OUTPUT (optional) - echo, "@ARGS@" replaced by arguments
+#
+
+unset IFS
+
+err() {
+  printf >&2 "%s\n" "$*"
+}
+
+fail() {
+  local -i rc=0
+  [[ $1 != 0 ]] && { printf 2>/dev/null -v rc "%d" "$1" || rc=1; }
+  shift
+  [[ $1 ]] && { if [[ $rc == 0 ]]; then echo "$@"; else err "$@"; fi; }
+  exit "$rc"
+}
+
+[[ ${DUMMY_MOCK_FAIL-} || ${DUMMY_MOCK_OUTPUT-} ]] &&
+  fail "${DUMMY_MOCK_FAIL:-0}" \
+       "${DUMMY_MOCK_OUTPUT+${DUMMY_MOCK_OUTPUT/@ARGS@/$*}}"
+
+exit 0
