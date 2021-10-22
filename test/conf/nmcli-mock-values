@@ -1,0 +1,1409 @@
+-CONN-STATUS
+NAME:office
+UUID:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69
+TYPE:802-3-ethernet
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/4
+ACTIVE:yes
+DEVICE:eth0
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/4
+SLAVE:
+FILENAME:/etc/NetworkManager/system-connections/office
+NAME:home
+UUID:5ddfc6bd-e760-4bbc-beba-94836431f202
+TYPE:802-3-ethernet
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/2
+ACTIVE:yes
+DEVICE:eth1
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/5
+SLAVE:
+FILENAME:/etc/NetworkManager/system-connections/home
+NAME:br0
+UUID:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d
+TYPE:bridge
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/5
+ACTIVE:yes
+DEVICE:br0
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/2
+SLAVE:
+FILENAME:/etc/NetworkManager/system-connections/br0
+NAME:wg
+UUID:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c
+TYPE:wireguard
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/3
+ACTIVE:yes
+DEVICE:wg
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/3
+SLAVE:
+FILENAME:/etc/NetworkManager/system-connections/wg.nmconnection
+NAME:isp
+UUID:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+TYPE:802-3-ethernet
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/6
+ACTIVE:yes
+DEVICE:wan0
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/6
+SLAVE:
+FILENAME:/etc/NetworkManager/system-connections/isp
+NAME:tap0
+UUID:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6
+TYPE:tun
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/7
+ACTIVE:yes
+DEVICE:tap0
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/1
+SLAVE:bridge
+FILENAME:/etc/NetworkManager/system-connections/tap0
+NAME:vlan10
+UUID:f83f40c0-e339-4a91-8fa2-283409fb8d01
+TYPE:vlan
+TIMESTAMP:1633825527
+TIMESTAMP-REAL:Sat 09 Oct 2021 05:25:27 PM PDT
+AUTOCONNECT:yes
+AUTOCONNECT-PRIORITY:0
+READONLY:no
+DBUS-PATH:/org/freedesktop/NetworkManager/Settings/1
+ACTIVE:yes
+DEVICE:vlan10
+STATE:activated
+ACTIVE-PATH:/org/freedesktop/NetworkManager/ActiveConnection/7
+SLAVE:bridge
+FILENAME:/etc/NetworkManager/system-connections/vlan10.nmconnection
+
+-CONN-ITEMS
+connection.id:office
+connection.uuid:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69
+connection.stable-id:
+connection.type:802-3-ethernet
+connection.interface-name:eth0
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:0
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:
+connection.slave-type:
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+802-3-ethernet.port:
+802-3-ethernet.speed:0
+802-3-ethernet.duplex:
+802-3-ethernet.auto-negotiate:no
+802-3-ethernet.mac-address:
+802-3-ethernet.cloned-mac-address:
+802-3-ethernet.generate-mac-address-mask:
+802-3-ethernet.mac-address-blacklist:
+802-3-ethernet.mtu:auto
+802-3-ethernet.s390-subchannels:
+802-3-ethernet.s390-nettype:
+802-3-ethernet.s390-options:
+802-3-ethernet.wake-on-lan:default
+802-3-ethernet.wake-on-lan-password:
+ipv4.method:auto
+ipv4.dns:
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:
+ipv4.gateway:
+ipv4.routes:192.168.100.0/24
+ipv4.route-metric:-1
+ipv4.route-table:201
+ipv4.routing-rules:priority 40100 from 0.0.0.0/0 table 201 suppress_prefixlength 0, priority 41100 from 0.0.0.0/0 fwmark 0x20/0x30 table 201, priority 42100 from 0.0.0.0/0 table 201
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:yes
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:no
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:no
+ipv4.may-fail:no
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:auto
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:yes
+ipv6.never-default:no
+ipv6.may-fail:no
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:stable-privacy
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:no
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:office
+GENERAL.UUID:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69
+GENERAL.DEVICES:eth0
+GENERAL.IP-IFACE:eth0
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:yes
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/4
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/4
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:
+IP4.ADDRESS[1]:192.168.66.4/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 0.0.0.0/0, nh = 192.168.66.1, mt = 100, table=201
+IP4.ROUTE[2]:dst = 192.168.66.0/24, nh = 0.0.0.0, mt = 100, table=201
+IP4.ROUTE[3]:dst = 192.168.100.0/24, nh = 0.0.0.0, mt = 100, table=201
+DHCP4.OPTION[1]:broadcast_address = 255.255.255.255
+DHCP4.OPTION[2]:dad_wait_time = 0
+DHCP4.OPTION[3]:dhcp_lease_time = 345600
+DHCP4.OPTION[4]:dhcp_message_type = 5
+DHCP4.OPTION[5]:dhcp_server_identifier = 192.168.66.1
+DHCP4.OPTION[6]:domain_name = office.lan.
+DHCP4.OPTION[7]:domain_name_servers = 8.8.8.8 8.8.4.4
+DHCP4.OPTION[8]:expiry = 1633929754
+DHCP4.OPTION[9]:ip_address = 192.168.66.4
+DHCP4.OPTION[10]:network_number = 192.168.66.0
+DHCP4.OPTION[11]:next_server = 0.0.0.0
+DHCP4.OPTION[12]:requested_broadcast_address = 1
+DHCP4.OPTION[13]:requested_classless_static_routes = 1
+DHCP4.OPTION[14]:requested_domain_name = 1
+DHCP4.OPTION[15]:requested_domain_name_servers = 1
+DHCP4.OPTION[16]:requested_domain_search = 1
+DHCP4.OPTION[17]:requested_host_name = 1
+DHCP4.OPTION[18]:requested_interface_mtu = 1
+DHCP4.OPTION[19]:requested_ms_classless_static_routes = 1
+DHCP4.OPTION[20]:requested_nis_domain = 1
+DHCP4.OPTION[21]:requested_nis_servers = 1
+DHCP4.OPTION[22]:requested_ntp_servers = 1
+DHCP4.OPTION[23]:requested_rfc3442_classless_static_routes = 1
+DHCP4.OPTION[24]:requested_root_path = 1
+DHCP4.OPTION[25]:requested_routers = 1
+DHCP4.OPTION[26]:requested_static_routes = 1
+DHCP4.OPTION[27]:requested_subnet_mask = 1
+DHCP4.OPTION[28]:requested_time_offset = 1
+DHCP4.OPTION[29]:requested_wpad = 1
+DHCP4.OPTION[30]:routers = 192.168.66.1
+DHCP4.OPTION[31]:subnet_mask = 255.255.254.0
+IP6.ADDRESS[1]:2001:db8:871a:28c1::1/64
+IP6.ADDRESS[2]:2001:db8:4860:4860::8888/64
+IP6.ADDRESS[3]:fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64
+IP6.ADDRESS[4]:fe80::a00:27ff:fe1b:ff9a/64
+IP6.GATEWAY:fe80::201:5cff:e5d1:d155
+IP6.ROUTE[1]:dst = ::/0, nh = fe80::201:5cff:e5d1:d155, mt = 100
+IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/64, nh = ::, mt = 100
+IP6.ROUTE[3]:dst = 2001:db8:4860:4860::8888/64, nh = ::, mt = 100
+IP6.ROUTE[4]:dst = fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64, nh = ::, mt = 100
+IP6.ROUTE[5]:dst = fe80::/64, nh = ::, mt = 100
+DHCP6.OPTION[1]:dad_wait_time = 0
+DHCP6.OPTION[2]:dhcp6_client_id = 0:1:0:1:1e:b:5:36:ee:df:b9:71:ac:d8
+DHCP6.OPTION[3]:dhcp6_name_servers = 2001:db8:feed::1 2001:db8:feed::2
+DHCP6.OPTION[4]:dhcp6_server_id = 0:1:0:1:1d:89:a6:f3:9a:6e:f8:93:8b:f3
+DHCP6.OPTION[5]:iaid = 9f:17:f3:aa
+DHCP6.OPTION[6]:ip6_address = 2001:db8:871a:28c1::1
+DHCP6.OPTION[7]:ip6_prefixlen = 128
+DHCP6.OPTION[8]:life_starts = 1633591993
+DHCP6.OPTION[9]:max_life = 345600
+DHCP6.OPTION[10]:preferred_life = 345600
+DHCP6.OPTION[11]:rebind = 276480
+DHCP6.OPTION[12]:renew = 172800
+DHCP6.OPTION[13]:requested_dhcp6_client_id = 1
+DHCP6.OPTION[14]:requested_dhcp6_domain_search = 1
+DHCP6.OPTION[15]:requested_dhcp6_name_servers = 1
+DHCP6.OPTION[16]:starts = 1633591993
+
+connection.id:home
+connection.uuid:5ddfc6bd-e760-4bbc-beba-94836431f202
+connection.stable-id:
+connection.type:802-3-ethernet
+connection.interface-name:eth1
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:
+connection.slave-type:
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+802-3-ethernet.port:
+802-3-ethernet.speed:0
+802-3-ethernet.duplex:
+802-3-ethernet.auto-negotiate:no
+802-3-ethernet.mac-address:
+802-3-ethernet.cloned-mac-address:
+802-3-ethernet.generate-mac-address-mask:
+802-3-ethernet.mac-address-blacklist:
+802-3-ethernet.mtu:auto
+802-3-ethernet.s390-subchannels:
+802-3-ethernet.s390-nettype:
+802-3-ethernet.s390-options:
+802-3-ethernet.wake-on-lan:default
+802-3-ethernet.wake-on-lan-password:
+ipv4.method:manual
+ipv4.dns:
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:10.0.10.12/24
+ipv4.gateway:10.0.10.1
+ipv4.routes:
+ipv4.route-metric:-1
+ipv4.route-table:200
+ipv4.routing-rules:priority 40200 from 0.0.0.0/0 table 200 suppress_prefixlength 0, priority 41200 from 0.0.0.0/0 fwmark 0x10/0x30 table 200, priority 42200 from 0.0.0.0/0 table 200
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:no
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:yes
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:no
+ipv4.may-fail:yes
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:ignore
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:no
+ipv6.never-default:no
+ipv6.may-fail:yes
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:eui64
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:yes
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:home
+GENERAL.UUID:5ddfc6bd-e760-4bbc-beba-94836431f202
+GENERAL.DEVICES:eth1
+GENERAL.IP-IFACE:eth1
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/5
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/2
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:
+IP4.ADDRESS[1]:10.0.10.12/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 10.0.10.0/24, nh = 0.0.0.0, mt = 101, table=200
+IP4.ROUTE[2]:dst = 0.0.0.0/0, nh = 10.0.10.1, mt = 101, table=200
+IP6.ADDRESS[1]:2001:db8:a0b:12f0::1/64
+IP6.ADDRESS[2]:fdac:3741:50f8:f623::1/48
+IP6.ADDRESS[3]:fe80::31fd:68fd:ed8b:4d77/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fe80::/64, nh = ::, mt = 256
+
+connection.id:br0
+connection.uuid:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d
+connection.stable-id:
+connection.type:bridge
+connection.interface-name:br0
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:
+connection.slave-type:
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+802-3-ethernet.port:
+802-3-ethernet.speed:0
+802-3-ethernet.duplex:
+802-3-ethernet.auto-negotiate:no
+802-3-ethernet.mac-address:
+802-3-ethernet.cloned-mac-address:D2:44:70:F3:17:6D
+802-3-ethernet.generate-mac-address-mask:
+802-3-ethernet.mac-address-blacklist:
+802-3-ethernet.mtu:auto
+802-3-ethernet.s390-subchannels:
+802-3-ethernet.s390-nettype:
+802-3-ethernet.s390-options:
+802-3-ethernet.wake-on-lan:default
+802-3-ethernet.wake-on-lan-password:
+ipv4.method:manual
+ipv4.dns:127.0.0.1
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:192.168.88.1/24
+ipv4.gateway:
+ipv4.routes:224.0.0.0/4
+ipv4.route-metric:-1
+ipv4.route-table:0
+ipv4.routing-rules:
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:no
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:yes
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:yes
+ipv4.may-fail:yes
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:manual
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:fdc0:4455:b240::1/64
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:no
+ipv6.never-default:yes
+ipv6.may-fail:yes
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:stable-privacy
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:yes
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+bridge.mac-address:
+bridge.stp:no
+bridge.priority:32768
+bridge.forward-delay:15
+bridge.hello-time:2
+bridge.max-age:20
+bridge.ageing-time:300
+bridge.group-forward-mask:0
+bridge.multicast-snooping:yes
+bridge.vlan-filtering:yes
+bridge.vlan-default-pvid:1
+bridge.vlans:10
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:br0
+GENERAL.UUID:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d
+GENERAL.DEVICES:br0
+GENERAL.IP-IFACE:br0
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/2
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/5
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:
+IP4.ADDRESS[1]:192.168.88.1/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 192.168.88.0/24, nh = 0.0.0.0, mt = 425
+IP4.ROUTE[2]:dst = 224.0.0.0/4, nh = 0.0.0.0, mt = 425
+IP4.DNS[1]:127.0.0.1
+IP6.ADDRESS[1]:fdc0:4455:b240::1/64
+IP6.ADDRESS[2]:fe80::32fb:93c5:6555:845a/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fdc0:4455:b240::/64, nh = ::, mt = 425
+IP6.ROUTE[2]:dst = fe80::/64, nh = ::, mt = 425
+
+connection.id:wg
+connection.uuid:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c
+connection.stable-id:
+connection.type:wireguard
+connection.interface-name:wg
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:
+connection.slave-type:
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+ipv4.method:manual
+ipv4.dns:
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:10.10.0.1/24
+ipv4.gateway:
+ipv4.routes:
+ipv4.route-metric:-1
+ipv4.route-table:0
+ipv4.routing-rules:
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:no
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:yes
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:yes
+ipv4.may-fail:yes
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:manual
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:fdc0:4455:b240:1010::1/64
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:no
+ipv6.never-default:yes
+ipv6.may-fail:yes
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:stable-privacy
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:yes
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+wireguard.private-key:<hidden>
+wireguard.private-key-flags:0
+wireguard.listen-port:812
+wireguard.fwmark:0x0
+wireguard.peer-routes:yes
+wireguard.mtu:1360
+wireguard.ip4-auto-default-route:-1
+wireguard.ip6-auto-default-route:-1
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:wg
+GENERAL.UUID:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c
+GENERAL.DEVICES:wg
+GENERAL.IP-IFACE:wg
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/3
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/3
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:
+IP4.ADDRESS[1]:10.10.0.1/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 10.10.0.0/24, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[2]:dst = 10.10.0.2/32, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[3]:dst = 10.10.0.3/32, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[4]:dst = 10.10.0.4/32, nh = 0.0.0.0, mt = 50
+IP6.ADDRESS[1]:fdc0:4455:b240:1010::1/64
+IP6.ADDRESS[2]:fe80::c6c4:6032:fe35:0401/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fdc0:4455:b240:1010::/64, nh = ::, mt = 50
+IP6.ROUTE[2]:dst = fe80::/64, nh = ::, mt = 50
+IP6.ROUTE[3]:dst = fdc0:4455:b240:1010::2/128, nh = ::, mt = 50
+IP6.ROUTE[4]:dst = fdc0:4455:b240:1010::3/128, nh = ::, mt = 50
+IP6.ROUTE[5]:dst = fdc0:4455:b240:1010::4/128, nh = ::, mt = 50
+
+connection.id:isp
+connection.uuid:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+connection.stable-id:
+connection.type:802-3-ethernet
+connection.interface-name:wan0
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:external
+connection.master:
+connection.slave-type:
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+802-3-ethernet.port:
+802-3-ethernet.speed:0
+802-3-ethernet.duplex:
+802-3-ethernet.auto-negotiate:no
+802-3-ethernet.mac-address:
+802-3-ethernet.cloned-mac-address:
+802-3-ethernet.generate-mac-address-mask:
+802-3-ethernet.mac-address-blacklist:
+802-3-ethernet.mtu:auto
+802-3-ethernet.s390-subchannels:
+802-3-ethernet.s390-nettype:
+802-3-ethernet.s390-options:
+802-3-ethernet.wake-on-lan:default
+802-3-ethernet.wake-on-lan-password:
+ipv4.method:auto
+ipv4.dns:
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:
+ipv4.gateway:
+ipv4.routes:
+ipv4.route-metric:-1
+ipv4.route-table:0
+ipv4.routing-rules:
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:no
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:no
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:no
+ipv4.may-fail:yes
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:ignore
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:no
+ipv6.never-default:no
+ipv6.may-fail:yes
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:eui64
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:no
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:isp
+GENERAL.UUID:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+GENERAL.DEVICES:wan0
+GENERAL.IP-IFACE:wan0
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/6
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/6
+GENERAL.ZONE:external
+GENERAL.MASTER-PATH:/org/freedesktop/NetworkManager/Devices/7
+IP4.GATEWAY:
+IP6.ADDRESS[1]:fe80::0a44:e1f0:d471:03b5/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fe80::/64, nh = ::, mt = 256
+
+connection.id:tap0
+connection.uuid:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6
+connection.stable-id:
+connection.type:tun
+connection.interface-name:tap0
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:br0
+connection.slave-type:bridge
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+bridge-port.priority:32
+bridge-port.path-cost:100
+bridge-port.hairpin-mode:no
+bridge-port.vlans:
+tun.mode:2
+tun.owner:
+tun.group:
+tun.pi:no
+tun.vnet-hdr:no
+tun.multi-queue:no
+GENERAL.NAME:tap0
+GENERAL.UUID:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6
+GENERAL.DEVICES:tap0
+GENERAL.IP-IFACE:tap0
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/1
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/7
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:/org/freedesktop/NetworkManager/Devices/7
+IP4.GATEWAY:
+IP6.GATEWAY:
+
+connection.id:vlan10
+connection.uuid:f83f40c0-e339-4a91-8fa2-283409fb8d01
+connection.stable-id:
+connection.type:vlan
+connection.interface-name:vlan10
+connection.autoconnect:yes
+connection.autoconnect-priority:0
+connection.autoconnect-retries:-1
+connection.multi-connect:0
+connection.auth-retries:-1
+connection.timestamp:1633659327
+connection.read-only:no
+connection.permissions:
+connection.zone:trusted
+connection.master:br0
+connection.slave-type:bridge
+connection.autoconnect-slaves:-1
+connection.secondaries:
+connection.gateway-ping-timeout:0
+connection.metered:unknown
+connection.lldp:default
+connection.mdns:-1
+connection.llmnr:-1
+connection.wait-device-timeout:-1
+bridge-port.priority:32
+bridge-port.path-cost:100
+bridge-port.hairpin-mode:no
+bridge-port.vlans:10
+802-3-ethernet.port:
+802-3-ethernet.speed:0
+802-3-ethernet.duplex:
+802-3-ethernet.auto-negotiate:no
+802-3-ethernet.mac-address:
+802-3-ethernet.cloned-mac-address:
+802-3-ethernet.generate-mac-address-mask:
+802-3-ethernet.mac-address-blacklist:
+802-3-ethernet.mtu:auto
+802-3-ethernet.s390-subchannels:
+802-3-ethernet.s390-nettype:
+802-3-ethernet.s390-options:
+802-3-ethernet.wake-on-lan:default
+802-3-ethernet.wake-on-lan-password:
+ipv4.method:disabled
+ipv4.dns:
+ipv4.dns-search:
+ipv4.dns-options:
+ipv4.dns-priority:0
+ipv4.addresses:
+ipv4.gateway:
+ipv4.routes:
+ipv4.route-metric:-1
+ipv4.route-table:0
+ipv4.routing-rules:
+ipv4.ignore-auto-routes:no
+ipv4.ignore-auto-dns:no
+ipv4.dhcp-client-id:
+ipv4.dhcp-iaid:
+ipv4.dhcp-timeout:0
+ipv4.dhcp-send-hostname:yes
+ipv4.dhcp-hostname:
+ipv4.dhcp-fqdn:
+ipv4.dhcp-hostname-flags:0x0
+ipv4.never-default:no
+ipv4.may-fail:yes
+ipv4.dad-timeout:-1
+ipv4.dhcp-vendor-class-identifier:
+ipv4.dhcp-reject-servers:
+ipv6.method:disabled
+ipv6.dns:
+ipv6.dns-search:
+ipv6.dns-options:
+ipv6.dns-priority:0
+ipv6.addresses:
+ipv6.gateway:
+ipv6.routes:
+ipv6.route-metric:-1
+ipv6.route-table:0
+ipv6.routing-rules:
+ipv6.ignore-auto-routes:no
+ipv6.ignore-auto-dns:no
+ipv6.never-default:no
+ipv6.may-fail:yes
+ipv6.ip6-privacy:-1
+ipv6.addr-gen-mode:stable-privacy
+ipv6.ra-timeout:0
+ipv6.dhcp-duid:
+ipv6.dhcp-iaid:
+ipv6.dhcp-timeout:0
+ipv6.dhcp-send-hostname:yes
+ipv6.dhcp-hostname:
+ipv6.dhcp-hostname-flags:0x0
+ipv6.token:
+vlan.parent:br0
+vlan.id:12
+vlan.flags:1
+vlan.ingress-priority-map:
+vlan.egress-priority-map:
+proxy.method:none
+proxy.browser-only:no
+proxy.pac-url:
+proxy.pac-script:
+GENERAL.NAME:vlan10
+GENERAL.UUID:f83f40c0-e339-4a91-8fa2-283409fb8d01
+GENERAL.DEVICES:vlan10
+GENERAL.IP-IFACE:vlan10
+GENERAL.STATE:activated
+GENERAL.DEFAULT:no
+GENERAL.DEFAULT6:no
+GENERAL.SPEC-OBJECT:
+GENERAL.VPN:no
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/ActiveConnection/7
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/1
+GENERAL.ZONE:trusted
+GENERAL.MASTER-PATH:
+IP4.GATEWAY:
+
+-DEV-STATUS
+DEVICE:eth0
+TYPE:ethernet
+STATE:connected
+IP4-CONNECTIVITY:full
+IP6-CONNECTIVITY:full
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/4
+CONNECTION:office
+CON-UUID:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/4
+DEVICE:br0
+TYPE:bridge
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/7
+CONNECTION:br0
+CON-UUID:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/2
+DEVICE:eth1
+TYPE:ethernet
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/3
+CONNECTION:home
+CON-UUID:5ddfc6bd-e760-4bbc-beba-94836431f202
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/5
+DEVICE:wg
+TYPE:wireguard
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/5
+CONNECTION:wg
+CON-UUID:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/3
+DEVICE:wan0
+TYPE:ethernet
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/2
+CONNECTION:isp
+CON-UUID:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/6
+DEVICE:tap0
+TYPE:tun
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/6
+CONNECTION:tap0
+CON-UUID:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/1
+DEVICE:vlan10
+TYPE:vlan
+STATE:connected
+IP4-CONNECTIVITY:limited
+IP6-CONNECTIVITY:limited
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/8
+CONNECTION:vlan10
+CON-UUID:f83f40c0-e339-4a91-8fa2-283409fb8d01
+CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/7
+DEVICE:lo
+TYPE:loopback
+STATE:unmanaged
+IP4-CONNECTIVITY:unknown
+IP6-CONNECTIVITY:unknown
+DBUS-PATH:/org/freedesktop/NetworkManager/Devices/1
+CONNECTION:
+CON-UUID:
+CON-PATH:
+
+-DEV-ITEMS
+GENERAL.DEVICE:eth0
+GENERAL.TYPE:ethernet
+GENERAL.NM-TYPE:NMDeviceEthernet
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/4
+GENERAL.VENDOR:Intel Corporation
+GENERAL.PRODUCT:I350 Gigabit Network Connection (Ethernet Server Adapter I350-T2)
+GENERAL.DRIVER:igb
+GENERAL.DRIVER-VERSION:5.13.16-200.fc34.x86_64
+GENERAL.FIRMWARE-VERSION:0.93, 0x800005fd
+GENERAL.HWADDR:EE:DF:B9:71:AC:D8
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:4 (full)
+GENERAL.IP6-CONNECTIVITY:4 (full)
+GENERAL.UDI:/sys/devices/pci0000:00/0000:00:1c.0/0000:02:00.1/net/eth0
+GENERAL.PATH:pci-0000:02:00.1
+GENERAL.IP-IFACE:eth0
+GENERAL.IS-SOFTWARE:no
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:office
+GENERAL.CON-UUID:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/4
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:1000 Mb/s
+CAPABILITIES.IS-SOFTWARE:no
+CAPABILITIES.SRIOV:yes
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+WIRED-PROPERTIES.CARRIER:on
+IP4.ADDRESS[1]:192.168.66.4/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 0.0.0.0/0, nh = 192.168.66.1, mt = 100, table=201
+IP4.ROUTE[2]:dst = 192.168.66.0/24, nh = 0.0.0.0, mt = 100, table=201
+IP4.ROUTE[3]:dst = 192.168.100.0/24, nh = 0.0.0.0, mt = 100, table=201
+DHCP4.OPTION[1]:broadcast_address = 255.255.255.255
+DHCP4.OPTION[2]:dad_wait_time = 0
+DHCP4.OPTION[3]:dhcp_lease_time = 345600
+DHCP4.OPTION[4]:dhcp_message_type = 5
+DHCP4.OPTION[5]:dhcp_server_identifier = 192.168.66.1
+DHCP4.OPTION[6]:domain_name = office.lan.
+DHCP4.OPTION[7]:domain_name_servers = 8.8.8.8 8.8.4.4
+DHCP4.OPTION[8]:expiry = 1633929754
+DHCP4.OPTION[9]:ip_address = 192.168.66.4
+DHCP4.OPTION[10]:network_number = 192.168.66.0
+DHCP4.OPTION[11]:next_server = 0.0.0.0
+DHCP4.OPTION[12]:requested_broadcast_address = 1
+DHCP4.OPTION[13]:requested_classless_static_routes = 1
+DHCP4.OPTION[14]:requested_domain_name = 1
+DHCP4.OPTION[15]:requested_domain_name_servers = 1
+DHCP4.OPTION[16]:requested_domain_search = 1
+DHCP4.OPTION[17]:requested_host_name = 1
+DHCP4.OPTION[18]:requested_interface_mtu = 1
+DHCP4.OPTION[19]:requested_ms_classless_static_routes = 1
+DHCP4.OPTION[20]:requested_nis_domain = 1
+DHCP4.OPTION[21]:requested_nis_servers = 1
+DHCP4.OPTION[22]:requested_ntp_servers = 1
+DHCP4.OPTION[23]:requested_rfc3442_classless_static_routes = 1
+DHCP4.OPTION[24]:requested_root_path = 1
+DHCP4.OPTION[25]:requested_routers = 1
+DHCP4.OPTION[26]:requested_static_routes = 1
+DHCP4.OPTION[27]:requested_subnet_mask = 1
+DHCP4.OPTION[28]:requested_time_offset = 1
+DHCP4.OPTION[29]:requested_wpad = 1
+DHCP4.OPTION[30]:routers = 192.168.66.1
+DHCP4.OPTION[31]:subnet_mask = 255.255.254.0
+IP6.ADDRESS[1]:2001:db8:871a:28c1::1/64
+IP6.ADDRESS[2]:2001:db8:4860:4860::8888/64
+IP6.ADDRESS[3]:fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64
+IP6.ADDRESS[4]:fe80::a00:27ff:fe1b:ff9a/64
+IP6.GATEWAY:fe80::201:5cff:e5d1:d155
+IP6.ROUTE[1]:dst = ::/0, nh = fe80::201:5cff:e5d1:d155, mt = 100
+IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/64, nh = ::, mt = 100
+IP6.ROUTE[3]:dst = 2001:db8:4860:4860::8888/64, nh = ::, mt = 100
+IP6.ROUTE[4]:dst = fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64, nh = ::, mt = 100
+IP6.ROUTE[5]:dst = fe80::/64, nh = ::, mt = 100
+DHCP6.OPTION[1]:dad_wait_time = 0
+DHCP6.OPTION[2]:dhcp6_client_id = 0:1:0:1:1e:b:5:36:ee:df:b9:71:ac:d8
+DHCP6.OPTION[3]:dhcp6_name_servers = 2001:db8:feed::1 2001:db8:feed::2
+DHCP6.OPTION[4]:dhcp6_server_id = 0:1:0:1:1d:89:a6:f3:9a:6e:f8:93:8b:f3
+DHCP6.OPTION[5]:iaid = 9f:17:f3:aa
+DHCP6.OPTION[6]:ip6_address = 2001:db8:871a:28c1::1
+DHCP6.OPTION[7]:ip6_prefixlen = 128
+DHCP6.OPTION[8]:life_starts = 1633764793
+DHCP6.OPTION[9]:max_life = 345600
+DHCP6.OPTION[10]:preferred_life = 345600
+DHCP6.OPTION[11]:rebind = 276480
+DHCP6.OPTION[12]:renew = 172800
+DHCP6.OPTION[13]:requested_dhcp6_client_id = 1
+DHCP6.OPTION[14]:requested_dhcp6_domain_search = 1
+DHCP6.OPTION[15]:requested_dhcp6_name_servers = 1
+DHCP6.OPTION[16]:starts = 1633764793
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/4
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:fd8bc2bb-9f55-47d6-a394-174f4ee4fe69 | office
+
+GENERAL.DEVICE:br0
+GENERAL.TYPE:bridge
+GENERAL.NM-TYPE:NMDeviceBridge
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/7
+GENERAL.VENDOR:
+GENERAL.PRODUCT:
+GENERAL.DRIVER:bridge
+GENERAL.DRIVER-VERSION:2.3
+GENERAL.FIRMWARE-VERSION:N/A
+GENERAL.HWADDR:D2:44:70:F3:17:6D
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/virtual/net/br0
+GENERAL.PATH:
+GENERAL.IP-IFACE:br0
+GENERAL.IS-SOFTWARE:yes
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:br0
+GENERAL.CON-UUID:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/2
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:unknown
+CAPABILITIES.IS-SOFTWARE:yes
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+IP4.ADDRESS[1]:192.168.88.1/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 192.168.88.0/24, nh = 0.0.0.0, mt = 425
+IP4.ROUTE[2]:dst = 224.0.0.0/4, nh = 0.0.0.0, mt = 425
+IP4.DNS[1]:127.0.0.1
+IP6.ADDRESS[1]:fdc0:4455:b240::1/64
+IP6.ADDRESS[2]:fe80::32fb:93c5:6555:845a/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fdc0:4455:b240::/64, nh = ::, mt = 425
+IP6.ROUTE[2]:dst = fe80::/64, nh = ::, mt = 425
+BRIDGE.SLAVES:tap0 vlan10
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/5
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d | br0
+
+GENERAL.DEVICE:eth1
+GENERAL.TYPE:ethernet
+GENERAL.NM-TYPE:NMDeviceEthernet
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/3
+GENERAL.VENDOR:Intel Corporation
+GENERAL.PRODUCT:82579LM Gigabit Network Connection (Lewisville)
+GENERAL.DRIVER:e1000e
+GENERAL.DRIVER-VERSION:5.13.16-200.fc34.x86_64
+GENERAL.FIRMWARE-VERSION:0.13-4
+GENERAL.HWADDR:CA:13:A7:A9:A5:FB
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/pci0000:00/0000:00:19.0/net/eth1
+GENERAL.PATH:pci-0000:00:19.0
+GENERAL.IP-IFACE:eth1
+GENERAL.IS-SOFTWARE:no
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:home
+GENERAL.CON-UUID:5ddfc6bd-e760-4bbc-beba-94836431f202
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/5
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:1000 Mb/s
+CAPABILITIES.IS-SOFTWARE:no
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+WIRED-PROPERTIES.CARRIER:on
+IP4.ADDRESS[1]:10.0.10.12/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 10.0.10.0/24, nh = 0.0.0.0, mt = 101, table=200
+IP4.ROUTE[2]:dst = 0.0.0.0/0, nh = 10.0.10.1, mt = 101, table=200
+IP6.ADDRESS[1]:2001:db8:a0b:12f0::1/64
+IP6.ADDRESS[2]:fdac:3741:50f8:f623::1/48
+IP6.ADDRESS[3]:fe80::31fd:68fd:ed8b:4d77/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fe80::/64, nh = ::, mt = 256
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/2
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:5ddfc6bd-e760-4bbc-beba-94836431f202 | home
+
+GENERAL.DEVICE:wg
+GENERAL.TYPE:wireguard
+GENERAL.NM-TYPE:NMDeviceWireGuard
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/5
+GENERAL.VENDOR:
+GENERAL.PRODUCT:
+GENERAL.DRIVER:wireguard
+GENERAL.DRIVER-VERSION:
+GENERAL.FIRMWARE-VERSION:
+GENERAL.HWADDR:
+GENERAL.MTU:1360
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/virtual/net/wg
+GENERAL.PATH:
+GENERAL.IP-IFACE:wg
+GENERAL.IS-SOFTWARE:yes
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:wg
+GENERAL.CON-UUID:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/3
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:no
+CAPABILITIES.SPEED:unknown
+CAPABILITIES.IS-SOFTWARE:yes
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+IP4.ADDRESS[1]:10.10.0.1/24
+IP4.GATEWAY:
+IP4.ROUTE[1]:dst = 10.10.0.0/24, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[2]:dst = 10.10.0.2/32, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[3]:dst = 10.10.0.3/32, nh = 0.0.0.0, mt = 50
+IP4.ROUTE[4]:dst = 10.10.0.4/32, nh = 0.0.0.0, mt = 50
+IP6.ADDRESS[1]:fdc0:4455:b240:1010::1/64
+IP6.ADDRESS[2]:fe80::c6c4:6032:fe35:0401/64
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = fdc0:4455:b240:1010::/64, nh = ::, mt = 50
+IP6.ROUTE[2]:dst = fe80::/64, nh = ::, mt = 50
+IP6.ROUTE[3]:dst = fdc0:4455:b240:1010::2/128, nh = ::, mt = 50
+IP6.ROUTE[4]:dst = fdc0:4455:b240:1010::3/128, nh = ::, mt = 50
+IP6.ROUTE[5]:dst = fdc0:4455:b240:1010::4/128, nh = ::, mt = 50
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/3
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:3cb47cf3-e56a-41c5-8808-7bc1c3889c4c | wg
+
+GENERAL.DEVICE:wan0
+GENERAL.TYPE:ethernet
+GENERAL.NM-TYPE:NMDeviceEthernet
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/2
+GENERAL.VENDOR:Intel Corporation
+GENERAL.PRODUCT:I350 Gigabit Network Connection (Ethernet Server Adapter I350-T2)
+GENERAL.DRIVER:igb
+GENERAL.DRIVER-VERSION:5.13.16-200.fc34.x86_64
+GENERAL.FIRMWARE-VERSION:0.93, 0x800005fd
+GENERAL.HWADDR:EE:DF:B9:71:AC:D9
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/pci0000:00/0000:00:1c.0/0000:02:00.0/net/wan0
+GENERAL.PATH:pci-0000:02:00.0
+GENERAL.IP-IFACE:wan0
+GENERAL.IS-SOFTWARE:no
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:isp
+GENERAL.CON-UUID:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/6
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:1000 Mb/s
+CAPABILITIES.IS-SOFTWARE:no
+CAPABILITIES.SRIOV:yes
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+WIRED-PROPERTIES.CARRIER:on
+IP4.GATEWAY:
+IP6.GATEWAY:
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/6
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:9613d84e-2555-4e7f-a6c2-2a7da5f4d07b | isp
+
+GENERAL.DEVICE:tap0
+GENERAL.TYPE:tun
+GENERAL.NM-TYPE:NMDeviceTun
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/6
+GENERAL.VENDOR:
+GENERAL.PRODUCT:
+GENERAL.DRIVER:tun
+GENERAL.DRIVER-VERSION:1.6
+GENERAL.FIRMWARE-VERSION:
+GENERAL.HWADDR:0A:37:56:A9:72:ED
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/virtual/net/tap0
+GENERAL.PATH:
+GENERAL.IP-IFACE:tap0
+GENERAL.IS-SOFTWARE:yes
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:tap0
+GENERAL.CON-UUID:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/1
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:no
+CAPABILITIES.SPEED:unknown
+CAPABILITIES.IS-SOFTWARE:yes
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+IP4.GATEWAY:
+IP6.GATEWAY:
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/7
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:ee9a84bc-b143-43cc-a0eb-6d2bbab744d6 | tap0
+
+GENERAL.DEVICE:vlan10
+GENERAL.TYPE:vlan
+GENERAL.NM-TYPE:NMDeviceVlan
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/8
+GENERAL.VENDOR:
+GENERAL.PRODUCT:
+GENERAL.DRIVER:vlan
+GENERAL.DRIVER-VERSION:1.8
+GENERAL.FIRMWARE-VERSION:N/A
+GENERAL.HWADDR:D2:44:70:F3:17:6D
+GENERAL.MTU:1500
+GENERAL.STATE:100 (connected)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:3 (limited)
+GENERAL.IP6-CONNECTIVITY:3 (limited)
+GENERAL.UDI:/sys/devices/virtual/net/vlan10
+GENERAL.PATH:
+GENERAL.IP-IFACE:vlan10
+GENERAL.IS-SOFTWARE:yes
+GENERAL.NM-MANAGED:yes
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:vlan10
+GENERAL.CON-UUID:f83f40c0-e339-4a91-8fa2-283409fb8d01
+GENERAL.CON-PATH:/org/freedesktop/NetworkManager/ActiveConnection/7
+GENERAL.METERED:no (guessed)
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:unknown
+CAPABILITIES.IS-SOFTWARE:yes
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+IP4.GATEWAY:
+VLAN.PARENT:br0
+VLAN.ID:12
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:/org/freedesktop/NetworkManager/Settings/1
+CONNECTIONS.AVAILABLE-CONNECTIONS[1]:f83f40c0-e339-4a91-8fa2-283409fb8d01 | vlan10
+
+GENERAL.DEVICE:lo
+GENERAL.TYPE:loopback
+GENERAL.NM-TYPE:NMDeviceGeneric
+GENERAL.DBUS-PATH:/org/freedesktop/NetworkManager/Devices/1
+GENERAL.VENDOR:
+GENERAL.PRODUCT:
+GENERAL.DRIVER:unknown
+GENERAL.DRIVER-VERSION:
+GENERAL.FIRMWARE-VERSION:
+GENERAL.HWADDR:00:00:00:00:00:00
+GENERAL.MTU:65536
+GENERAL.STATE:10 (unmanaged)
+GENERAL.REASON:0 (No reason given)
+GENERAL.IP4-CONNECTIVITY:0 (unknown)
+GENERAL.IP6-CONNECTIVITY:0 (unknown)
+GENERAL.UDI:/sys/devices/virtual/net/lo
+GENERAL.PATH:
+GENERAL.IP-IFACE:lo
+GENERAL.IS-SOFTWARE:yes
+GENERAL.NM-MANAGED:no
+GENERAL.AUTOCONNECT:yes
+GENERAL.FIRMWARE-MISSING:no
+GENERAL.NM-PLUGIN-MISSING:no
+GENERAL.PHYS-PORT-ID:
+GENERAL.CONNECTION:
+GENERAL.CON-UUID:
+GENERAL.CON-PATH:
+GENERAL.METERED:unknown
+CAPABILITIES.CARRIER-DETECT:yes
+CAPABILITIES.SPEED:unknown
+CAPABILITIES.IS-SOFTWARE:yes
+CAPABILITIES.SRIOV:no
+INTERFACE-FLAGS.UP:yes
+INTERFACE-FLAGS.LOWER-UP:yes
+INTERFACE-FLAGS.CARRIER:yes
+IP4.ADDRESS[1]:127.0.0.1/8
+IP4.GATEWAY:
+IP6.ADDRESS[1]:::1/128
+IP6.GATEWAY:
+IP6.ROUTE[1]:dst = ::1/128, nh = ::, mt = 256
+CONNECTIONS.AVAILABLE-CONNECTION-PATHS:
+
+-GEN-STATUS
+RUNNING:running
+VERSION:1.30.6
+STATE:connected
+STARTUP:started
+CONNECTIVITY:full
+NETWORKING:enabled
+WIFI-HW:enabled
+WIFI:disabled
+WWAN-HW:enabled
+WWAN:disabled

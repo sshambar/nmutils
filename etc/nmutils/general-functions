@@ -1514,7 +1514,7 @@ nmg_radvd_trigger() {
   if [[ ${NMG_RADVD_TRIGGER-} ]] && nmg_need_progs "${NMG_RADVD_TRIGGER}"; then
     local IFS; unset IFS
     # shellcheck disable=SC2086
-    nmg_cmd "${NMG_RADVD_TRIGGER}" ${NMG_RADVD_TRIGGER_ARGS}
+    nmg_cmd "${NMG_RADVD_TRIGGER}" ${NMG_RADVD_TRIGGER_ARGS-}
     return
   fi
 

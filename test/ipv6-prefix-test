@@ -1,0 +1,262 @@
+#!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
+#
+# Test suite for 08-ipv6-prefix
+#   - this is a companion to dhscript-prefix-test
+
+# load common.conf
+TEST_COMMON=${TEST_COMMON:-conf/common.conf}
+# shellcheck source=/dev/null
+{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
+  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
+
+# shellcheck source=/dev/null
+{ [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
+  { echo >&2 "Unable to load xtest_setup"; exit 2; }
+
+[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
+
+_CONF_FILE="$NMCONF/ipv6-prefix-wan0.conf"
+
+# NMCONF/ipv6-prefix-wan0.conf must exist
+[ -r "${_CONF_FILE}" ] ||
+  xtest::fail "Please create ${_CONF_FILE}"
+
+_TEST_SCRIPT="${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix"
+
+# load all functions
+[ -r "${_TEST_SCRIPT}" ] ||
+  xtest::fail "${_TEST_SCRIPT} not found!"
+
+# ensure includes pass parse test
+shtest::parse "${_TEST_SCRIPT}" || shtest::fatal
+
+# less noise
+export NMG_TAG=''
+
+# these tests require MOCK_ECHO=1 to check command actions
+export MOCK_ECHO=1
+
+# need output directory
+[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
+XLOG="$TEST_OUT/prefix.log" XERR="$TEST_OUT/prefix.err"
+
+xwrap() {
+  local cmd=${1-}
+  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
+  shift
+  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xrm() {
+  [[ ${1-} ]] || return 0
+  command -p rm -f "$@"
+}
+
+xwrap_cleanup() {
+  local rc=$?
+  [[ -e ${XERR} ]] && { command -p cat "${XERR}"; xrm "${XERR}"; }
+  [[ -e ${XLOG} ]] && { command -p cat "${XLOG}"; xrm "${XLOG}"; }
+  exit ${rc}
+}
+
+read_value() { # <var> (<stdin)
+  local IFS; unset IFS
+  read -r -d '' "$1" || :
+}
+
+xtest::group3::wan() {
+
+  local IP4_NUM_ADDRESSES=0 IP4_ADDRESS_0=''
+  local -x DUMMY_MOCK_OUTPUT="dhclient @ARGS@"
+
+  shtest::title "WAN Dispatcher Tests (wan group)"
+
+  local interface=wan0
+
+  shtest::prefix "ipv6_wan_start"
+
+  xwrap ipv6_wan_start
+  xtest W1 t "(<no ip>) - returns true"
+  if shtest::last_check_ok; then
+    wait $!
+    xtest W1w t " - background echo completes"
+  fi
+  ftest W1f "No ip4 addresses available"$'\n'"dhclient stop" \
+        " - echos stop (config requires ip)"
+
+  IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=192.168.55.1/24
+  xwrap ipv6_wan_start
+  xtest W2 t "(<priv ip>) - returns true"
+  shtest::last_check_ok && wait $!
+  ftest W2f "No public ip4 addresses available"$'\n'"dhclient stop" \
+        " - echos stop (config requires public)"
+
+  IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=203.0.113.5/24
+  xwrap ipv6_wan_start
+  xtest W3 t "(<ip>) - returns true"
+  shtest::last_check_ok && wait $!
+  ftest W3f "dhclient start" " - echos start"
+
+  shtest::prefix "ipv6_wan_stop"
+
+  xwrap ipv6_wan_stop
+  xtest W11 t "() - returns true"
+  shtest::last_check_ok && wait $!
+  ftest W11f "dhclient stop" " - echos stop"
+
+  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+  : "${IP4_NUM_ADDRESSES-} ${IP4_ADDRESS_0-} ${DUMMY_MOCK_OUTPUT-}"
+}
+
+xtest::group3::lan() {
+  local out state1 state2 state3 state4 CUR_TIME=''
+  local -x DUMMY_MOCK_OUTPUT="radvd triggered"
+
+  shtest::title "LAN Dispatcher Tests (lan group)"
+
+  local interface=br1
+  local LAN_STATE_PAT="${LAN_STATE_PAT}-prefix"
+
+  state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-aa:1-wan1}
+  state2=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-bb:1-wan1}
+  state3=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-cc:2-wan2}
+  state4=${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan1-AAAA}
+  xrm "$state1" "$state2" "$state3" "$state4"
+
+  local FORWARDING_PAT=${XFILE}
+  xrm "$XFILE"
+  echo 1 > "$XFILE"
+
+  shtest::prefix "ipv6_lan_start"
+
+  echo "inet6:2001:db8:100:2:32fb:93c5:555:1/64" > "$state1"
+  xwrap ipv6_lan_start
+  xtest L1 t "() - returns true"
+  read_value out <<-EOF
+	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
+	${NMG_IP} => ip -6 addr replace 2001:db8:100:2:32fb:93c5:555:1/64 dev br1
+	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete wan1.example.test AAAA
+	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	send
+	${NMG_RADVD_TRIGGER} => radvd triggered
+	EOF
+  ftest L1f "$out" " - adds addr/dns"
+  shtest::check_file L1d "$state4" "2001:db8:100:2:32fb:93c5:555:1" \
+                     " - DDNS state file created"
+
+  echo "inet6:2001:db8:200:2:32fb:93c5:555:1/64" > "$state2"
+  echo "inet6:2001:db8:600::1/64"$'\n'"valid-life:240"$'\n'"pref-life:120"$'\n'"life-start:3000" > "$state3"
+  # deprecate one address
+  CUR_TIME=3200
+  xwrap ipv6_lan_start
+  xtest L2 t "() - returns true"
+  read_value out <<-EOF
+	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
+	${NMG_IP} => ip -6 addr replace 2001:db8:100:2:32fb:93c5:555:1/64 dev br1
+	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
+	${NMG_IP} => ip -6 addr replace 2001:db8:200:2:32fb:93c5:555:1/64 dev br1
+	Adding 2001:db8:600::1/64 to br1
+	${NMG_IP} => ip -6 addr add 2001:db8:600::1/64 dev br1 valid_lft 40 preferred_lft 0
+	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1,2001:db8:200:2:32fb:93c5:555:1
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete wan1.example.test AAAA
+	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	update add wan1.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
+	send
+	${NMG_RADVD_TRIGGER} => radvd triggered
+	EOF
+  ftest L2f "$out" " - adds addresses, dns"
+
+  shtest::prefix "ipv6_lan_stop"
+
+  xwrap ipv6_lan_stop
+  xtest L11 t "() - returns true"
+  ftest L11f "${NMG_RADVD_TRIGGER} => radvd triggered" " - triggers radvd"
+
+  [[ -e "$state1" ]]
+  xtest L11i t " - aa:1 state file remains"
+  [[ -e "$state2" ]]
+  xtest L11j t " - bb:1 state file remains"
+  [[ -e "$state3" ]]
+  xtest L11k t " - cc:2 state file remains"
+  [[ -e "$state4" ]]
+  xtest L11d f " - DDNS state file removed"
+
+  xrm "$state1" "$state2" "$state3" "$state4"
+  nmddns_cleanup
+  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+
+  : "${DUMMY_MOCK_OUTPUT-} ${FORWARDING_PAT-} ${interface-} ${CUR_TIME-}"
+}
+
+load_script() {
+
+  shtest::title "Loading script"
+
+  # shellcheck source=/dev/null
+  (xwrap . "${_TEST_SCRIPT}" dummy general; echo >>"$XLOG" "loaded $?")
+  ftest load "loaded 0" " - script loads without error"
+  shtest::last_check_ok || xtest::fail "Loading '${_TEST_SCRIPT}' failed"
+
+  # load script in current subshell
+  # shellcheck source=/dev/null
+  xwrap . "${_TEST_SCRIPT}" dummy general
+
+  # reset PATH
+  # shellcheck disable=SC2123
+  PATH=''
+}
+
+main() {
+  local XFILE="$TEST_OUT/prefix file" IFS=-
+  local TEST_RADVD_TRIGGER="$TEST_BIN/dummy-mock"
+  local TEST_DHSCRIPT="$TEST_BIN/dummy-mock"
+
+  # disable helper so we get nsupdate results
+  local TEST_DDNS_HELPER=''
+
+  # restrict use of external commands (except those defined in config)
+  # shellcheck disable=SC2123
+  local PATH=''
+
+  # reset (in subshell)
+  shtest::reset
+
+  # fd 4 used for logger
+  export nmg_log_stderr=4
+  exec 4>&2
+
+  shtest::reg_file "$XLOG"
+  shtest::reg_file "$XERR"
+
+  load_script
+
+  xtest::run_tests "08-ipv6-prefix Test Summary" "$@"
+
+  [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
+
+  # cleanup
+  xrm "$XFILE" "$XLOG" "$XERR"
+  exec 4>&-
+
+  : "${TEST_DDNS_HELPER-} ${TEST_RADVD_TRIGGER-} ${TEST_DHSCRIPT-}"
+  return 0
+}
+
+(main "$@")
+# shellcheck disable=SC2181
+[[ $? -ne 0 ]] && xwrap_cleanup
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
