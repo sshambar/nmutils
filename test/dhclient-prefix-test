@@ -3,6 +3,8 @@
 #
 # Test suite for dhclient-ipv6-prefix
 #   - this is a companion to ipv6-prefix-test
+#
+# shellcheck disable=SC2034
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
@@ -109,7 +111,6 @@ xtest::group1::life() {
   xtest S6 1 "(<failed-time>) returns 1"
   CUR_TIME=''
 
-  : "$var"
   return 0
 }
 
@@ -326,7 +327,6 @@ xtest::group1::prefix() {
         " - logs info"
 
   unset LAN_NODE LAN_PREFIX_LEN LAN_SITE
-  : "${LAN_CONFIG_PAT-} ${Lans-} ${aref-} ${Reserved-} ${Assigned-}"
 }
 
 xtest::group2::addr() {
@@ -396,7 +396,6 @@ xtest::group2::addr() {
   shtest::check_value A21c "LAN_NODE" "auto" " - uses defaults"
 
   unset LAN_SITE LAN_PREFIX_LEN LAN_NODE
-  : "${Forwarding-}"
 }
 
 xtest::group3::lan() {
@@ -407,7 +406,7 @@ xtest::group3::lan() {
   local old_ip6_prefix='' old_iaid='' cur_ip6_prefix='' cur_iaid=''
   local cur_max_life='' cur_life_starts=''
 
-  shtest::title "Lan Prefix Assignment Tests (lan group)"
+  shtest::title "LAN Prefix Assignment Tests (lan group)"
 
   shtest::prefix "ipv6_start"
 
@@ -666,10 +665,6 @@ xtest::group3::lan() {
   unset LAN_SITE LAN_PREFIX_LEN LAN_NODE
   nmddns_cleanup
 
-  : "${new_ip6_prefix-} ${new_iaid-}"
-  : "${new_max_life-} ${new_life_starts-} ${new_preferred_life-}"
-  : "${old_ip6_prefix-} ${old_iaid-} ${cur_ip6_prefix-} ${cur_iaid-}"
-  : "${cur_max_life-} ${cur_life_starts-}"
   return 0
 }
 
@@ -729,7 +724,6 @@ main() {
   xrm "$XFILE" "$XLOG" "$XERR"
   exec 4>&-
 
-  : "${TEST_DDNS_HELPER-} ${TEST_RADVD_TRIGGER-}"
   return 0
 }
 

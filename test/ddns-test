@@ -3,6 +3,7 @@
 #
 # Test suite for ddns-functions
 #
+# shellcheck disable=SC2034
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
@@ -396,13 +397,6 @@ xtest::group4::ddns() {
   ftest D41f "${out}" " - removes current entry"
 
   nmddns_cleanup
-
-  # for SC
-  : "${DDNS_RREC_A_NAME-} ${DDNS_RREC_A_FALLBACK-} ${DDNS_RREC_A_PRIVATE-}"
-  : "${DDNS_RREC_A_VALUE-} ${DDNS_NSUPDATE_TIMEOUT-} ${NMDDNS_HELPER-}"
-  : "${DDNS_ZONE-} ${DDNS_RREC_MX_NAME-} ${DDNS_RREC_MX_FALLBACK-}"
-  : "${DDNS_RREC_AAAA_NAME-} ${DDNS_TTL-} ${DDNS_RREC_MX_VALUE-}"
-  : "${DDNS_RREC_TXT_NAME-} ${DDNS_RREC_TXT_LISTSEP-}"
 }
 
 xtest::group5::helper() {

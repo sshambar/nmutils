@@ -3,6 +3,8 @@
 #
 # Test suite for 08-ipv6-prefix
 #   - this is a companion to dhscript-prefix-test
+#
+# shellcheck disable=SC2034
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
@@ -106,7 +108,6 @@ xtest::group3::wan() {
   ftest W11f "dhclient stop" " - echos stop"
 
   unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
-  : "${IP4_NUM_ADDRESSES-} ${IP4_ADDRESS_0-} ${DUMMY_MOCK_OUTPUT-}"
 }
 
 xtest::group3::lan() {
@@ -192,8 +193,6 @@ xtest::group3::lan() {
   xrm "$state1" "$state2" "$state3" "$state4"
   nmddns_cleanup
   unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
-
-  : "${DUMMY_MOCK_OUTPUT-} ${FORWARDING_PAT-} ${interface-} ${CUR_TIME-}"
 }
 
 load_script() {
@@ -246,7 +245,6 @@ main() {
   xrm "$XFILE" "$XLOG" "$XERR"
   exec 4>&-
 
-  : "${TEST_DDNS_HELPER-} ${TEST_RADVD_TRIGGER-} ${TEST_DHSCRIPT-}"
   return 0
 }
 

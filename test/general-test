@@ -3,6 +3,7 @@
 #
 # Test suite for general-functions
 #
+# shellcheck disable=SC2034
 
 # load common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
@@ -154,8 +155,6 @@ xtest::group1::log() {
   nmg_log >"${XERR}" 2>&- err "stderr closed"
   xtest L12 t "(err <stderr closed>) returns true"
   ftest L12f "" " - should not generate output"
-
-  : "${NMG_LOGGER-}" # for SC
 }
 
 xtest::group2::err() {
@@ -229,8 +228,6 @@ xtest::group2::err() {
   xwrap nmg::_err "test::func: err msg"; echo >"${XLOG}" "_=${_nmgvar-unset}"
   xtest E10 t "(nolog retvar) returns true"
   ftest E10f "_=err msg" " - does not log, sets _nmgvar"
-
-  : "${_nmglog-}" # for SC
 }
 
 xtest::group3::prop() {
@@ -423,8 +420,6 @@ xtest::group3::cmd() {
   xwrap nmg_daemon "$XNOFILE"
   xtest X43 2 "('not-there') returns 2"
   ftest X43f "ERR: nmg_daemon: command '$XNOFILE' not found" " - logs error"
-
-  : "${nmg_dryrun-} ${nmg_show_debug-} ${NMG_DAEMON_CGROUP-}" # for SC
 }
 
 xtest::group3::ip() {
@@ -594,8 +589,6 @@ xtest::group3::ip() {
   xwrap nmg::wait_dad6 eth1 "2001:db8:a0b:12f0::1/64"
   xtest I38 t "(eth1 2001:db8:a0b:12f0::1/64) returns true"
   ftest I38f "" " - does not log"
-
-  : "${aref-} ${avar-} ${anull-} ${nmg_show_debug-}" # for SC
 }
 
 xtest::group3::ip4() {
@@ -1099,8 +1092,6 @@ xtest::group3::file() {
   ftest F53f "ERR: nmg::realpath: failed to locate ${XNOFILE}/a\' test" " - logs error"
 
   xrm "$TEST_OUT/"*".match"
-
-  : "${nmg_dryrun-}" # for SC
 }
 
 xtest::group3::misc() {
@@ -1485,8 +1476,6 @@ xtest::group4::config() {
   vtest C23 2 "(<bad file>) exits 2"
   ftest C23f "ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3: syntax error: unexpected end of file" \
         " - logs error"
-
-  : "${var-}" # for SC
 }
 
 main() {
