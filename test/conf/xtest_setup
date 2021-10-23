@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.1.0 - shtest suite in a box
+# xtest_setup v1.1.1 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -72,7 +72,7 @@
 #   ftest => xtest::reg_test
 #   ftest2 => xtest::reg_test2
 #
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC1091,SC2034
 
 _XTEST_ENV_TESTS=1
 
@@ -85,7 +85,6 @@ xtest::fail() {
   exit 1
 }
 
-# shellcheck source=/dev/null
 . "${BASH_SOURCE[0]%/*}/shtest_setup" ||
   xtest::fail "Unable to source shtest_setup"
 
@@ -165,44 +164,29 @@ xtest::_parse_args() { # <args>...
   return 0
 }
 
-xtest::_run_tests() { # <args>...
-  local _cmd _all _reqs=() _func_env
-
-  xtest::_parse_args "$@"
-
-  for _cmd in "${_reqs[@]:-${_all[@]}}"; do
-    [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _func_env
-    "${_cmd}"
-    shtest::prefix
-    [[ ${_XTEST_ENV_TESTS} ]] && {
-      shtest::check_env "env-${_cmd##*:}" _func_env "check config environment"
-    }
-  done
-
-  : "${_func_env-}" # for SC
-}
-
 xtest::no_env_tests() {
   _XTEST_ENV_TESTS=''
 }
 
 xtest::run_tests() { # <title> <args>...
-  local _xtest_env _xtest_title=${1-}
+  local _xtest_title=${1-} _xtest_env _cmd _all _reqs=()
   shift || set --
 
-  [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _xtest_env
+  xtest::_parse_args "$@"
 
-  xtest::_run_tests "$@"
+  for _cmd in "${_reqs[@]:-${_all[@]}}"; do
+    [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _xtest_env
+    "${_cmd}"
+    shtest::prefix
+    [[ ${_XTEST_ENV_TESTS} ]] && {
+      shtest::check_env "env-${_cmd##*:}" _xtest_env "check config environment"
+    }
+  done
 
-  [[ ${_XTEST_ENV_TESTS} ]] && {
-    shtest::title "Final tests"
-    shtest::check_env env-all _xtest_env "check environment"
-  }
   shtest::summary_report "${_xtest_title}" ||
     shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
 
   shtest::reset
-  : "${_xtest_env-}" # for SC
 }
 
 # Local Variables:
