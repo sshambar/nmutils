@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.5 - Shell script testing functions
+# shtest v1.2.6 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -223,9 +223,9 @@ shtest::_log() { # <msg>
 shtest::_checkinit() { # [ <backtrace-level>(1) ]
   local lvl=${1:-1}
   [[ ${_SHTEST_STATE[0]+set} == set ]] && {
-    [[ ${_SHTEST_STATE[0]} ]] && return
+    [[ ${_SHTEST_STATE[0]} ]] && return 0
     # lvl == 0 allows _SHTEST_STATE[0]=='' (shtest::fatal etc)
-    [[ ${lvl} == 0 ]] && return
+    [[ ${lvl} == 0 ]] && return 0
   }
   (( lvl > 0 )) || lvl=1
   shtest::fatal "${FUNCNAME[${lvl}]}: You must call shtest::reset after shtest::cleanup" $((lvl+1))
@@ -612,9 +612,9 @@ shtest::_handle_err() {
   set +eu
   local IFS='|'
   [[ ${#_SHTEST_WHITELIST[*]} != 0 &&
-       ${FUNCNAME[1]} =~ ^${_SHTEST_WHITELIST[*]}$ ]] && return
+       ${FUNCNAME[1]} =~ ^${_SHTEST_WHITELIST[*]}$ ]] && return 0
   [[ ${#_SHTEST_GLOBAL_WHITELIST[*]} != 0 &&
-       ${FUNCNAME[1]} =~ ^${_SHTEST_GLOBAL_WHITELIST[*]}$ ]] && return
+       ${FUNCNAME[1]} =~ ^${_SHTEST_GLOBAL_WHITELIST[*]}$ ]] && return 0
   # may be in subshell, so touch file to communicate strict failure
   shtest::_touch "${_SHTEST_STATE[2]}"
   # rest is backtrace if requested
