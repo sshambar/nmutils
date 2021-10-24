@@ -5,7 +5,6 @@
 #
 # shellcheck disable=SC2034,SC1090,SC2123
 
-# load xtest.conf
 NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
 { [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }

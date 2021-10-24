@@ -5,76 +5,12 @@
 #
 # shellcheck disable=SC2034,SC1090,SC2123
 
-# load common.conf
-TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
-  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
-
-{ [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
-  { echo >&2 "Unable to load xtest_setup"; exit 2; }
-
-[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
-
-NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
-
-# ensure includes pass parse test
-shtest::parse "${NMDDNS}" || shtest::fatal
-
-# verify required
-NMG_REQUIRED="99.0.0"
-
-(. "${NMDDNS}" 2>/dev/null &&
-   xtest::fail "FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}" || :) || exit 1
-
-unset NMG_REQUIRED
-NMDDNS_REQUIRED="99.0.0"
-(. "${NMDDNS}" 2>/dev/null &&
-   xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}" || :) || exit 1
+NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
+{ [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
+  { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
 NMDDNS_REQUIRED="1.4.4"
-
-# less noise
-export NMG_TAG=''
-
-. "${NMDDNS}" || exit 1
-
-# don't let general-functions use external commands
-# (except those defined in config)
-PATH=''
-
-# these tests require MOCK_ECHO=1 to check command actions
-export MOCK_ECHO=1
-
-# need rundir
-[[ $RUNDIR && -d $RUNDIR ]] || xtest::fail "\$RUNDIR doesn't exist!"
-# need output directory
-[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
-XLOG="$TEST_OUT/ddns.log" XERR="$TEST_OUT/ddns.err"
-
-xwrap() {
-  local cmd=${1-}
-  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
-  shift
-  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
-}
-
-xrm() {
-  [[ ${1-} ]] || return 0
-  command -p rm -f "$@"
-}
-
-xwrap_cleanup() {
-  local rc=$?
-  [[ -e ${XERR} ]] && { cat "${XERR}"; xrm "${XERR}"; }
-  [[ -e ${XLOG} ]] && { cat "${XLOG}"; xrm "${XLOG}"; }
-  exit ${rc}
-}
-
-read_value() { # <var> (<stdin)
-  local IFS; unset IFS
-  read -r -d '' "$1" || :
-}
 
 xtest::group4::ddns() {
   local out xpat xstate cnf
@@ -90,7 +26,7 @@ xtest::group4::ddns() {
   DDNS_ZONE=example.test DDNS_RREC_A_NAME=www.example.test
   xwrap nmddns_update A
   xtest D1 t "(<remove A>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -103,7 +39,7 @@ xtest::group4::ddns() {
   export DIG_MOCK_FAIL=5
   xwrap nmddns_update A
   xtest D2 25 "(<dig fail 5>) returns 25"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	ERR: FAIL(5) ${NMDDNS_DIG} @127.0.0.1 +short +retry=2 +time=3 +time=1 +retry=2 A www.example.test
 	ERR: Removal of www.example.test A failed
 	EOF
@@ -113,7 +49,7 @@ xtest::group4::ddns() {
   export NSUPDATE_MOCK_FAIL=5
   xwrap nmddns_update A
   xtest D3 5 "(<nsupdate fail 5>) returns 5"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test A
 	ERR: FAIL(5) ${NMDDNS_NSUPDATE} -t 3
 	ERR: DNS update to server 127.0.0.1 failed for www.example.test A
@@ -123,7 +59,7 @@ xtest::group4::ddns() {
 
   xwrap nmddns_update A 192.168.55.1
   xtest D4 t "(A <private>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -136,7 +72,7 @@ xtest::group4::ddns() {
   DDNS_RREC_A_FALLBACK=203.0.113.8
   xwrap nmddns_update A 192.168.55.1/24
   xtest D5 t "(A <private>) FALLBACK returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.8
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -154,7 +90,7 @@ xtest::group4::ddns() {
   xrm "$xstate"
   xwrap nmddns_update A 192.168.55.1/24 "$xpat"
   xtest D6 t "(A <private>) PRIVATE=1 returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting www.example.test A to 192.168.55.1
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -171,7 +107,7 @@ xtest::group4::ddns() {
   xrm "$xstate"
   xwrap nmddns_update A "" "$xstate"
   xtest D7 t "(<bad state-pat>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	ERR: nmddns_update: <state-pat> must include string '@RREC@'
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
@@ -203,7 +139,7 @@ xtest::group4::ddns() {
   DDNS_RREC_A_VALUE="*"
   xwrap nmddns_update A 203.0.113.10
   xtest D11 t "(A) _VALUE=*, returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -216,7 +152,7 @@ xtest::group4::ddns() {
   unset DDNS_RREC_A_VALUE
   xwrap nmddns_update A 203.0.113.10
   xtest D12 t "(A <pub>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.10
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -229,7 +165,7 @@ xtest::group4::ddns() {
 
   xwrap nmddns_update A "203.0.113.10,203.0.113.20"
   xtest D13 t "(A <2 pub>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.10,203.0.113.20
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -249,7 +185,7 @@ xtest::group4::ddns() {
   DDNS_RREC_TXT_LISTSEP=:
   xwrap nmddns_update TXT "\"some value\":\"another value\""
   xtest D15 t "(TXT <2 new vals>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting mail.example.test TXT to "some value":"another value"
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -277,7 +213,7 @@ xtest::group4::ddns() {
   DDNS_TTL=300
   xwrap nmddns_update_all up 203.0.113.8 2001:db8:1000:2000::1/64
   xtest D21 t "(<up multi>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting ipv6.example.test AAAA to 2001:db8:1000:2000::1
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -305,7 +241,7 @@ xtest::group4::ddns() {
   DDNS_NSUPDATE_TIMEOUT=5
   xwrap nmddns_update_all down
   xtest D22 t "(<down multi>) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing ipv6.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate -t 5
 	server 127.0.0.1
@@ -352,7 +288,7 @@ xtest::group4::ddns() {
   [[ -f $xstate ]]
   xtest D33s f " - removes state file"
   xrm "$xstate"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 2
 	server 127.0.0.1
@@ -380,7 +316,7 @@ xtest::group4::ddns() {
 
   xwrap nmddns_spawn_update_all up "$cnf"
   xtest D41 t "(up) returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
   	Removing www.example.test A
 	${NMDDNS_NSUPDATE} => nsupdate -t 2
 	server 127.0.0.1
@@ -420,7 +356,7 @@ xtest::group5::helper() {
   echo "2001:db8:871a:28c1::2/64" > "$state0"
   xwrap "${NMDDNS_HELPER}"
   xtest H3 t "(<no args>) diff non-active ip, returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -433,7 +369,7 @@ xtest::group5::helper() {
   echo "2001:db8:871a:28c1::1/64" > "$state0"
   xwrap "${NMDDNS_HELPER}"
   xtest H4 t "(<no args>) diff active ip, returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Setting www.example.test AAAA to 2001:db8:871a:28c1::1
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -447,7 +383,7 @@ xtest::group5::helper() {
   xrm "$state0" "$state1"
   xwrap "${NMDDNS_HELPER}"
   xtest H5 t "(<no args>) missing 2 states, returns true"
-  read_value out <<-EOF
+  xread_value out <<-EOF
 	Removing www.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate -t 3
 	server 127.0.0.1
@@ -466,33 +402,38 @@ xtest::group5::helper() {
   xrm "$state0" "$state1" "$state2"
 }
 
-main() { # <args>
-  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/ddns file" IFS=-
+test_version() {
+  local NMG_REQUIRED="99.0.0" nmg_log_stderr=1
 
-  # reset (in subshell)
-  shtest::reset
+  shtest::title "Check version requirements"
 
-  # fd 4 used for logger
-  export nmg_log_stderr=4
-  exec 4>&2
+  (. "${NMDDNS}" 2>/dev/null) &&
+    xtest::fail "  FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
 
-  shtest::reg_file "$XLOG"
-  shtest::reg_file "$XERR"
+  unset NMG_REQUIRED
+  local NMDDNS_REQUIRED="99.0.0"
+
+  (. "${NMDDNS}" 2>/dev/null) &&
+    xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
+
+  shtest::log "  Version enforcement working"
+}
+
+xmain() { # <args>
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/ddns file"
+  local NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
+
+  xload_script "${NMDDNS}"
+
+  test_version
 
   xtest::run_tests "ddns-functions Test Summary" "$@"
 
-  [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
-
   # cleanup
-  xrm "$XFILE" "$XLOG" "$XERR"
-  exec 4>&-
-
-  return 0
+  xrm "$XFILE"
 }
 
-(main "$@")
-# shellcheck disable=SC2181
-[[ $? -ne 0 ]] && xwrap_cleanup
+xstart "$@"
 
 # Local Variables:
 # mode: sh

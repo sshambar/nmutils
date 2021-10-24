@@ -43,7 +43,11 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 
 # need output directory
 [[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
-XLOG="$TEST_OUT/nm-ddns.log" XERR="$TEST_OUT/nm-ddns.err"
+[[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
+
+NMG_XTEST_BASE=${0##*/}
+XLOG="$TEST_OUT/${NMG_XTEST_BASE}.log" XERR="$TEST_OUT/${NMG_XTEST_BASE}.err"
+unset NMG_XTEST_BASE
 
 xwrap() {
   local cmd=${1-}

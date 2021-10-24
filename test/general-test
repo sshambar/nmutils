@@ -5,72 +5,12 @@
 #
 # shellcheck disable=SC2034,SC1090,SC2123
 
-# load common.conf
-TEST_COMMON=${TEST_COMMON:-conf/common.conf}
-{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
-  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
-
-{ [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
-  { echo >&2 "Unable to load xtest_setup"; exit 2; }
-
-[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
-
-NMG=${NMG:-${NMUTILS}/general-functions}
-
-# ensure includes pass parse test
-shtest::parse "${NMG}" || shtest::fatal
-
-# verify required
-NMG_REQUIRED="99.0.0"
-
-(. "${NMG}" 2>/dev/null &&
-   xtest::fail "FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}" ||
-     :) || exit 1
+NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
+{ [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
+  { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
 NMG_REQUIRED="1.5.6"
-
-# less noise
-export NMG_TAG=''
-
-. "${NMG}" || exit 1
-
-# don't let general-functions use external commands
-# (except those defined in config)
-PATH=''
-
-# these tests require MOCK_ECHO=1 to check command actions
-export MOCK_ECHO=1
-
-# need output directory
-[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
-# realpath test requires TEST_OUT to be relative
-[[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
-XLOG="$TEST_OUT/general.log" XERR="$TEST_OUT/general.err"
-
-xwrap() {
-  local cmd=${1-}
-  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
-  shift
-  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
-}
-
-xrm() {
-  [[ ${1-} ]] || return 0
-  command -p rm -f "$@"
-}
-
-xwrap_cleanup() {
-  local rc=$?
-  [[ -e ${XERR} ]] && { command -p cat "${XERR}"; xrm "${XERR}"; }
-  [[ -e ${XLOG} ]] && { command -p cat "${XLOG}"; xrm "${XLOG}"; }
-  exit ${rc}
-}
-
-read_value() { # <var> (<stdin)
-  local IFS; unset IFS
-  read -r -d '' "$1" || :
-}
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -228,7 +168,7 @@ xtest::group2::err() {
 xtest::group3::prop() {
   local var=''
   local dict
-  read_value dict <<- EOF
+  xread_value dict <<- EOF
 	first:val
 	empty:
 	item:value
@@ -949,7 +889,7 @@ xtest::group3::file() {
   ftest F5f "" " - should not log"
   shtest::check_file F5c "$XFILE" "content" " - file should have content"
 
-  read_value var <<- EOF
+  xread_value var <<- EOF
 	content
 	  second line
 	EOF
@@ -1473,33 +1413,34 @@ xtest::group4::config() {
         " - logs error"
 }
 
-main() {
-  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/general file" IFS=-
+test_version() {
+  local NMG_REQUIRED="99.0.0" nmg_log_stderr=1
 
-  # reset (in subshell)
-  shtest::reset
+  shtest::title "Check version requirements"
 
-  # fd 4 used for logger
-  export nmg_log_stderr=4
-  exec 4>&2
+  (. "${NMG}" 2>/dev/null) &&
+    xtest::fail "  FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
 
-  shtest::reg_file "$XLOG"
-  shtest::reg_file "$XERR"
+  shtest::log "  Version enforcement working"
+}
+
+xmain() {
+  local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/general file"
+  local NMG=${NMG:-${NMUTILS}/general-functions}
+
+  xload_script "${NMG}"
+
+  test_version
 
   xtest::run_tests "general-functions Test Summary" "$@"
 
-  [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
-
   # cleanup
-  xrm "$XFILE" "$XLOG" "$XERR"
-  exec 4>&-
+  xrm "$XFILE"
 
   return 0
 }
 
-(main "$@")
-# shellcheck disable=SC2181
-[[ $? -ne 0 ]] && xwrap_cleanup
+xstart "$@"
 
 # Local Variables:
 # mode: sh
