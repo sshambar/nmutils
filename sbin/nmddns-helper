@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# nmddns-helper v1.1.4 - NMUtils Dynamic DNS helper program
+# nmddns-helper v1.2.0 - NMUtils Dynamic DNS helper program
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -48,16 +48,10 @@ NMG_TAG=${NMG_TAG-nmddns}
 NMUTILS=${NMUTILS:-/etc/nmutils}
 NMCONF=${NMCONF:-$NMUTILS/conf}
 
-########## Global defaults (customize in $NMCONF/general.conf)
-
-########## Default paths
-
-RUNDIR=${RUNDIR:-/run/nmutils}
-
 ########## SCRIPT START
 
 # shellcheck disable=SC2034
-NMDDNS_REQUIRED="1.4.3"
+NMDDNS_REQUIRED="1.4.4"
 
 # load ddns-functions
 NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
@@ -66,26 +60,22 @@ NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
   echo 1>&2 "Unable to load ${NMDDNS}"; exit 2; }
 
 [[ ${NMDDNS_VERSION} ]] || {
-  nmg_err "${0##*/} requires NMDDNS ${NMDDNS_REQUIRED}"; exit 2; }
+  nmg_err "${0##*/} requires NMDDNS v${NMDDNS_REQUIRED}+"; exit 2; }
 
-########## Config locations
-
-# NOTE: *_PAT variables must have a single @MATCH@ and @RREC@ keyword
-NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-$NMCONF/ddns-@MATCH@.conf}
-NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-$RUNDIR/ddns-@MATCH@-@RREC@.state}
+# internal state
+EXIT_CODE=''
 
 function ddns_update() {
-  # <rrec> [<value>]
+  # <rrec> [ <value> ]
   local rrec=${1-} value=${2-} rc=0
 
   [[ ${rrec} ]] || return 0
 
   nmddns_update "${rrec}" "${value}" || rc=$?
 
-  # allow server unreachable...
-  (( rc == 25 )) && return 0
-
-  return ${rc}
+  # ignore server unreachable...
+  (( rc != 0 && rc != 25 )) && EXIT_CODE=${rc}
+  return 0
 }
 
 function ddns_interface_rrec() {
@@ -118,44 +108,36 @@ function ddns_interface_rrec() {
   ddns_update "${rrec}" "${value}"
 }
 
-function ddns_interface() {
-  # [ <interface> ]
-  local interface=${1-} rc=0 config intf match state_pat name rrec
+ddns_interface_cb() {
+  # <file> <match> [ <interface> ]
+  local config=$1 match=$2 intf=${3-} state_pat name rrec
 
-  local config_pre=${NMDDNS_CONFIG_PAT%@MATCH@*}
-  local config_post=${NMDDNS_CONFIG_PAT##*@MATCH@}
+  [[ ${match} ]] || return 0
 
-  for config in "${config_pre}"*"${config_post}"; do
+  # if we have an interface, make sure we filter for it
+  [[ ${intf} && ${intf} != "${match}" ]] && return 0
 
-    # config has * if no matches...
-    [[ ${config} == "${NMDDNS_CONFIG_PAT/@MATCH@/*}" ]] && break
+  # load DDNS config
+  nmddns_read_config "${config}" || return 0
 
-    # get match part
-    match=${config#"${config_pre}"}; match=${match%"${config_post}"}
-    [[ ${match} ]] || continue
+  # get state file pattern
+  state_pat=${NMDDNS_STATE_PAT/@MATCH@/${match}}
 
-    # find interface (remove any -prefix etc)
-    intf=${match%%-*}
-
-    # if we have an interface, make sure we filter for it
-    [[ ${interface} && ${interface} != "${intf}" ]] && continue
-
-    # load DDNS config
-    nmddns_read_config "${config}" || continue
-
-    # get state file pattern
-    state_pat=${NMDDNS_STATE_PAT/@MATCH@/${match}}
-
-    for name in "${!DDNS_RREC_@}"; do
-      [[ ${name} =~ _NAME$ ]] || continue
-      name=${name#DDNS_RREC_}
-      rrec=${name%_NAME}
-      [[ ${rrec} ]] || continue
-      ddns_interface_rrec "${intf}" "${state_pat}" "${rrec}" || rc=$?
-    done
+  for name in "${!DDNS_RREC_@}"; do
+    [[ ${name} =~ _NAME$ ]] || continue
+    name=${name#DDNS_RREC_}
+    rrec=${name%_NAME}
+    [[ ${rrec} ]] || continue
+    ddns_interface_rrec "${intf}" "${state_pat}" "${rrec}"
   done
 
-  return ${rc}
+  return 0
+}
+
+ddns_interface() {
+  # [ <interface> ]
+  nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" \
+                         ddns_interface_cb "$@"
 }
 
 function ddns_helper_action() {
@@ -165,26 +147,31 @@ function ddns_helper_action() {
   case ${action} in
     update)
       nmddns_required_config "${config}"
-      nmddns_update "$@"
+      ddns_update "$@"
       ;;
     up|down)
       nmddns_required_config "${config}"
-      nmddns_update_all "${action}" "$@"
+      nmddns_update_all "${action}" "$@" || EXIT_CODE=$?
+      # ignore server unreachable
+      [[ ${EXIT_CODE} == 25 ]] && EXIT_CODE=''
       ;;
     *)
       echo 1>&2 "Usage: ${0##*/} [ <interface> ]"
-      return 1
+      EXIT_CODE=1
       ;;
   esac
 }
 
-[[ -e ${RUNDIR} ]] || { nmg_cmd mkdir -p "${RUNDIR}" || exit; }
+[[ -e ${DDNS_STATE_DIR} ]] || { nmg_cmd mkdir -p "${DDNS_STATE_DIR}" || exit; }
 
 if [[ ${2-} ]]; then
   ddns_helper_action "$@"
 else
   ddns_interface "$@"
 fi
+
+[[ ${EXIT_CODE} ]] && exit ${EXIT_CODE}
+: # for loading in tests
 
 # Local Variables:
 # mode: sh
