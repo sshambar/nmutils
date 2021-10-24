@@ -1,0 +1,153 @@
+# vim:set ft=sh et sw=2 ts=2:
+#
+# Common config/functions for tests using xtest_setup
+#
+# Loads shtest_setup, xtest_setup, and sets restrictive environment
+# (eg. PATH='', IFS=-).  xwrap function captures nmg logs, and stderr,
+# and registers both as 1st/2nd shtest::check_reg_files (for ftest[2])
+#
+# To use:
+#   - source this file
+#   - define "xmain()"
+#   - call xstart "$@"
+#
+# Provided functions:
+#
+#   xwrap <cmd> [ <args> ]
+#     Captures nmg logging to $XLOG, stderr to $XERR
+#
+#   xrm <file> ...
+#     Removes <file>s using command -p to avoid PATH
+#
+#   xread_value <retvar> (<stdin)
+#     Reads stdin into <retvar> (verbatim, but strips final newline)
+#
+#   xload_script <file> [ <args>... ]
+#     Parse-tests, and sources <file> with <args>, calling xtest::fail with
+#     feedback if it exits.
+#
+#   xstart [ <args>... ]
+#     Main entry
+#
+# shellcheck shell=bash disable=SC1090,SC2123
+
+# load common.conf
+TEST_COMMON=${TEST_COMMON:-conf/common.conf}
+{ [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
+  { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
+
+{ [[ ${XTEST_SETUP} ]] && . "${XTEST_SETUP}"; } ||
+  { echo >&2 "Unable to load xtest_setup"; exit 2; }
+
+[[ $EUID == 0 ]] && xtest::fail "Never run as root!"
+
+# need output directory
+[[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
+XLOG="$TEST_OUT/nm-ddns.log" XERR="$TEST_OUT/nm-ddns.err"
+
+xwrap() {
+  local cmd=${1-}
+  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
+  shift
+  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xrm() {
+  local file
+  for file in "$@"; do
+    [[ ${file} ]] && command -p rm -f "${file}"
+  done
+  return 0
+}
+
+xread_value() {
+  # <retvar> <stdin
+  local IFS; unset IFS
+  read -r -d '' "$1" || :
+}
+
+xload_script() {
+  # <file> [ <args>... ]
+  local file=${1-}; shift || set --
+
+  [[ -z ${file} ]] && return
+
+  shtest::title "Loading script"
+
+  # ensure includes pass parse test
+  shtest::parse "${file}" || shtest::fatal
+
+  (xwrap . "${file}" "$@"; echo >>"$XERR" "loaded $?")
+  local rc=$? xlog xerr IFS; unset data err IFS
+  { read -r -d '' xlog || :; } 2>/dev/null < "${XLOG}"
+  { read -r -d '' xerr || :; } 2>/dev/null < "${XERR}"
+  [[ -z ${xlog-} && ${xerr-} == "loaded 0" ]] || {
+    [[ ${xerr-} == "loaded 0" ]] && xrm "${XERR}"
+    if (( rc == 0 )); then
+      xtest::fail "  Loading '${file}' failed"
+    else
+      xtest::fail "  Loading '${file}' failed (exit ${rc})"
+    fi
+  }
+  shtest::log "  Script ${file##*/} loaded"
+
+  # load script in current subshell
+  xwrap . "${file}" "$@"
+
+  # reset PATH
+  PATH=''
+}
+
+xstart() {
+  # restrict use of external commands (except those defined in config)
+  local PATH=''
+
+  # less noise
+  local -x NMG_TAG=''
+
+  # these tests require MOCK_ECHO=1 to check command actions
+  local -x MOCK_ECHO=1
+
+  # fd 4 used for logger
+  local -x nmg_log_stderr=4
+  exec 4>&2
+
+  (
+    # reset (in subshell)
+    shtest::reset
+
+    shtest::reg_file "$XLOG"
+    shtest::reg_file "$XERR"
+
+    local IFS=-
+
+    xmain "$@"
+
+    [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
+  )
+  local rc=$?
+
+  (( rc != 0 )) && {
+    [[ -s ${XERR} ]] && {
+      xtest::err "==== stdout / stderr ==="
+      command -p cat "${XERR}"
+    }
+    [[ -s ${XLOG} ]] && {
+      xtest::err "==== nmg log ===="
+      command -p cat "${XLOG}"
+    }
+  }
+
+  # cleanup
+  xrm "${XERR}" "${XLOG}"
+  exec 4>&-
+
+  return ${rc}
+}
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:
