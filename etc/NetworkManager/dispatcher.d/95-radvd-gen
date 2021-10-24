@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.5.1 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.5.2 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018-21 Scott Shambarger
@@ -84,6 +84,7 @@
 # radvd.conf - radvd tends to crash in this case...perhaps remove
 # the file and kill radvd?
 #
+# shellcheck disable=SC1090
 
 [[ $TRACE ]] && set -x
 
@@ -95,7 +96,7 @@
 RADVDGEN_CONF=${RADVDGEN_CONF:-/etc/NetworkManager/radvd-gen.conf}
 
 # ipv6_utils (optional)
-ipv6_prefix() { echo -n $1; } # stub
+ipv6_prefix() { echo -n "${1-}"; } # stub
 IPV6_UTILS=${IPV6_UTILS:-/etc/nmutils/ipv6_utils.sh}
 
 # template and config locations
@@ -167,13 +168,13 @@ err() {
 # backtrace to stderr, skipping <level> callers
 backtrace() { # <level>
   local -i x=$1; echo >&2 "Backtrace: <line#> <func> <file>"
-  while :; do ((x++)); caller >&2 $x || return 0; done
+  while :; do ((x++)); caller >&2 "$x" || return 0; done
 }
 
 # print <msg> to stderr, and dump backtrace of callers
 fatal() { # <msg>
   local IFS=' '; echo >&2 "FATAL: $*"
-  [ $debug -gt 0 ] && backtrace 0
+  (( debug > 0 )) && backtrace 0
   exit 1
 }
 
@@ -185,9 +186,9 @@ xdebug() { # <msg>
   return 0
 }
 
-if [ $debug -gt 0 ]; then debug() { xdebug "$@"; }; else debug() { :; }; fi
-if [ $debug -gt 1 ]; then debug2() { xdebug "$@"; }; else debug2() { :; }; fi
-if [ $debug -gt 2 ]; then debug3() { xdebug "$@"; }; else debug3() { :; }; fi
+if (( debug > 0 )); then debug() { xdebug "$@"; }; else debug() { :; }; fi
+if (( debug > 1 )); then debug2() { xdebug "$@"; }; else debug2() { :; }; fi
+if (( debug > 2 )); then debug3() { xdebug "$@"; }; else debug3() { :; }; fi
 
 verbose() { # <msg>
   [[ $verbose ]] || return 0
@@ -200,11 +201,11 @@ verbose() { # <msg>
 
 # INTERNAL: declare global DS if it's not an assoc array in scope
 _ds_init() {
-  [ "${BASH_VERSINFO[0]}" -ge 4 ] || fatal "Bash v4+ required"
+  (( BASH_VERSINFO[0] >= 4 )) || fatal "Bash v4+ required"
   local v; v=$(declare 2>/dev/null -p -A DS)
-  if [ -z "$v" ] || [ "${v#declare -A DS}" = "$v" ]; then
+  if [[ -z $v || ${v#declare -A DS} == "$v" ]]; then
     # we can declare global DS in bash 4.2+"
-    [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 2 ] && \
+    (( BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2 )) && \
       fatal "'declare -A DS' must be declared before using datastore!"
     debug3 "Initializing DS"
     unset -v DS 2>/dev/null; declare -gA DS
@@ -224,11 +225,11 @@ _ds_ret() { # <var> <value>
   [[ $2 ]]
 }
 
-if [ $debug -gt 1 ]; then
+if (( debug > 1 )); then
   _ds_ret() { # <var> <value>
     [[ $1 ]] && printf 2>/dev/null -v "$1" %s "$2" && debug2 " $1 => ${!1}"
-    [[ $2 ]] && { [[ $1 ]] || debug2 " => <true>"; return 0; } || {
-      [[ $1 ]] || debug2 " => <false>"; return 1; }
+    [[ $2 ]] && { [[ $1 ]] || debug2 " => <true>"; return 0; }
+    [[ $1 ]] || debug2 " => <false>"; return 1
   }
 fi
 
@@ -284,7 +285,7 @@ ds_ngeti() { # <ret> <n> <key1>...<keyn> <i>
   local _n _key
   local -i _i=$2
   ((_i+=3)); _i=${*:$_i:1}
-  [ "$_i" -lt 0 ] && { _ds_ret "$1"; return; }
+  (( _i < 0 )) && { _ds_ret "$1"; return; }
   _ds_name "${@:2}"
   _key=${DS[k$_n$'\a'$_i]}
   debug3 "$_n#$_i => $_key"
@@ -295,20 +296,18 @@ ds_ngeti() { # <ret> <n> <key1>...<keyn> <i>
 # A FEW UTITLITY FUNCTIONS
 #
 
-shopt -s extglob
-lstrip() { # <var> <text>
-  debug2 "$@"
-  local -l _s=$2
-  _s=${_s##+([[:space:]])}; _s=${_s%%+([[:space:]])}
-  printf -v "$1" %s "$_s"
+strip() { # <var> <text>
+  debug "$@"
+  [[ $2 =~ ^[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]] || :
+  printf -v "$1" "%s" "${BASH_REMATCH[1]-}"
 }
 
 convert() { # <ret> <value>
   debug2 "$@"
   local ts=$2
-  if [ "$ts" = forever ]; then
+  if [[ $ts == forever ]]; then
     ts=infinity
-  elif [[ "$ts" = [0-9]*sec ]]; then
+  elif [[ $ts == [0-9]*sec ]]; then
     ts=${ts%sec}
   fi
   printf -v "$1" %s "$ts"
@@ -387,7 +386,7 @@ get_prefix_keyi() { # <ret> <iface> <prefix> <n>
 # Echoes compacted prefix (or original if ipv6_utils not loaded)
 compact_prefix() { # <ip6-addr>/<prefix>
   local n="${1#*/}" oifs=$IFS
-  [ "$n" == "$1" ] && n=
+  [[ $n == "$1" ]] && n=
   [[ $n ]] || n=64
   unset IFS
   echo -n "$(ipv6_prefix "${1%/*}" "$n")/$n"
@@ -404,7 +403,7 @@ compact_prefix() { # <ip6-addr>/<prefix>
 # If static prefix, also flags RESET
 set_decr_iface() { # <iface> <prefix>
   local iface=$1 prefix=$2
-  if [ "$prefix" != dynamic ]; then
+  if [[ $prefix != dynamic ]]; then
     verbose "      Resetting radvd, $prefix decrementing"
     ds_set RESET 1
   fi
@@ -422,8 +421,8 @@ set_prefix_vals() { # <mode> <iface> <prefix> <valid> <pref> <decr> <has_decr>
   set_prefix_key "$iface" "$prefix" "${mode}_pref" "$pref"
   set_prefix_key "$iface" "$prefix" "${mode}_decr" "$decr"
   set_prefix_key "$iface" "$prefix" "${mode}_has_decr" "$has_decr"
-  if [ "$mode" = src ]; then
-    [ "$prefix" = dynamic ] && set_iface_key "$iface" dynamic 1
+  if [[ $mode == src ]]; then
+    [[ $prefix == dynamic ]] && set_iface_key "$iface" dynamic 1
     if [[ ! ( $valid = infinity && $pref = infinity ) ]]; then
       [[ $decr ]] && set_decr_iface "$iface" "$prefix"
     fi
@@ -499,32 +498,33 @@ parse_interface() {
 read_file() { # cur|src <file>
   debug "$@"
   local mode=$1 src=$2
-  [ -r "$src" ] || return
+  [[ -r $src ]] || return
 
   verbose "Parsing $mode file \"$src\""
 
-  local line iface prefix val valid pref decr has_decr save_prefix
+  local iface prefix val valid pref decr has_decr save_prefix
 
   local -i lno=0
+  local -l line # lowercase
   local IFS=$'\n' state=global parent=
   while read -r line || [[ $line ]]; do
     debug2 "state=$state parent=$parent iface=$iface prefix=$prefix"
-    lstrip line "$line"
+    strip line "$line"
     ((lno++))
 
-    [[ "$line" =~ ^# ]] && continue
+    [[ $line =~ ^# ]] && continue
 
     case $state in
       global)
         parse_global || return 1
-        if [ $state = interface ]; then
+        if [[ $state == interface ]]; then
           set_iface "$iface"
           set_iface_key "$iface" "$mode" 1
         fi
         ;;
       interface-opts)
         parse_interface || return 1
-        if [ "$prefix" = dynamic ] && [ "$mode" != src ]; then
+        if [[ $prefix == dynamic && $mode != src ]]; then
           err "@PREFIX@ found in \"$src\":$lno!" && return 1
         fi
         ;;
@@ -547,18 +547,18 @@ read_file() { # cur|src <file>
     parse_braces || return 1
 
     if [[ $save_prefix ]]; then
-      if [ "$mode" = src ] || [ "$save_prefix" != dynamic ]; then
-        if [ "$save_prefix" != dynamic ]; then
+      if [[ $mode == src || $save_prefix != dynamic ]]; then
+        if [[ $save_prefix != dynamic ]]; then
           set_prefix "$iface" "$save_prefix"
           set_prefix_key "$iface" "$save_prefix" "$mode" 1
         fi
         set_prefix_vals "$mode" "$iface" "$save_prefix" "$valid" "$pref" "$decr" "$has_decr"
       fi
-      valid= pref= decr= has_decr=
+      valid='' pref='' decr='' has_decr=''
     fi
   done < "$src"
 
-  [ "$state" != global ] &&
+  [[ $state != global ]] &&
     err "Parse error in $mode file \"$src\":$lno" && return 1
 
   return 0
@@ -567,10 +567,10 @@ read_file() { # cur|src <file>
 # ret=max of <a> and <b> lifetimes
 get_max_lifetime() { # <ret> <a> <b>
   local a=$2 b=$3
-  if [ "$a" = infinity ] || [ "$b" = infinity ]; then
+  if [[ $a == infinity || $b == infinity ]]; then
     a=infinity
   else
-    [ $a -lt $b ] && a=$b
+    (( a < b )) && a=$b
   fi
   printf -v "$1" %s "$a"
 }
@@ -578,10 +578,10 @@ get_max_lifetime() { # <ret> <a> <b>
 # ret=min of <a> and <b> lifetimes
 get_min_lifetime() { # <ret> <a> <b>
   local a=$2 b=$3
-  if [ "$a" = infinity ]; then
+  if [[ $a == infinity ]]; then
     a=$b
-  elif [ "$b" != infinity ]; then
-    [ $a -gt $b ] && a=$b
+  elif [[ $b != infinity ]]; then
+    (( a > b )) && a=$b
   fi
   printf -v "$1" %s "$a"
 }
@@ -607,15 +607,15 @@ get_addrs() { # <iface>
         ;;
       inet6)
         pfx='' valid='' pref=''
-        [[ "$e" =~ [0-9a-f:]+/[0-9]+ ]] && pfx=$(compact_prefix "$e")
+        [[ $e =~ [0-9a-f:]+/[0-9]+ ]] && pfx=$(compact_prefix "$e")
         state=text
         ;;
       valid)
-        [[ "$e" =~ [0-9]*(sec|forever)+ ]] && convert valid "$e"
+        [[ $e =~ [0-9]*(sec|forever)+ ]] && convert valid "$e"
         state=text
         ;;
       pref)
-        [[ "$e" =~ [0-9]*(sec|forever)+ ]] && convert pref "$e"
+        [[ $e =~ [0-9]*(sec|forever)+ ]] && convert pref "$e"
         state=text
         ;;
     esac
@@ -674,8 +674,8 @@ get_src_value() { # <ret> <iface> <prefix> <item>
 
 item_differs() { # <new> <cur> <desc>
   local -i rc=1; local msg
-  [ "$1" != "$2" ] && rc=0
-  [ $rc -eq 0 ] && msg=" - CHANGE"
+  [[ $1 != "$2" ]] && rc=0
+  (( rc == 0 )) && msg=" - CHANGE"
   verbose "    Checking $3 ($1 : $2)$msg"
   return $rc
 }
@@ -706,7 +706,7 @@ pfx_lifetime_differs() { # <iface> <prefix> <type>
   get_prefix_key cur "$iface" "$prefix" "cur_$type"
 
   # if either infinity, just check for a change
-  if [ "$new" = infinity ] || [ "$cur" = infinity ]; then
+  if [[ $new == infinity || $cur == infinity ]]; then
     item_differs "$new" "$cur" "$type lifetimes"
     return
   fi
@@ -721,8 +721,8 @@ pfx_lifetime_differs() { # <iface> <prefix> <type>
 
   local -i a=$new b=$cur d
   ((d=((a*200)-(b*200))/(a+b)))
-  [ $d -lt 0 ] && ((d=-d))
-  if [ $d -lt $PERDIFF ]; then
+  (( d < 0 )) && ((d=-d))
+  if (( d < PERDIFF )); then
     verbose "      Lifetimes within $PERDIFF%"
     return 1
   fi
@@ -733,7 +733,7 @@ pfx_lifetime_differs() { # <iface> <prefix> <type>
 # Look for changes on new and current <iface> (true if changes)
 iface_differs() { # <iface>
   debug "$@"
-  local if=$1 pfx decr cdecr un=un
+  local if=$1 pfx decr un=un
   local -i p same=1
 
   # check if interface is in <src>
@@ -745,7 +745,7 @@ iface_differs() { # <iface>
   while get_prefix pfx "$if" $p; do
     ((p++))
     # we only examine changes on real prefixes
-    [ "$pfx" = dynamic ] && continue
+    [[ $pfx == dynamic ]] && continue
     verbose "  Considering prefix $pfx"
 
     # check if src missing in current (checking dyn changes, not all)
@@ -765,7 +765,7 @@ iface_differs() { # <iface>
     fi
   done
 
-  (( $same )) || un=
+  (( same )) || un=
   verbose "  Interface $if ${un}changed"
   return $same
 }
@@ -784,8 +784,12 @@ ifaces_differs() {
 }
 
 gen_line() {
-  debug2 "$(printf "$@")"
-  printf "$@"
+  # <fmt> <arg>
+  local out
+  # shellcheck disable=SC2059
+  printf -v out "$1" "$2"
+  debug2 "$out"
+  echo "$out"
 }
 
 # Echos missing lifetime entries for prefix, if not defined in <source>
@@ -800,16 +804,16 @@ gen_missing_lifetimes() { # <iface> <source> <prefix>
     [[ $svalid ]] && return # both set
     get_new_lifetime valid "$iface" "$prefix" valid
     get_max_lifetime valid "$valid" "$spref"
-    gen_line "\\t\\tAdvValidLifetime %s;\\n" "$valid"
+    gen_line "\\t\\tAdvValidLifetime %s;" "$valid"
   elif [[ $svalid ]]; then
     get_new_lifetime pref "$iface" "$prefix" pref
     get_min_lifetime pref "$pref" "$svalid"
-    gen_line "\\t\\tAdvPreferredLifetime %s;\\n" "$pref"
+    gen_line "\\t\\tAdvPreferredLifetime %s;" "$pref"
   else
     get_new_lifetime valid "$iface" "$prefix" valid
-    gen_line "\\t\\tAdvValidLifetime %s;\\n" "$valid"
+    gen_line "\\t\\tAdvValidLifetime %s;" "$valid"
     get_new_lifetime pref "$iface" "$prefix" pref
-    gen_line "\\t\\tAdvPreferredLifetime %s;\\n" "$pref"
+    gen_line "\\t\\tAdvPreferredLifetime %s;" "$pref"
   fi
 }
 
@@ -826,7 +830,7 @@ gen_dynamic() { # <iface>
     elif is_prefix_key "$iface" "$pfx" src; then
       debug "  skipping $pfx as declared static in template" && continue
     fi
-    gen_line "\\tprefix %s {\\n" "$pfx"
+    gen_line "\\tprefix %s {" "$pfx"
     # always include missing lifetimes
     gen_missing_lifetimes "$iface" dynamic "$pfx"
     # include any saved values from @PREFIX@
@@ -834,16 +838,16 @@ gen_dynamic() { # <iface>
     while get_prefix_keyi key "$iface" saved "$i"; do
       ((i++))
       get_prefix_key val "$iface" saved "$key"
-      gen_line "%s\\n" "$val"
+      gen_line "%s" "$val"
     done
-    gen_line "\\t};\\n"
+    gen_line "\\t%s" "};"
   done
 }
 
 TMPFILE=
 gen_cleanup() {
   trap - EXIT INT TERM
-  [ -f "$TMPFILE" ] && verbose "Cleaning up \"$TMPFILE\"" && rm -f "$TMPFILE"
+  [[ -f $TMPFILE ]] && verbose "Cleaning up \"$TMPFILE\"" && rm -f "$TMPFILE"
 }
 
 # cleanup tmpfiles on exit
@@ -855,23 +859,24 @@ gen_file() { # <template> <config>
   verbose "Generating \"$dst\" from \"$src\""
 
   TMPFILE=$("$MKTEMP_EXE")
-  [ ! -w "$TMPFILE" ] && fatal "Unable to create temp file '$TMPFILE'"
+  [[ -w $TMPFILE ]] || fatal "Unable to create temp file '$TMPFILE'"
 
-  local orig line iface prefix save_prefix add_close
+  local orig iface prefix save_prefix add_close
 
   local -i lno=0 si=0
+  local -l line # lowercase
   local IFS=$'\n' state=global parent=
   while read -r orig || [[ $orig ]]; do
     debug2 "state=$state parent=$parent iface=$iface prefix=$prefix"
-    lstrip line "$orig"
+    strip line "$orig"
     ((lno++))
 
     if [[ $line =~ ^# ]]; then
-      if [ "$prefix" = dynamic ]; then
+      if [[ $prefix == dynamic ]]; then
         set_prefix_key "$iface" saved "$si" "$orig"
         ((si++))
       else
-        gen_line "%s\\n" "$orig"
+        gen_line "%s" "$orig"
       fi
       continue
     fi
@@ -882,17 +887,17 @@ gen_file() { # <template> <config>
     esac
 
     parse_braces || exit 1
-    [ $state = global ] && si=0
+    [[ $state == global ]] && si=0
 
     if [[ $save_prefix ]]; then
-      if [ "$save_prefix" = dynamic ]; then
+      if [[ $save_prefix == dynamic ]]; then
         gen_dynamic "$iface"
         [[ $line =~ \}\; ]] && continue # gen_dynamic includes '};'
         [[ $line =~ ^@prefix@ ]] && continue; # don't write @PREFIX@
       elif is_prefix_key "$iface" "$save_prefix" wired; then
         # add brackets if none in orig
         if [[ ! $line =~ \}\; ]]; then
-          gen_line "%s\\n" "${orig/;/ \{}"
+          gen_line "%s" "${orig/;/ \{}"
           add_close=1
         fi
         gen_missing_lifetimes "$iface" "$save_prefix" "$save_prefix"
@@ -900,18 +905,18 @@ gen_file() { # <template> <config>
       fi
     fi
 
-    if [ "$prefix" = dynamic ]; then
+    if [[ $prefix == dynamic ]]; then
       # don't save braces
-      [ $state = prefix-opts ] && [[ $line =~ \{ ]] && continue;
-      [ $state = interface-opts ] && [[ $line =~ \}\; ]] && continue
+      [[ $state == prefix-opts && $line =~ \{ ]] && continue;
+      [[ $state == interface-opts && $line =~ \}\; ]] && continue
       set_prefix_key "$iface" saved "$si" "$orig"
       ((si++))
     else
-      gen_line "%s\\n" "$orig"
+      gen_line "%s" "$orig"
     fi
   done < "$src" >> "$TMPFILE"
 
-  [ "$state" != global ] &&
+  [[ $state != global ]] &&
     err "Parse error in file \"$src\":$lno" && return 1
 
   cp "$TMPFILE" "$dst" || fatal "Unable to copy \"$TMPFILE\" to \"$dst\""
@@ -925,20 +930,20 @@ gen_file() { # <template> <config>
 
 signal_radvd() { # reload|reset
   local mode=$1 action sig
-  case "$mode" in
+  case $mode in
     reload) action="reload config"; sig=SIGHUP; mode=reload-or-restart;;
     reset) action="reset timers"; sig=SIGUSR1;;
     *) return
   esac
-  if [ -x "$SC_EXE" ] && "$SC_EXE" 2>/dev/null -q is-enabled radvd; then
+  if [[ -x $SC_EXE ]] && "$SC_EXE" 2>/dev/null -q is-enabled radvd; then
     verbose "Signaling radvd.service to $action"
     "$SC_EXE" -q is-active radvd || mode=restart
-    if [ "$mode" = reset ]; then
+    if [[ $mode == reset ]]; then
       "$SC_EXE" kill -s "$sig" radvd
     else
       "$SC_EXE" "$mode" radvd
     fi
-  elif [ -x "$KILL_EXE" ] && [ -r "$RADVD_PID" ]; then
+  elif [[ -x $KILL_EXE && -r $RADVD_PID ]]; then
     verbose "Signaling radvd to $action"
     "$KILL_EXE" -s "$sig" -- "$(< "$RADVD_PID")"
   else
@@ -949,26 +954,26 @@ signal_radvd() { # reload|reset
 setup_radvd() {
 
   # if no template, we're not configured; bail.
-  [ ! -f "$SRC" ] && verbose "No template file '$SRC'" && return
+  [[ -f $SRC ]] || { verbose "No template file '$SRC'"; return; }
 
-  [ "${BASH_VERSINFO[0]}" -ge 4 ] || fatal "Bash v4+ required"
+  (( BASH_VERSINFO[0] >= 4 )) || fatal "Bash v4+ required"
 
   # keep data out of environment
   local -A DS
 
-  [ ! -x "$IP_EXE" ] && fatal "Unable to find ip command ('$IP_EXE')"
-  [ ! -x "$MKTEMP_EXE" ] && \
+  [[ -x $IP_EXE ]] || fatal "Unable to find ip command ('$IP_EXE')"
+  [[ -x $MKTEMP_EXE ]] || \
     fatal "Unable to find mktemp command ('$MKTEMP_EXE')"
 
-  [ ! -r "$SRC" ] && fatal "Unable to read $SRC"
-  [ -f "$DST" ] && [ ! -w "$DST" ] && fatal "Unable to write $DST"
+  [[ -r $SRC ]] || fatal "Unable to read $SRC"
+  [[ -f $DST && ! -w $DST ]] && fatal "Unable to write $DST"
 
   read_file "src" "$SRC" || exit 1
   read_file "cur" "$DST"
 
   get_iface_addrs
 
-  if [ -f "$DST" ] && [[ "$DST" -nt "$SRC" ]] && ! ifaces_differs; then
+  if [[ -f $DST && $DST -nt $SRC ]] && ! ifaces_differs; then
     # reset radvd if a prefix is decrementing
     if ds_get "" RESET; then
       signal_radvd reset
@@ -982,11 +987,11 @@ setup_radvd() {
     # reload radvd
     signal_radvd reload
   fi
-  [ $debug -gt 2 ] && ds_dump
+  (( debug > 2 )) && ds_dump
   return 0
 }
 
-case "$action" in
+case $action in
   up|dhcp6-change|down)
     setup_radvd
     ;;
