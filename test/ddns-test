@@ -32,7 +32,7 @@ NMDDNS_REQUIRED="99.0.0"
    xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}" || :) || exit 1
 
 # min-version for tests
-NMDDNS_REQUIRED="1.4.3"
+NMDDNS_REQUIRED="1.4.4"
 
 # less noise
 export NMG_TAG=''

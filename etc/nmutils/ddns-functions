@@ -81,6 +81,7 @@
 #     <state-pat> must contain the string "@RREC@" and is used to
 #     set state for nmddns-helper to update DDNS in late startup.
 #     <value> is expected to be in RDATA format appropriate for <rrec>.
+#     Returns any errors from nsupdate.
 #
 #     SPECIAL CASE: for A/AAAA records, values containing "," are handled
 #     as multiple (comma-separated) address records (see _LISTSEP below for
@@ -95,7 +96,7 @@
 #
 #     Updates for all configured DDNS names (DDNS_* values should be set),
 #     using <ip4-addr> for A and <ip6-addr> for AAAA (if respective
-#     DDNS_RREC_*_VALUEs don't override).
+#     DDNS_RREC_*_VALUEs don't override).  Returns any errors from nsupdate.
 #
 #   nmddns_spawn_update_all up | down <config-file>
 #                          [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
@@ -110,6 +111,17 @@
 #   NMDDNS_REQUIRED (optional) - minimum required NMDDNS_VERSION
 #
 # Global overrides (put in NMCONF/general.conf)
+#
+#   NMDDNS_CONFIG_PAT (default: "NMCONF/ddns-@MATCH@.conf")
+#       @MATCH@ is replaced by the interface by the dispatcher/helper
+#       script, and loaded (see Config settings below)
+#
+#   DDNS_STATE_DIR (default: "$RUNDIR", or "/run/nmutils" if unset)
+#       locationfor internal temporary state
+#
+#   NMDDNS_STATE_PAT (default: "DDNS_STATE_DIR/ddns-@MATCH@-@RREC@.state")
+#       @MATCH@ is replaced by interface, @RREC@ by record type by
+#       dispater/helper, used to store internal state
 #
 #   DDNS_GLOBAL_LOCKFILE (optional) - flock lockfile used to prevent
 #       races between query and set of records.  Overrides use of config
@@ -185,7 +197,7 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.3"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.4"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -193,6 +205,7 @@ NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## Global defaults (customize in $NMCONF/general.conf)
 
+DDNS_STATE_DIR=${RUNDIR:-/run/nmutils}
 DDNS_GLOBAL_LOCKFILE=${DDNS_GLOBAL_LOCKFILE-}
 DDNS_GLOBAL_FLOCK_TIMEOUT=${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}
 DDNS_GLOBAL_DIG_TIMEOUT=${DDNS_GLOBAL_DIG_TIMEOUT:-3}
@@ -210,13 +223,19 @@ NMDDNS_NSUPDATE=${NMDDNS_NSUPDATE:-nsupdate}
 # set NMDDNS_FLOCK to empty to disable all locking
 NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 
+########## Config locations (defaults for helper)
+
+# NOTE: *_PAT variables must have a single @MATCH@ and @RREC@ keyword
+NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-${NMCONF}/ddns-@MATCH@.conf}
+NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-${DDNS_STATE_DIR}/ddns-@MATCH@-@RREC@.state}
+
 ########## SCRIPT START
 
 # load general-functions
 NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.5.5"
+NMG_REQUIRED="1.5.6"
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
 
@@ -490,7 +509,7 @@ nmddns_spawn_update() {
 nmddns_update_all() {
   # <"up"|"down"> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
   local action=$1 addr4=${2-} addr6=${3-} state_pat=${4-}
-  local name rrec value
+  local name rrec value rc=0
 
   for name in "${!DDNS_RREC_@}"; do
 
@@ -527,10 +546,10 @@ nmddns_update_all() {
     esac
 
     # perform update
-    nmddns_update "${rrec}" "${value}" "${state_pat}"
+    nmddns_update "${rrec}" "${value}" "${state_pat}" || rc=$?
   done
 
-  return 0
+  return ${rc}
 }
 
 nmddns_spawn_update_all() {
