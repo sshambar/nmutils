@@ -1,0 +1,152 @@
+#!/bin/bash
+# vim:set ft=sh et sw=2 ts=2:
+#
+# Test suite for 09-ddns
+#
+# shellcheck disable=SC2034,SC1090,SC2123
+
+# load xtest.conf
+NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
+{ [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
+  { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
+
+xtest::group2::support() {
+
+  local IP4_NUM_ADDRESSES=0 IP4_ADDRESS_0='' IP4_ADDRESS_1='' IP4_ADDRESS_2=''
+  local IP6_NUM_ADDRESSES=0 IP6_ADDRESS_0='' IP6_ADDRESS_1='' IP6_ADDRESS_2=''
+  unset IP4_NUM_ADDRESSES IP6_NUM_ADDRESSES
+  local DDNS_RREC_A_PRIVATE DDNS_RREC_AAAA_PRIVATE
+  unset DDNS_RREC_A_PRIVATE DDNS_RREC_AAAA_PRIVATE
+  local var
+
+  shtest::title "Support Function Tests (support group)"
+
+  shtest::prefix "ddns_addr4"
+
+  var=bogus
+  xwrap ddns_addr4 var
+  xtest S1 t "(0) - returns true"
+  vtest S1v "" " - sets var empty"
+
+  IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0="192.168.55.3/24 192.168.55.1"
+  xwrap ddns_addr4 var
+  xtest S2 t "(1 priv) - returns true"
+  vtest S2v "" " - sets var empty"
+
+  DDNS_RREC_A_PRIVATE=1
+  xwrap ddns_addr4 var
+  xtest S3 t "(1 priv allowed) - returns true"
+  vtest S3v "192.168.55.3" " - sets address"
+  unset DDNS_RREC_A_PRIVATE
+
+  IP4_NUM_ADDRESSES=2 IP4_ADDRESS_0="198.51.100.2/24 192.51.100.1"
+  IP4_ADDRESS_1="203.0.113.55/24 203.0.113.1"
+  xwrap ddns_addr4 var
+  xtest S4 t "(2 pub) - returns true"
+  vtest S4v "198.51.100.2,203.0.113.55" " - sets addresses"
+
+  shtest::prefix "ddns_addr6"
+
+  xwrap ddns_addr6 var
+  xtest S11 t "(0) - returns true"
+  vtest S11v "" " - sets var empty"
+
+  IP6_NUM_ADDRESSES=1 IP6_ADDRESS_0="fddd:500::200:1/64 fddd:500::1"
+  xwrap ddns_addr6 var
+  xtest S12 t "(1 priv) - returns true"
+  vtest S12v "" " - sets var empty"
+
+  DDNS_RREC_AAAA_PRIVATE=1
+  xwrap ddns_addr6 var
+  xtest S13 t "(1 priv allowed) - returns true"
+  vtest S13v "fddd:500::200:1" " - sets address"
+  unset DDNS_RREC_AAAA_PRIVATE
+
+  IP6_NUM_ADDRESSES=2
+  IP6_ADDRESS_0="2001:db8:871a:28c1::1/64 2001:db8:871a:28c1::100"
+  IP6_ADDRESS_1="2001:db8:4860:4860::8888/64 2001:db8:4860:4860::1"
+  xwrap ddns_addr6 var
+  xtest S14 t "(2 pub) - returns true"
+  vtest S14v "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
+        " - sets addresses"
+}
+
+xtest::group3::action() {
+
+  local IP4_NUM_ADDRESSES=2 IP4_ADDRESS_0="198.51.100.2/24 192.51.100.1"
+  local IP4_ADDRESS_1="203.0.113.55/24 203.0.113.1"
+  local IP6_NUM_ADDRESSES=2
+  local IP6_ADDRESS_0="2001:db8:871a:28c1::1/64 2001:db8:871a:28c1::100"
+  local IP6_ADDRESS_1="2001:db8:4860:4860::8888/64 2001:db8:4860:4860::1"
+  local out
+
+  shtest::title "Action Tests (action group)"
+
+  shtest::prefix "ddns_action"
+
+  xwrap ddns_action up
+  xtest A1 t "(up) - returns true"
+  xread_value out <<-EOF
+	Setting dns.example.test AAAA to 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete dns.example.test AAAA
+	update add dns.example.test 600 AAAA 2001:db8:871a:28c1::1
+	update add dns.example.test 600 AAAA 2001:db8:4860:4860::8888
+	send
+	Setting dns.example.test A to 198.51.100.2,203.0.113.55
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete dns.example.test A
+	update add dns.example.test 600 A 198.51.100.2
+	update add dns.example.test 600 A 203.0.113.55
+	send
+	EOF
+  ftest A1f "$out" " - adds to dns"
+
+  xwrap ddns_action down
+  xtest A2 t "(down) - returns true"
+  xread_value out <<-EOF
+	Removing dns.example.test AAAA
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete dns.example.test AAAA
+	send
+	Removing dns.example.test A
+	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	server 127.0.0.1
+	zone example.test
+	update delete dns.example.test A
+	send
+	EOF
+  ftest A2f "$out" " - removes from dns"
+
+  nmddns_cleanup
+}
+
+xmain() {
+  # disable helper so we get nsupdate results
+  local TEST_DDNS_HELPER=''
+
+  # out custom test config
+  local NMDDNS_CONFIG_PAT="$NMCONF/nm-ddns-@MATCH@.conf"
+
+  xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/09-ddns" \
+               wan0 general
+
+  xtest::run_tests "09-ddns Test Summary" "$@"
+
+  return 0
+}
+
+xstart "$@"
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 2
+# sh-indentation: 2
+# indent-tabs-mode: nil
+# End:

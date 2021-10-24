@@ -1,10 +1,10 @@
 #!/bin/bash
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 09-nmddns v1.1.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-ddns v1.2.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2019 Scott Shambarger
+# Copyright (C) 2014-2021 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,9 +27,9 @@
 #
 #   The settings are discussed in NMUTILS/ddns-functions.
 #
-#   NOTE: By default, A and AAAA records use the first global
-#   address on an interface (see DDNS_RREC_<rrec>_PRIVATE to also
-#   consider private addresses), so only set DDNS_RREC_A_VALUE or
+#   NOTE: By default, A and AAAA records use the global addresses
+#   on an interface (see DDNS_RREC_<rrec>_PRIVATE to also consider
+#   private addresses), so only set DDNS_RREC_A_VALUE or
 #   DDNS_RREC_AAAA_VALUE if you wish to overrides those values
 #   with static ones.
 #
@@ -44,103 +44,108 @@
 #
 # State file:
 #
-#   RUNDIR/ddns-<interface>-<rrec>.state
+#   DDNS_STATE_DIR/ddns-<interface>-<rrec>.state
 #
-interface="$1"
-action="$2"
+# shellcheck disable=SC1090,SC2153
+
+interface=$1
+action=$2
 
 # for logging
-NMG_TAG="${NMG_TAG:-nmddns}"
+NMG_TAG=${NMG_TAG:-nmddns}
 
 # set NMUTILS/NMCONF early, and allow environment to override
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-$NMUTILS/conf}"
-
-########## Global defaults (customize in $NMCONF/general.conf)
-
-########## Default paths
-
-RUNDIR="${RUNDIR:-/run/nmutils}"
+NMUTILS=${NMUTILS:-/etc/nmutils}
+NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## SCRIPT START
 
 # anything for us to do?
-[ -n "$interface" -a -n "$action" ] || exit 0
+[[ ${interface} && ${action} ]] || exit 0
+
+# shellcheck disable=SC2034
+NMDDNS_REQUIRED="1.4.4"
 
 # load ddns-functions
-NMDDNS="${NMDDNS:-$NMUTILS/ddns-functions}"
-[ -f "$NMDDNS" -a -r "$NMDDNS" ] && . "$NMDDNS" || {
-    echo 1>&2 "Unable to load $NMDDNS" && exit 2
-  }
+NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
+{ [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
+  echo 1>&2 "Unable to load ${NMDDNS}" && exit 2; }
 
-########## Config/state locations
+[[ ${NMDDNS_VERSION} ]] || {
+  nmg_err "${0##*/} requires NMDDNS v${NMDDNS_REQUIRED}+"; exit 2; }
 
-DDNS_CONFIG="${DDNS_CONFIG:-$NMCONF/ddns-${interface}.conf}"
-# NOTE: *_PAT variables must have the @RREC@ keywords
-DDNS_STATE_PAT="${DDNS_STATE_PAT:-$RUNDIR/ddns-${interface}-@RREC@.state}"
+# for convenience
+DDNS_CONFIG=${NMDDNS_CONFIG_PAT/@MATCH@/${interface}}
+DDNS_STATE_PAT=${NMDDNS_STATE_PAT/@MATCH@/${interface}}
 
 function ddns_addr4() {
-
-  [ ${IP4_NUM_ADDRESSES:-0} -eq 0 ] && return 0
-
-  local priv_ok=
-  [ -n "$DDNS_RREC_A_PRIVATE" ] && priv_ok=1
+  # <retvar>
+  local _priv='' _n _vname _addr _alist=()
+  [[ ${DDNS_RREC_A_PRIVATE-} ]] && _priv=1
 
   # choose first public address
-  local idx= ddns_addr=
-  for (( idx=0; idx < $IP4_NUM_ADDRESSES; idx++ )); do
-    local addrgw=$(eval echo -n '$'IP4_ADDRESS_$idx)
-    # remove gateway
-    local addr=${addrgw%% *}
-    nmg_check_ip4_addr "${addr%%/*}" "$priv_ok" && echo -n "$addr" && break
+  for (( _n=0; _n < ${IP4_NUM_ADDRESSES:-0}; _n++ )); do
+    _vname="IP4_ADDRESS_${_n}"
+    # remove subnet/gateway
+    _addr=${!_vname%%/*}
+    nmg_check_ip4_addr "${_addr}" "${_priv}" && _alist+=("${_addr}")
   done
+  local IFS=,; _addr="${_alist[*]-}"; unset IFS
+  printf -v "$1" %s "${_addr}"
 }
 
 function ddns_addr6() {
-
-  [ ${IP6_NUM_ADDRESSES:-0} -eq 0 ] && return 0
-
-  local priv_ok=
-  [ -n "$DDNS_RREC_AAAA_PRIVATE" ] && priv_ok=1
+  # <retvar>
+  local _priv='' _n _vname _addr _alist=()
+  [[ ${DDNS_RREC_AAAA_PRIVATE-} ]] && _priv=1
 
   # choose first public address
-  local idx=
-  for (( idx=0; idx < $IP6_NUM_ADDRESSES; idx++ )); do
-    local addrgw=$(eval echo -n '$'IP6_ADDRESS_$idx)
-    # remove gateway
-    local addr=${addrgw%% *}
-    nmg_check_ip6_addr "${addr%%/*}" "$priv_ok" && echo -n "$addr" && break
+  for (( _n=0; _n < ${IP6_NUM_ADDRESSES:-0}; _n++ )); do
+    _vname="IP6_ADDRESS_${_n}"
+    # remove subnet/gateway
+    _addr=${!_vname%%/*}
+    nmg_check_ip6_addr "${_addr}" "${_priv}" && _alist+=("${_addr}")
   done
+  local IFS=,; _addr="${_alist[*]-}"; unset IFS
+  printf -v "$1" %s "${_addr}"
 }
 
 function ddns_action() {
   # <action>
-  nmddns_spawn_update_all "$1" "$DDNS_CONFIG" "$(ddns_addr4)" "$(ddns_addr6)" "$DDNS_STATE_PAT"
+  local addr4='' addr6=''
+  [[ $1 == up ]] && {
+    ddns_addr4 addr4
+    ddns_addr6 addr6
+  }
+  nmddns_spawn_update_all \
+    "$1" "${DDNS_CONFIG}" "${addr4}" "${addr6}" "${DDNS_STATE_PAT}"
 }
 
 nmg_debug "interface: $interface action: $action"
 
-case "$action" in
-  "up"|"down"|"dhcp4-change"|"dhcp6-change")
-    nmddns_read_config "$DDNS_CONFIG" || exit 0
+case ${action} in
+  up|down|dhcp4-change|dhcp6-change)
+    nmddns_read_config "${DDNS_CONFIG}" || exit 0
     ;;
 esac
 
-[ -e "$RUNDIR" ] || {
-  nmg_cmd mkdir -p "$RUNDIR" || exit
-}
+[[ -e ${DDNS_STATE_DIR} ]] || { nmg_cmd mkdir -p "${DDNS_STATE_DIR}" || exit; }
 
-case "$action" in
-  "up"|"down")
-    ddns_action "$action"
+ADDRS=''
+case ${action} in
+  up|down)
+    ddns_action "${action}"
     ;;
-  "dhcp4-change")
-    nmddns_spawn_update "$DDNS_CONFIG" "A" "$(ddns_addr4)" "$DDNS_STATE_PAT"
+  dhcp4-change)
+    ddns_addr4 ADDRS
+    nmddns_spawn_update "${DDNS_CONFIG}" "A" "${ADDRS}" "${DDNS_STATE_PAT}"
     ;;
-  "dhcp6-change")
-    nmddns_spawn_update "$DDNS_CONFIG" "AAAA" "$(ddns_addr6)" "$DDNS_STATE_PAT"
+  dhcp6-change)
+    ddns_addr6 ADDRS
+    nmddns_spawn_update "${DDNS_CONFIG}" "AAAA" "${ADDRS}" "${DDNS_STATE_PAT}"
     ;;
 esac
+
 # Local Variables:
 # mode: sh
 # sh-basic-offset: 2
