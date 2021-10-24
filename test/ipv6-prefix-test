@@ -16,12 +16,6 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 
 [[ $EUID == 0 ]] && xtest::fail "Never run as root!"
 
-_CONF_FILE="$NMCONF/ipv6-prefix-wan0.conf"
-
-# NMCONF/ipv6-prefix-wan0.conf must exist
-[ -r "${_CONF_FILE}" ] ||
-  xtest::fail "Please create ${_CONF_FILE}"
-
 _TEST_SCRIPT="${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix"
 
 # load all functions

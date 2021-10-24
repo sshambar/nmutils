@@ -129,6 +129,8 @@
 #
 # NOTE: executable paths (see below) may be overriden if needed
 #
+# shellcheck disable=SC1090
+
 interface="$1"
 action="$2"
 
@@ -162,11 +164,9 @@ NMDDNS_REQUIRED="1.4.3"
 
 # load ddns- or general-functions
 NMDDNS="${NMDDNS-${NMUTILS}/ddns-functions}"
-# shellcheck source=/dev/null
 { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
   # no DDNS, use general-functions
   NMDDNS='' NMG="${NMG:-${NMUTILS}/general-functions}"
-  # shellcheck source=/dev/null
   { [[ -r ${NMG} ]] && . "${NMG}"; } || {
     echo 1>&2 "Unable to read ${NMG}"; exit 2; }
 }

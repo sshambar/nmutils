@@ -69,6 +69,8 @@
 #
 #   /run/transmission-configured
 #
+# shellcheck disable=SC1090
+
 interface="$1"
 action="$2"
 
@@ -107,7 +109,6 @@ TR_IGNORE_V6=''
 
 # load general-functions
 NMG="${NMG:-${NMUTILS}/general-functions}"
-# shellcheck disable=SC1090
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load $NMG" && exit 2; }
 
