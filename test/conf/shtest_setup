@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.2.6 - Shell script testing functions
+# shtest v1.3.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -36,10 +36,12 @@
 #
 #     Show only tests matching <id> or <pattern> (*/? wildcards).
 #
-#   shtest::strict [ "trace" ]
+#   shtest::strict [ "trace" | "notrace" | "off" ]
 #
 #     Enables 'set -eEu' bash options, any failures a captured and fail
-#     the next shtest::check_*.  "trace" enables backtrace on failure.
+#     the next shtest::check_*.  "trace" enables backtrace on failure,
+#     "notrace" enables without backtrace, "off" disables mode/backtrace.
+#     No-arg enables strict, but doesn't modify backtrace setting.
 #
 #   shtest::global_whitelist <pattern>...
 #
@@ -54,7 +56,7 @@
 #   shtest::parse <file>
 #
 #     Runs a bash parse test of <file>, displays errors to stderr,
-#     returns true/false.
+#     returns !0 if failure.
 #
 #   shtest::cleanup
 #
@@ -123,7 +125,15 @@
 #
 #   shtest::last_check_ok
 #
-#     Returns true/false based on the result of the last shtest:check_*
+#     Returns boolean result of last shtest::check_*
+#
+#   shtest::strict_failed
+#
+#     Returns boolean if strict mode failed since last shtest::check_*
+#
+#   shtest::reset_state
+#
+#     Clear any strict/check state, non-global whitelist.
 #
 #   shtest::summary_report [ <title> ]
 #
@@ -147,18 +157,18 @@
 # shellcheck shell=bash
 
 shtest::_rm() {
-  [[ ${1-} ]] || return 0
-  command -p rm -f "$@"
+  local f
+  for f in "$@"; do [[ -f $f ]] && command -p rm -f "$f"; done
+  return 0
 }
 
 shtest::_touch() {
-  [[ ${1-} ]] || return 0
-  command -p touch "$@" || :
+  local f
+  for f in "$@"; do [[ $f ]] && { command -p touch "$f" || :; }; done
+  return 0
 }
 
-shtest::cleanup() {
-  # any cleanup?
-  [[ ${_SHTEST_STATE[0]-} ]] || return 0
+shtest::_disable_strict() {
   # check if we own the exit trap
   if [[ $(trap -p EXIT) =~ trap\ --\ \'shtest::_handle_exit ]]; then
     # restore the previous trap (or clear it)
@@ -175,6 +185,16 @@ shtest::cleanup() {
      # unset strict mode
      set +eu
   fi
+  local i
+  # clear strict, trap, trace
+  for i in 2 4 6; do _SHTEST_STATE[$i]=''; done
+  return 0
+}
+
+shtest::cleanup() {
+  # any cleanup?
+  [[ ${_SHTEST_STATE[0]-} ]] || return 0
+  shtest::_disable_strict
   # close our log
   exec 88>&-
   unset _SHTEST_STATE _SHTEST_TESTLIST _SHTEST_REG_FILES _SHTEST_FOCUS
@@ -208,10 +228,14 @@ shtest::_reset_state() {
   # if strict handled err, re-enable
   if [[ ${_SHTEST_STATE[2]} ]]; then
     [[ $- =~ e ]] || set -eEu
-    [[ -f "${_SHTEST_STATE[2]}" ]] && {
+    [[ -f ${_SHTEST_STATE[2]} ]] && {
       shtest::_rm "${_SHTEST_STATE[2]}"; return 1; }
   fi
   return 0
+}
+
+shtest::reset_state() {
+  shtest::_reset_state || :
 }
 
 shtest::_log() { # <msg>
@@ -305,6 +329,12 @@ shtest::last_check_ok() {
   [[ ${_SHTEST_STATE[7]} ]]
 }
 
+shtest::strict_failed() {
+  shtest::_checkinit
+  [[ ${_SHTEST_STATE[2]} && -f ${_SHTEST_STATE[2]} ]] && return 0
+  return 1
+}
+
 shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
   local id=${1-} desc="${2:+ | ${_SHTEST_STATE[5]}}${2:-}"
   shtest::_fmtlog " %-4s FAIL%s" "${id}" "${desc}"
@@ -324,7 +354,7 @@ shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
 
 shtest::title() { # <title>
   shtest::_checkinit
-  _SHTEST_STATE[5]=
+  _SHTEST_STATE[5]=''
   shtest::_reset_state || :
   [[ $* ]] && shtest::log $'\n'"===== $* ====="$'\n'
 }
@@ -338,12 +368,12 @@ shtest::_check_entry() { # <id> [ <desc> ]
   local id=$1 desc=${2-} IFS; unset IFS
   shtest::_checkinit 2
   ((_SHTEST_STATE[0]++)) || :
-  [[ ${_SHTEST_TESTLIST[*]-} =~ (^| )${id}($| ) ]] &&
+  [[ ${_SHTEST_TESTLIST[*]-} =~ (^| )"${id}"($| ) ]] &&
     shtest::fatal "${FUNCNAME[1]}: Duplicate test <id> '${id}'" 2
   _SHTEST_TESTLIST+=("${id}")
   [[ ${#_SHTEST_FOCUS[*]} != 0 ]] && {
     IFS='|'
-    [[ ${id} =~ ^${_SHTEST_FOCUS[*]}$ ]] && _SHTEST_STATE[8]=
+    [[ ${id} =~ ^${_SHTEST_FOCUS[*]}$ ]] && _SHTEST_STATE[8]=''
   }
   shtest::_reset_state && return 0
   shtest::_log_fail "${id}" "${desc}" "strict mode failure"
@@ -437,7 +467,7 @@ shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
 shtest::_check_file() { # <id> <filename> <contents> <desc>, sets $rc
   local id=$1 file=$2 ref=$3 desc=$4 out IFS
   rc=1 # failure unless we match content
-  if ! [[ -f "${file}" ]]; then
+  if ! [[ -f ${file} ]]; then
     shtest::_log_fail "${id}" "${desc}" "File \"${file}\" not found"
   elif ! [[ -r "${file}" ]]; then
     shtest::_log_fail "${id}" "${desc}" "File \"${file}\" unreadable"
@@ -524,10 +554,11 @@ shtest::_toreg() { # <retvar> <name/pattern>
 }
 
 shtest::add_focus() { # <id/pattern>
-  local p
+  local p IFS; unset IFS
   shtest::_checkinit
   shtest::_toreg p "${1-}" || return
-  _SHTEST_FOCUS+=("${p}")
+  [[ ${_SHTEST_FOCUS[*]-} =~ (^| )"$p"($| ) ]] && return
+  _SHTEST_FOCUS+=("$p")
   # mutes log/_log except during test
   _SHTEST_STATE[8]=1
   return 0
@@ -550,7 +581,7 @@ shtest::check_env() { # <id> <varname> [ <desc> ]
 
   local _SHTEST_NAME _SHTEST_ENV="${2}[*]" _SHTEST_NEWVARS=()
   for _SHTEST_NAME in $(compgen -v); do
-    [[ ${!_SHTEST_ENV} =~ (^| )${_SHTEST_NAME}($| ) ]] && continue
+    [[ ${!_SHTEST_ENV} =~ (^| )"${_SHTEST_NAME}"($| ) ]] && continue
     [[ ${_SHTEST_NAME} =~ ^_SHTEST_(NEWVARS|NAME|ENV)$ ]] && continue
     [[ ${_SHTEST_NAME} =~ ^BASH_.*|LINES|COLUMNS$ ]] && continue
     _SHTEST_NEWVARS+=("${_SHTEST_NAME}")
@@ -645,9 +676,19 @@ shtest::_handle_exit() { # <$?>
   return ${_shtest_rc}
 }
 
-shtest::strict() { # [ "trace" ]
+shtest::strict() { # [ "trace" | "notrace" | "off" ]
   shtest::_checkinit
-  [[ ${1-} == trace ]] && _SHTEST_STATE[6]=1
+  if [[ ${1-} == trace ]]; then
+    _SHTEST_STATE[6]=1
+  elif [[ ${1-} == notrace ]]; then
+    _SHTEST_STATE[6]=''
+  elif [[ ${1-} == off ]]; then
+    shtest::_disable_strict
+    return 0
+  elif [[ ${1-} ]]; then
+    shtest::fatal "Usage: shtest::strict [ trace | notrace | off ]" 1
+  fi
+  # only enable once
   [[ ${_SHTEST_STATE[2]} ]] && return 0
   _SHTEST_STATE[2]=$(command -p mktemp -u -t "shtest-strict-XXXXXX") || :
   [[ ${_SHTEST_STATE[2]} ]] ||
@@ -659,27 +700,29 @@ shtest::strict() { # [ "trace" ]
 }
 
 shtest::whitelist() { # <pattern>...
-  local p
+  local p IFS; unset IFS
   shtest::_checkinit
   for p in "$@"; do
-    shtest::_toreg p "${p}" || return
-    _SHTEST_WHITELIST+=("${p}")
+    shtest::_toreg p "$p" || continue
+    [[ ${_SHTEST_WHITELIST[*]-} =~ (^| )"$p"($| ) ]] && continue
+    _SHTEST_WHITELIST+=("$p")
   done
 }
 
 shtest::global_whitelist() { # <pattern>...
-  local p
+  local p IFS; unset IFS
   shtest::_checkinit
   for p in "$@"; do
-    shtest::_toreg p "${p}" || return
-    _SHTEST_GLOBAL_WHITELIST+=("${p}")
+    shtest::_toreg p "$p" || continue
+    [[ ${_SHTEST_GLOBAL_WHITELIST[*]-} =~ (^| )"$p"($| ) ]] && continue
+    _SHTEST_GLOBAL_WHITELIST+=("$p")
   done
 }
 
 shtest::verbose() { # [ <level> ]
   local v=${1-1}
   shtest::_checkinit
-  [[ ${v} == 0 ]] && v=
+  [[ ${v} == 0 ]] && v=''
   _SHTEST_STATE[3]=${v}
 }
 

@@ -64,7 +64,7 @@ NMCONF="${NMCONF:-${NMUTILS}/conf}"
 
 RUNDIR="${RUNDIR:-/run/nmutils}"
 LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
-ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/${interface}/accept_ra}"
+ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/${interface-}/accept_ra}"
 # sysctl forwarding state (must contain "@NODE@")
 FORWARDING_PAT="${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}"
 
@@ -1000,7 +1000,7 @@ ipv6_down() {
   ipv6_flush
 }
 
-if [[ $reason ]]; then
+if [[ ${reason-} ]]; then
   nmg_debug "interface: ${interface} reason: ${reason}"
 
   [[ -e ${RUNDIR} ]] || { nmg_cmd mkdir -p "${RUNDIR}" || exit 0; }
@@ -1010,7 +1010,7 @@ if [[ $reason ]]; then
   NMG_DAEMON_CGROUP=''
 fi
 
-case "${reason}" in
+case "${reason-}" in
   BOUND6|RENEW6|REBIND6)
     # (old_) new_ values
     ipv6_start

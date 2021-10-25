@@ -46,7 +46,8 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 [[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
 
 NMG_XTEST_BASE=${0##*/}
-XLOG="$TEST_OUT/${NMG_XTEST_BASE}.log" XERR="$TEST_OUT/${NMG_XTEST_BASE}.err"
+XLOG="$TEST_OUT/${NMG_XTEST_BASE}.log"
+XERR="$TEST_OUT/${NMG_XTEST_BASE}.err"
 unset NMG_XTEST_BASE
 
 xwrap() {
@@ -57,10 +58,8 @@ xwrap() {
 }
 
 xrm() {
-  local file
-  for file in "$@"; do
-    [[ ${file} ]] && command -p rm -f "${file}"
-  done
+  local f
+  for f in "$@"; do [[ $f ]] && command -p rm -f "$f"; done
   return 0
 }
 
@@ -70,33 +69,47 @@ xread_value() {
   read -r -d '' "$1" || :
 }
 
+_xload_check() {
+  local xrc="exit 0" IFS; unset IFS
+
+  [[ -s ${XERR}-flag ]] &&
+    { read -r -d '' xrc || :; } 2>/dev/null < "${XERR}-flag"
+  xrm "${XERR}-flag"
+
+  [[ ${xrc} == "result 0" && ! -s ${XLOG} && ! -s ${XERR} ]] && return 0
+
+  shtest::cleanup
+  if [[ ${xrc} == "result 0" ]]; then
+    xtest::fail "  Loading '$1' failed (output/log)"
+  else
+    xtest::fail "  Loading '$1' failed (${xrc})"
+  fi
+}
+
 xload_script() {
   # <file> [ <args>... ]
-  local file=${1-}; shift || set --
 
-  [[ -z ${file} ]] && return
+  [[ -z ${1-} ]] && return 0
 
   shtest::title "Loading script"
 
   # ensure includes pass parse test
-  shtest::parse "${file}" || shtest::fatal
+  shtest::parse "$1" || shtest::fatal
 
-  (xwrap . "${file}" "$@"; echo >>"$XERR" "loaded $?")
-  local rc=$? xlog xerr IFS; unset data err IFS
-  { read -r -d '' xlog || :; } 2>/dev/null < "${XLOG}"
-  { read -r -d '' xerr || :; } 2>/dev/null < "${XERR}"
-  [[ -z ${xlog-} && ${xerr-} == "loaded 0" ]] || {
-    [[ ${xerr-} == "loaded 0" ]] && xrm "${XERR}"
-    if (( rc == 0 )); then
-      xtest::fail "  Loading '${file}' failed"
-    else
-      xtest::fail "  Loading '${file}' failed (exit ${rc})"
-    fi
-  }
-  shtest::log "  Script ${file##*/} loaded"
+  xrm "${XERR}-flag"
+  ( # check for exit/errors
+    shtest::strict off
+    xwrap source "$@"
+    echo >>"${XERR}-flag" "result $?"
+  ) || echo >>"${XERR}-flag" "exit $?"
+
+  _xload_check "$1"
 
   # load script in current subshell
-  xwrap . "${file}" "$@"
+  xwrap source "$@"
+  shtest::strict_failed && shtest::fatal "Loading ${1##*/} failed strict test"
+
+  shtest::log "  Script ${1##*/} loaded"
 
   # reset PATH
   PATH=''
@@ -124,6 +137,10 @@ xstart() {
     shtest::reg_file "$XERR"
 
     local IFS=-
+
+    shtest::global_whitelist "xwrap"
+
+    xtest::parse_options "$@"
 
     xmain "$@"
 

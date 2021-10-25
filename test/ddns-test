@@ -407,14 +407,16 @@ test_version() {
 
   shtest::title "Check version requirements"
 
-  (. "${NMDDNS}" 2>/dev/null) &&
+  shtest::whitelist source
+  (xwrap source "${NMDDNS}") &&
     xtest::fail "  FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
 
   unset NMG_REQUIRED
   local NMDDNS_REQUIRED="99.0.0"
 
-  (. "${NMDDNS}" 2>/dev/null) &&
+  (xwrap source "${NMDDNS}") &&
     xtest::fail "FATAL: ${NMDDNS} loaded when NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
+  shtest::reset_state
 
   shtest::log "  Version enforcement working"
 }

@@ -1,6 +1,6 @@
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.1.1 - shtest suite in a box
+# xtest_setup v1.1.2 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -49,6 +49,10 @@
 #
 #     Parses command-line <args>, runs requested tests and creates
 #     summary report with <title>, and resets.
+#
+#   xtest::parse_options [ <args> ]
+#
+#     Parses command-line <args> for logging modes/strict flags
 #
 # Shortcuts:
 #
@@ -123,6 +127,22 @@ xtest::_usage() { # <modes>
   exit 1
 }
 
+xtest::parse_options() { # <args>...
+  local arg
+  for arg in "$@"; do
+    case ${arg} in
+      strict|trace)
+        shtest::strict "${arg/strict}"
+        shtest::global_whitelist "xtest::group*"
+        ;;
+      verbose) shtest::verbose ;;
+      quiet) shtest::quiet ;;
+      help) xtest::_parse_args _help ;;
+    esac
+  done
+  return 0
+}
+
 # sets _reqs, _all
 xtest::_parse_args() { # <args>...
   local _arg IFS; unset IFS
@@ -130,27 +150,19 @@ xtest::_parse_args() { # <args>...
   { read -r -a _all -d '' || :; } \
     <<< "$(compgen -A function xtest::group | command -p sort)"
 
+  xtest::parse_options "$@"
+
   for _arg in "$@"; do
     if [[ "${_all[*]}" =~ (^| )(xtest::group.::"$_arg")($| ) ]]; then
       _reqs+=("${BASH_REMATCH[2]}")
     else
       case ${_arg} in
-        all) : ;;
-        strict|trace)
-          shtest::strict "${_arg[@]/strict/}"
-          shtest::global_whitelist "xtest::group*" "xwrap"
-          ;;
-        verbose)
-          shtest::verbose
-          ;;
-        quiet)
-          shtest::quiet
-          ;;
+        strict|trace|verbose|quiet|all) : ;;
         +*)
           _arg=${_arg#+}; [[ ${_arg} ]] || xtest::_usage "${_all[@]}"
           shtest::add_focus "${_arg}"
           ;;
-        help)
+        _help)
           xtest::_usage "${_all[@]}"
           ;;
         *)

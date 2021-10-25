@@ -1418,8 +1418,12 @@ test_version() {
 
   shtest::title "Check version requirements"
 
-  (. "${NMG}" 2>/dev/null) &&
+  shtest::whitelist source
+
+  (source 2>/dev/null "${NMG}") &&
     xtest::fail "  FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
+
+  shtest::reset_state
 
   shtest::log "  Version enforcement working"
 }
