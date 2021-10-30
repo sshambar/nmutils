@@ -1,4 +1,5 @@
 #!/bin/sh
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # interface-dispatcher v1.1 - service restart on interface change
@@ -102,9 +103,3 @@ case "$action" in
 esac
 
 exit 0
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

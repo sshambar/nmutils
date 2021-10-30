@@ -1,3 +1,4 @@
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # NMG - Some useful functions NetworkManager scripts can include and use
@@ -1590,10 +1591,3 @@ nmg::_loaded() {
 
 # last, so load fails if any missing components
 nmg::_loaded
-
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

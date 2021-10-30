@@ -1,4 +1,5 @@
 #!/bin/bash
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # dhclient-ipv6-prefix v1.99.0 - dhclient script for ipv6 Prefix Delegation
@@ -1035,10 +1036,3 @@ esac
 
 [[ ${EXIT_CODE} ]] && exit ${EXIT_CODE}
 : # for loading in tests
-
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

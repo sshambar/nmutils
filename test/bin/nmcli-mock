@@ -1,5 +1,6 @@
 #!/bin/bash
-# -*- mode:sh; sh-indentation:2 -*- vim:set ft=sh et sw=2 ts=2:
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
+# vim:set ft=sh et sw=2 ts=2:
 #
 # nmcli-mock - nmcli command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>

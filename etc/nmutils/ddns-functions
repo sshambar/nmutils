@@ -1,3 +1,4 @@
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # NMDDNS - Dynamic DNS functions scripts can include and use
@@ -586,10 +587,3 @@ nmddns_spawn_update_all() {
 
 # last, to fail load if any missing components
 nmddns::_loaded
-
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

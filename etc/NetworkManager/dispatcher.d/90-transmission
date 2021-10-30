@@ -1,4 +1,5 @@
 #!/bin/bash
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # 90-transmission v1.1.1 - Transmission dispatcher script
@@ -245,9 +246,3 @@ case "${action}" in
   up|dhcp4-change|dhcp6-change) tr_start ;;
   down) tr_stop ;;
 esac
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

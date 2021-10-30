@@ -1,4 +1,5 @@
 #!/bin/bash
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
 # nmddns-helper v1.2.0 - NMUtils Dynamic DNS helper program
@@ -172,10 +173,3 @@ fi
 
 [[ ${EXIT_CODE} ]] && exit ${EXIT_CODE}
 : # for loading in tests
-
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:
