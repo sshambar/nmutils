@@ -11,9 +11,12 @@
 #VERBOSE := 1
 # logs of debug output to stderr
 #DEBUG := 2
+# strict mode
+STRICT := strict
 
 TEST_ROOT := .
 TEST_BIN := $(TEST_ROOT)/bin
+TEST_SHELL := bash
 
 # variables used in configuration files (exported)
 
@@ -34,7 +37,7 @@ TEST_SYSTEMCTL := $(TEST_BIN)/dummy-mock
 # default addrs for ip-mock
 IP_MOCK_ADDRS := $(TEST_CONF)/ip-mock-addrs
 
-all: all-radvd
+all: general ddns all-prefix all-radvd
 
 help:
 	@echo "make targets:"
@@ -44,6 +47,24 @@ help:
 	@echo "  bless-radvd-test  - replace a test results (prompts for #)"
 
 all-radvd: radvd-test-1 radvd-test-2 radvd-test-3 radvd-test-4
+
+general:
+	$(TEST_SHELL) $(TEST_ROOT)/general-test $(STRICT)
+
+ddns:
+	$(TEST_SHELL) $(TEST_ROOT)/ddns-test $(STRICT)
+
+all-prefix: ipv6-prefix nm-ddns dhclient-prefix
+
+ipv6-prefix:
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-test $(STRICT)
+
+nm-ddns:
+	$(TEST_SHELL) $(TEST_ROOT)/nm-ddns-test $(STRICT)
+
+dhclient-prefix:
+	$(TEST_SHELL) $(TEST_ROOT)/dhclient-prefix-test $(STRICT)
+
 
 $(TEST_OUT):
 	@mkdir -p "$(TEST_OUT)"
@@ -66,7 +87,7 @@ $(TEST_OUT)/%-radvd.conf: $(TEST_EXPECT)/%-radvd.conf
 	@echo "Running radvd-gen test $(TEST_NUM)"
 	@[ -f "$(TEST_CONF)/$(TEST_NUM)-radvd.conf" ] && \
 	 cp "$(TEST_CONF)/$(TEST_NUM)-radvd.conf" "$@" || :
-	@VERBOSE=$(VERBOSE) $(TEST_ROOT)/radvd-test
+	@VERBOSE=$(VERBOSE) $(TEST_SHELL) $(TEST_ROOT)/radvd-test
 	@diff >/dev/null "$<" "$@" || { \
 	   echo "FAIL: $< $@ differ:"; diff "$<" "$@"; }
 
@@ -78,5 +99,5 @@ bless-radvd-test:
 	@echo "WARNING: this will overwrite the expected for this test!" && \
 	 read -p "Test # to replace (empty to quit): " TEST_NUM && \
 	 [ -n "$$TEST_NUM" ] && export TEST_NUM && \
-	 $(TEST_ROOT)/radvd-test && \
+	 $(TEST_SHELL) $(TEST_ROOT)/radvd-test && \
 	 cp -f "$(TEST_OUT)/$${TEST_NUM}-radvd.conf" $(TEST_EXPECT)

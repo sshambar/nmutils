@@ -14,8 +14,10 @@ fail() {
   exit "$rc"
 }
 
-[[ ${PGREP_MOCK_FAIL-} || ${PGREP_MOCK_OUTPUT-} ]] &&
+[[ ${PGREP_MOCK_FAIL-} || ${PGREP_MOCK_OUTPUT-} ]] && {
+  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
   fail "${PGREP_MOCK_FAIL:-0}" \
-       "${PGREP_MOCK_OUTPUT+${PGREP_MOCK_OUTPUT/@ARGS@/$*}}"
+       "${PGREP_MOCK_OUTPUT+${PGREP_MOCK_OUTPUT/@ARGS@/${args}}}"
+}
 
 exit 0

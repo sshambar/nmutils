@@ -18,6 +18,7 @@ dev eth3
 addr6 2001:db8:5::1/64 14400sec 86400sec global tentative dadfailed
 addr6 fe80::1e5a:81fe:ed8a:21a4/64 forever forever link noprefixroute
 dev wan0
+addr6 2001:db8:800::2/64 forever forever global
 addr6 fe80::0a44:e1f0:d471:03b5/64 forever forever link noprefixroute
 dev br0
 addr 192.168.88.1/24 forever forever global noprefixroute br0

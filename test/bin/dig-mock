@@ -231,8 +231,10 @@ parse_args() {
 parse_args "$@"
 
 [[ ${DIG_MOCK_FAIL-} || ${DIG_MOCK_OUTPUT-} ]] && {
-  unset IFS; fail "${DIG_MOCK_FAIL:-0}" \
-                  "${DIG_MOCK_OUTPUT+${DIG_MOCK_OUTPUT/@ARGS@/$*}}"; }
+  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+  fail "${DIG_MOCK_FAIL:-0}" \
+       "${DIG_MOCK_OUTPUT+${DIG_MOCK_OUTPUT/@ARGS@/${args}}}"
+}
 
 verbose "Using state file: ${file}"
 

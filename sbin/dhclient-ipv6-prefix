@@ -621,8 +621,8 @@ ipv6_nm_reapply() { # returns 0 if applied ok, !0 if DAD failure
 # compares nm item <name> with ,-list handling duplicates and ordering diffs
 ipv6_nm_config_diff() { # return 0 if differ, 1 if same
   # <name> <,-list-with-dups>
-  nmg::prop_match_values "${NM_CONFIG}" "$1" "," "$2" || return 0
-  return 1
+  nmg::prop_match_values "${NM_CONFIG}" "$1" "," "$2" && return 1
+  return 0
 }
 
 # verify iaid for filename use
@@ -654,15 +654,13 @@ ipv6_remove_state_iaid() { # returns 0
   # <name-@ID@> <iaid>
   local id file
   ipv6_verify_iaid id "$2" || return 0
-  file=${2/@ID@/${id}}
+  file=${1/@ID@/${id}}
   [[ -e ${file} ]] && nmg_remove "${file}"
   return 0
 }
 
 ipv6_addr_state_times() { # returns 0
   # <state-file> <iaid>
-  # ignore new_iaid, as it's already applied
-  [[ ${new_iaid-} && ${2} == "${new_iaid}" ]] && return 0
   local state='' addr6='' valid=0 pref=0 start=0
   nmg::read state "" "$1" || return 0
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
@@ -709,9 +707,9 @@ ipv6_nm_update() { # returns 0
     nmg::array_join xdns_srch "," "${dns_srch[@]-}"
   fi
 
-  if ipv6_nm_config_diff "addresses" "${xaddrs}" ||
-      ipv6_nm_config_diff "dns" "${xdns}" ||
-      ipv6_nm_config_diff "dns-search" "${xdns_srch}"; then
+  if ipv6_nm_config_diff "ipv6.addresses" "${xaddrs}" ||
+      ipv6_nm_config_diff "ipv6.dns" "${xdns}" ||
+      ipv6_nm_config_diff "ipv6.dns-search" "${xdns_srch}"; then
 
     # we have changes... update NM
     if [[ ${xaddrs} ]]; then
@@ -735,10 +733,8 @@ ipv6_nm_update() { # returns 0
     return 0
   }
 
-  if [[ ${NM_MODIFIED} ]]; then
-    # nm_reapply clobbers all times, update them
-    nmg::foreach_filematch "${WAN_STATE_PAT}" "@ID@" ipv6_addr_state_times
-  fi
+  # update lifetimes (even if NM not modified, times may change)
+  nmg::foreach_filematch "${WAN_STATE_PAT}" "@ID@" ipv6_addr_state_times
 
   return 0
 }

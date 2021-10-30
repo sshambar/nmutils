@@ -87,7 +87,7 @@ xtest::group3::action() {
   xtest A1 t "(up) - returns true"
   xread_value out <<-EOF
 	Setting dns.example.test AAAA to 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
@@ -95,7 +95,7 @@ xtest::group3::action() {
 	update add dns.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	Setting dns.example.test A to 198.51.100.2,203.0.113.55
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -109,13 +109,13 @@ xtest::group3::action() {
   xtest A2 t "(down) - returns true"
   xread_value out <<-EOF
 	Removing dns.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
 	send
 	Removing dns.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -137,8 +137,6 @@ xmain() {
                wan0 general
 
   xtest::run_tests "09-ddns Test Summary" "$@"
-
-  return 0
 }
 
 xstart "$@"

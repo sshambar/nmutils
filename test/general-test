@@ -255,6 +255,12 @@ xtest::group3::prop() {
 
   xwrap nmg::prop_match_values "$dict" "mitem" "," "yy,xx,yy"
   xtest N34 t "(<with dups>) returns true"
+
+  xwrap nmg::prop_match_values "$dict" "mitem" "," ""
+  xtest N35 f "(<empty>) returns false"
+
+  xwrap nmg::prop_match_values "$dict" "item" "," ""
+  xtest N36 f "(<empty>) returns false"
 }
 
 xtest::group3::cmd() {
@@ -480,12 +486,15 @@ xtest::group3::ip() {
   var='bogus'
   xwrap nmg::mod_ip var "" "add6" "eth1" "fdac:3741:50f8:f623::1/48" "preferred_lft" 0
   xtest I22 t "(add existing) returns true"
-  vtest I22v "ip -6 addr replace fdac:3741:50f8:f623::1/48 dev eth1 preferred_lft 0" " - sets var to output"
+  vtest I22v "ip '-6' 'addr' 'replace' 'fdac:3741:50f8:f623::1/48' 'dev' 'eth1' 'preferred_lft' '0'" \
+        " - sets var to output"
   ftest I22f "Replacing fdac:3741:50f8:f623::1/48 on eth1" " - logs action"
 
-  xwrap nmg::mod_ip var "" "change6" "eth1" "fdac:3741:50f8:f623::1/48" "valid_lft" 0 "preferred_lft" 0
+  xwrap nmg::mod_ip var "" "change6" "eth1" "fdac:3741:50f8:f623::1/48" \
+        "valid_lft" 0 "preferred_lft" 0
   xtest I23 t "(change existing) returns true"
-  vtest I23v "ip -6 addr change fdac:3741:50f8:f623::1/48 dev eth1 valid_lft 0 preferred_lft 0" " - sets var to output"
+  vtest I23v "ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48' 'dev' 'eth1' 'valid_lft' '0' 'preferred_lft' '0'" \
+        " - sets var to output"
   ftest I23f "Changing fdac:3741:50f8:f623::1/48 on eth1" " - logs action"
 
   shtest::prefix "nmg::wait_dad6"
@@ -527,6 +536,7 @@ xtest::group3::ip() {
 }
 
 xtest::group3::ip4() {
+  local out
 
   shtest::title "IP4 Tests (ip4 group)"
 
@@ -589,52 +599,79 @@ xtest::group3::ip4() {
 
   xwrap nmg_add_ip4_addr "lo" "127.0.0.1/8"
   xtest V24 t "(<existing addr>) returns true"
-  ftest V24f "Replacing 127.0.0.1/8 on lo"$'\n'"$NMG_IP => ip -4 addr replace 127.0.0.1/8 dev lo" \
-        " - performs replace"
+  xread_value out <<-EOF
+	Replacing 127.0.0.1/8 on lo
+	$NMG_IP => ip '-4' 'addr' 'replace' '127.0.0.1/8' 'dev' 'lo'
+	EOF
+  ftest V24f "$out" " - performs replace"
 
   xwrap nmg_add_ip4_addr "eth0" "10.5.5.10"
   xtest V25 t "(<new addr w/ plen>) returns true"
-  ftest V25f "Adding 10.5.5.10/32 to eth0"$'\n'"$NMG_IP => ip -4 addr add 10.5.5.10/32 dev eth0" \
-        " - adds address with default plen"
+  xread_value out <<-EOF
+	Adding 10.5.5.10/32 to eth0
+	$NMG_IP => ip '-4' 'addr' 'add' '10.5.5.10/32' 'dev' 'eth0'
+	EOF
+  ftest V25f "$out" " - adds address with default plen"
 
   xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24"
   xtest V26 t "(<new addr>) returns true"
-  ftest V26f "Adding 10.10.5.11/24 to eth1"$'\n'"$NMG_IP => ip -4 addr add 10.10.5.11/24 dev eth1" \
-        " - adds address"
+  xread_value out <<-EOF
+	Adding 10.10.5.11/24 to eth1
+	$NMG_IP => ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1'
+	EOF
+  ftest V26f "$out" " - adds address"
 
   xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24" "invalid"
   xtest V27 255 "(<bad ip-args>) returns 255"
-  ftest V27f "Adding 10.10.5.11/24 to eth1"$'\n'"ERR: FAIL(255) $NMG_IP -4 addr add 10.10.5.11/24 dev eth1 invalid => Error: either \"local\" is duplicate, or \"invalid\" is a garbage." \
-        " - logs error"
+  xread_value out <<-EOF
+	Adding 10.10.5.11/24 to eth1
+	ERR: FAIL(255) $NMG_IP -4 addr add 10.10.5.11/24 dev eth1 invalid => Error: either "local" is duplicate, or "invalid" is a garbage.
+	EOF
+  ftest V27f "$out" " - logs error"
 
   xwrap nmg_add_ip4_addr "eth1" "10.10.5.11/24" "valid_lft" "forever"
   xtest V28 t "(<ip-args>) returns true"
-  ftest V28f "Adding 10.10.5.11/24 to eth1"$'\n'"$NMG_IP => ip -4 addr add 10.10.5.11/24 dev eth1 valid_lft forever" \
-        " - performs add with args"
+  xread_value out <<-EOF
+	Adding 10.10.5.11/24 to eth1
+	$NMG_IP => ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1' 'valid_lft' 'forever'
+	EOF
+  ftest V28f "$out" " - performs add with args"
 
   xwrap nmg_add_ip4_addr "eth1" "10.0.10.12/24" "valid_lft" "forever"
   xtest V29 t "(<existing> <ip-args>) returns true"
-  ftest V29f "Replacing 10.0.10.12/24 on eth1"$'\n'"$NMG_IP => ip -4 addr replace 10.0.10.12/24 dev eth1 valid_lft forever" \
-        " - performs replace with args"
+  xread_value out <<-EOF
+	Replacing 10.0.10.12/24 on eth1
+	$NMG_IP => ip '-4' 'addr' 'replace' '10.0.10.12/24' 'dev' 'eth1' 'valid_lft' 'forever'
+	EOF
+  ftest V29f "$out" " - performs replace with args"
 
   shtest::prefix "nmg_change_ip4_addr"
 
   xwrap nmg_change_ip4_addr "eth1" "10.0.10.12/24" "preferred_lft" "0"
   xtest V31 t "(<pref-life=0>) returns true"
-  ftest V31f "Changing 10.0.10.12/24 on eth1"$'\n'"$NMG_IP => ip -4 addr change 10.0.10.12/24 dev eth1 preferred_lft 0" \
-        " - performs change"
+  xread_value out <<-EOF
+	Changing 10.0.10.12/24 on eth1
+	$NMG_IP => ip '-4' 'addr' 'change' '10.0.10.12/24' 'dev' 'eth1' 'preferred_lft' '0'
+	EOF
+  ftest V31f "$out" " - performs change"
 
   xwrap nmg_change_ip4_addr "eth1" "10.10.10.12/24" "preferred_lft" "0"
   xtest V32 t "(<new addr>) returns true"
-  ftest V32f "Adding 10.10.10.12/24 to eth1"$'\n'"$NMG_IP => ip -4 addr replace 10.10.10.12/24 dev eth1 preferred_lft 0" \
-        " - performs replace"
+  xread_value out <<-EOF
+	Adding 10.10.10.12/24 to eth1
+	$NMG_IP => ip '-4' 'addr' 'replace' '10.10.10.12/24' 'dev' 'eth1' 'preferred_lft' '0'
+	EOF
+  ftest V32f "$out" " - performs replace"
 
   shtest::prefix "nmg_del_ip4_addr"
 
   xwrap nmg_del_ip4_addr "eth1" "10.0.10.12/24"
   xtest V41 t "(<existing addr>) returns true"
-  ftest V41f "Removing 10.0.10.12/24 from eth1"$'\n'"$NMG_IP => ip -4 addr del 10.0.10.12/24 dev eth1" \
-        " - performs delete"
+  xread_value out <<-EOF
+	Removing 10.0.10.12/24 from eth1
+	$NMG_IP => ip '-4' 'addr' 'del' '10.0.10.12/24' 'dev' 'eth1'
+	EOF
+  ftest V41f "$out" " - performs delete"
 
   xwrap nmg_del_ip4_addr "eth1" "10.10.10.12/24"
   xtest V42 2 "(<addr-missing>) returns 2"
@@ -852,6 +889,11 @@ xtest::group3::ip6() {
   xtest P94 t "(FE80::/8) returns true"
 }
 
+xtest::onexit::file() {
+  [[ ${TEST_OUT-} ]] || return 0
+  xrm "$TEST_OUT/"*".match"
+}
+
 xtest::group3::file() {
   local var=''
 
@@ -1026,7 +1068,7 @@ xtest::group3::file() {
   xtest F53 2 "(<bad-dir>) returns 2"
   ftest F53f "ERR: nmg::realpath: failed to locate ${XNOFILE}/a\' test" " - logs error"
 
-  xrm "$TEST_OUT/"*".match"
+  xtest::onexit::file
 }
 
 xtest::group3::misc() {
@@ -1428,6 +1470,10 @@ test_version() {
   shtest::log "  Version enforcement working"
 }
 
+xtest::onexit() {
+  xrm "${XFILE-}"
+}
+
 xmain() {
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/general file"
   local NMG=${NMG:-${NMUTILS}/general-functions}
@@ -1437,11 +1483,11 @@ xmain() {
   test_version
 
   xtest::run_tests "general-functions Test Summary" "$@"
+  local rc=$?
 
-  # cleanup
-  xrm "$XFILE"
+  xtest::onexit
 
-  return 0
+  return $rc
 }
 
 xstart "$@"

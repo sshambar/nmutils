@@ -271,8 +271,10 @@ parse_args() {
 parse_args "$@"
 
 [[ ${IP_MOCK_FAIL-} || ${IP_MOCK_OUTPUT-} ]] && {
-  unset IFS; fail "${IP_MOCK_FAIL:-0}" \
-                  "${IP_MOCK_OUTPUT+${IP_MOCK_OUTPUT/@ARGS@/$*}}"; }
+  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+  fail "${IP_MOCK_FAIL:-0}" \
+       "${IP_MOCK_OUTPUT+${IP_MOCK_OUTPUT/@ARGS@/${args}}}"
+}
 
 verbose "OBJECT=$OBJECT COMMAND=$COMMAND"
 verbose "IPV4=$IPV4 IP4=$IP4"
@@ -285,7 +287,11 @@ case $OBJECT in
     read_addr_state "$IP_MOCK_ADDRS"
     case $COMMAND in
       add|change|replace|del|delete)
-        [[ ${MOCK_ECHO} ]] && echo "ip" "$@"
+        [[ ${MOCK_ECHO} ]] && {
+          out='ip' arg=''
+          for arg in "$@"; do out+=" '${arg}'"; done
+          printf '%s\n' "${out}"
+        }
         ;;
       show) addr_show;;
       *) fail 1 "Command \"$COMMAND\" not implemented"

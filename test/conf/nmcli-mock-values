@@ -694,12 +694,12 @@ ipv4.may-fail:yes
 ipv4.dad-timeout:-1
 ipv4.dhcp-vendor-class-identifier:
 ipv4.dhcp-reject-servers:
-ipv6.method:ignore
+ipv6.method:manual
 ipv6.dns:
 ipv6.dns-search:
 ipv6.dns-options:
 ipv6.dns-priority:0
-ipv6.addresses:
+ipv6.addresses:2001:db8:800::2/64
 ipv6.gateway:
 ipv6.routes:
 ipv6.route-metric:-1

@@ -501,8 +501,10 @@ do_device() {
 }
 
 [[ ${NMCLI_MOCK_FAIL-} || ${NMCLI_MOCK_OUTPUT-} ]] && {
-  unset IFS; fail "${NMCLI_MOCK_FAIL:-0}" \
-                  "${NMCLI_MOCK_OUTPUT+${NMCLI_MOCK_OUTPUT/@ARGS@/$*}}"; }
+  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+  fail "${NMCLI_MOCK_FAIL:-0}" \
+       "${NMCLI_MOCK_OUTPUT+${NMCLI_MOCK_OUTPUT/@ARGS@/${args}}}"
+}
 
 while [[ ${1-} =~ ^- ]]; do
   OPTERR='' OPTARG=''

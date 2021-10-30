@@ -22,8 +22,10 @@ fail() {
   exit "$rc"
 }
 
-[[ ${DUMMY_MOCK_FAIL-} || ${DUMMY_MOCK_OUTPUT-} ]] &&
+[[ ${DUMMY_MOCK_FAIL-} || ${DUMMY_MOCK_OUTPUT-} ]] && {
+  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
   fail "${DUMMY_MOCK_FAIL:-0}" \
-       "${DUMMY_MOCK_OUTPUT+${DUMMY_MOCK_OUTPUT/@ARGS@/$*}}"
+       "${DUMMY_MOCK_OUTPUT+${DUMMY_MOCK_OUTPUT/@ARGS@/${args}}}"
+}
 
 exit 0

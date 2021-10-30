@@ -27,30 +27,39 @@ xtest::group3::wan() {
     wait $!
     xtest W1w t " - background echo completes"
   fi
-  ftest W1f "No ip4 addresses available"$'\n'"dhclient stop" \
+  ftest W1f "No ip4 addresses available"$'\n'"dhclient 'stop'" \
         " - echos stop (config requires ip)"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=192.168.55.1/24
   xwrap ipv6_wan_start
   xtest W2 t "(<priv ip>) - returns true"
   shtest::last_check_ok && wait $!
-  ftest W2f "No public ip4 addresses available"$'\n'"dhclient stop" \
+  ftest W2f "No public ip4 addresses available"$'\n'"dhclient 'stop'" \
         " - echos stop (config requires public)"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=203.0.113.5/24
   xwrap ipv6_wan_start
   xtest W3 t "(<ip>) - returns true"
   shtest::last_check_ok && wait $!
-  ftest W3f "dhclient start" " - echos start"
+  ftest W3f "dhclient 'start'" " - echos start"
 
   shtest::prefix "ipv6_wan_stop"
 
   xwrap ipv6_wan_stop
   xtest W11 t "() - returns true"
   shtest::last_check_ok && wait $!
-  ftest W11f "dhclient stop" " - echos stop"
+  ftest W11f "dhclient 'stop'" " - echos stop"
 
   unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+}
+
+xtest::onexit::lan() {
+  [[ ${LAN_STATE_PAT-} ]] || return 0
+  local LAN_STATE_PAT="${LAN_STATE_PAT%-prefix}-prefix"
+  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-aa:1-wan1}"
+  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-bb:1-wan1}"
+  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-cc:2-wan2}"
+  xrm "${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan1-AAAA}"
 }
 
 xtest::group3::lan() {
@@ -79,9 +88,9 @@ xtest::group3::lan() {
   xtest L1 t "() - returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip -6 addr replace 2001:db8:100:2:32fb:93c5:555:1/64 dev br1
+	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete wan1.example.test AAAA
@@ -101,13 +110,13 @@ xtest::group3::lan() {
   xtest L2 t "() - returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip -6 addr replace 2001:db8:100:2:32fb:93c5:555:1/64 dev br1
+	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip -6 addr replace 2001:db8:200:2:32fb:93c5:555:1/64 dev br1
+	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Adding 2001:db8:600::1/64 to br1
-	${NMG_IP} => ip -6 addr add 2001:db8:600::1/64 dev br1 valid_lft 40 preferred_lft 0
+	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:600::1/64' 'dev' 'br1' 'valid_lft' '40' 'preferred_lft' '0'
 	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1,2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate -t 2
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete wan1.example.test AAAA
@@ -133,9 +142,13 @@ xtest::group3::lan() {
   [[ -e "$state4" ]]
   xtest L11d f " - DDNS state file removed"
 
-  xrm "$state1" "$state2" "$state3" "$state4"
   nmddns_cleanup
   unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+  xtest::onexit::lan
+}
+
+xtest::onexit() {
+  xrm "${XFILE-}"
 }
 
 xmain() {
@@ -150,9 +163,11 @@ xmain() {
                dummy general
 
   xtest::run_tests "08-ipv6-prefix Test Summary" "$@"
+  local rc=$?
 
-  # cleanup
-  xrm "$XFILE"
+  xtest::onexit
+
+  return $rc
 }
 
 xstart "$@"
