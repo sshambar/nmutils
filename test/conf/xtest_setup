@@ -1,6 +1,7 @@
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.1.2 - shtest suite in a box
+# xtest_setup v1.2.0 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -27,6 +28,10 @@
 #   where <name> is available for running a group of tests,
 #   and group<#> orders the tests when run.  All xtest::group* functions
 #   are whitelisted so functions can fail in them in strict mode.
+#
+#   As handling traps is "tricky", functions named 'xtest::onexit*'
+#   which will be called if xtest::run_tests does not complete
+#   (eg. premature exit in a test)
 #
 #   Register files, setup global whitelists etc, and then call
 #   'xtest::run_tests' to do all the work
@@ -118,7 +123,7 @@ xtest::_usage() { # <modes>
   xtest::err "    verbose - always show test descriptions"
   xtest::err "    quiet - show summary only"
   xtest::err "    strict - enable -eEu bash option"
-  xtest::err "    trace - enable -eEu bash option with traceback"
+  xtest::err "    trace - enable backtrace on error"
   xtest::err "    all - run all tests (default)"
   xtest::err "    +<id/pattern> - show test <id/pattern(*|?)> (may be repeated)"
   for mode in "$@"; do modes+=("${mode#xtest::group*::}"); done
@@ -129,12 +134,14 @@ xtest::_usage() { # <modes>
 
 xtest::parse_options() { # <args>...
   local arg
+
   for arg in "$@"; do
     case ${arg} in
-      strict|trace)
-        shtest::strict "${arg/strict}"
+      strict)
+        shtest::strict
         shtest::global_whitelist "xtest::group*"
         ;;
+      trace) shtest::trace ;;
       verbose) shtest::verbose ;;
       quiet) shtest::quiet ;;
       help) xtest::_parse_args _help ;;
@@ -180,30 +187,55 @@ xtest::no_env_tests() {
   _XTEST_ENV_TESTS=''
 }
 
+xtest::_prerun() {
+  local cmd clist=() IFS; unset IFS
+  { read -r -a clist -d '' || :; } <<< "$(compgen -A function xtest::onexit || :)"
+  for cmd in ${clist[*]+"${clist[@]}"}; do
+    shtest::add_onexit "${cmd}"
+  done
+  return 0
+}
+
+xtest::_postrun() {
+  local cmd clist=() IFS; unset IFS
+  { read -r -a clist -d '' || :; } <<< "$(compgen -A function xtest::onexit || :)"
+  for cmd in ${clist[*]+"${clist[@]}"}; do
+    shtest::remove_onexit "${cmd}"
+  done
+  return 0
+}
+
 xtest::run_tests() { # <title> <args>...
-  local _xtest_title=${1-} _xtest_env _cmd _all _reqs=()
+  local _xtest_title=${1-} _xtest_env _xtest_cmd _all _reqs=()
   shift || set --
 
   xtest::_parse_args "$@"
 
-  for _cmd in "${_reqs[@]:-${_all[@]}}"; do
+  xtest::_prerun
+
+  # minimal environment
+  set -- "${_reqs[@]:-${_all[@]}}"
+  unset _reqs _all
+
+  for _xtest_cmd in "$@"; do
     [[ ${_XTEST_ENV_TESTS} ]] && shtest::save_env _xtest_env
-    "${_cmd}"
+    "${_xtest_cmd}"
     shtest::prefix
     [[ ${_XTEST_ENV_TESTS} ]] && {
-      shtest::check_env "env-${_cmd##*:}" _xtest_env "check config environment"
+      shtest::check_env "env-${_xtest_cmd##*:}" \
+                        _xtest_env "check config environment"
     }
   done
 
-  shtest::summary_report "${_xtest_title}" ||
+  xtest::_postrun
+
+  local rc=0
+  shtest::summary_report "${_xtest_title}" || {
+    rc=$?
     shtest::log "To display one test, use \"+<id/pattern>\" (repeatable)"
+  }
 
   shtest::reset
-}
 
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:
+  return ${rc}
+}

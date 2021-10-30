@@ -1,6 +1,7 @@
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.3.0 - Shell script testing functions
+# shtest v1.4.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -36,12 +37,25 @@
 #
 #     Show only tests matching <id> or <pattern> (*/? wildcards).
 #
-#   shtest::strict [ "trace" | "notrace" | "off" ]
+#   shtest::add_onexit [ <cmd> ]
+#
+#     Adds function <cmd> that is called if script exists before
+#     shtest::cleanup/reset is called.  Without <cmd>, echos
+#     list of onexit functions.  <cmd> arg is exit code.
+#
+#   shtest::remove_onexit <cmd>
+#
+#     Removes function <cmd> previously added with add_onexit
+#
+#   shtest::trace [ "on"(default) | "off" ]
+#
+#     Enables backtrace on errors.
+#
+#   shtest::strict [ "on"(default) | "trace" | "notrace" | "off" ]
 #
 #     Enables 'set -eEu' bash options, any failures a captured and fail
 #     the next shtest::check_*.  "trace" enables backtrace on failure,
-#     "notrace" enables without backtrace, "off" disables mode/backtrace.
-#     No-arg enables strict, but doesn't modify backtrace setting.
+#     "notrace" enables without backtrace, "on"/"off" don't modify trace.
 #
 #   shtest::global_whitelist <pattern>...
 #
@@ -67,6 +81,10 @@
 #
 #     Exits 1 with text <msg>, optionally printing backtrace (skipping
 #     <backtrace-skip> calls if > 0).
+#
+#   shtest::alert [ <msg> ]
+#
+#     Logs <msg> ignoring mute (to stderr after cleanup).
 #
 #   shtest::title <title>
 #
@@ -142,7 +160,7 @@
 #
 #   shtest::reset
 #
-#     Re-initializes shtest for a new run.
+#     Re-initializes shtest for a new run, retains log/trace settings.
 #
 #   shtest::save_env <varname>
 #
@@ -162,44 +180,83 @@ shtest::_rm() {
   return 0
 }
 
-shtest::_touch() {
-  local f
-  for f in "$@"; do [[ $f ]] && { command -p touch "$f" || :; }; done
-  return 0
-}
-
-shtest::_disable_strict() {
+shtest::_disable_onexit() {
   # check if we own the exit trap
   if [[ $(trap -p EXIT) =~ trap\ --\ \'shtest::_handle_exit ]]; then
-    # restore the previous trap (or clear it)
-    if [[ ${_SHTEST_STATE[4]-} =~ trap\ --\ \' ]]; then
+    # restore the previous trap (non-subshell), or clear it
+    if (( BASH_SUBSHELL == 0 )) &&
+         [[ ${_SHTEST_STATE[4]-} =~ trap\ --\ \' ]]; then
       eval "${_SHTEST_STATE[4]}"
     else
       trap - EXIT
     fi
   fi
-  trap - ERR
-  # cleanup strict tracking file
+  _SHTEST_STATE[4]=''
+  return 0
+}
+
+shtest::_enable_onexit() {
+  # only save prev trap on main shell; in subshells: empty on bash3, and not
+  # used on bash4+ if not set in that subshell.
+  if (( BASH_SUBSHELL == 0 )); then
+    local ptrap
+    ptrap=$(trap -p EXIT)
+    [[ ${ptrap} && ! ${ptrap} =~ trap\ --\ \'shtest::_handle_exit ]] &&
+      _SHTEST_STATE[4]=${ptrap}
+  else
+    _SHTEST_STATE[4]=''
+  fi
+  # save onexit level
+  [[ ${_SHTEST_STATE[12]} != "${BASH_SUBSHELL}" ]] && {
+    # clear onexit list (new subshell)
+    _SHTEST_ONEXIT=()
+    _SHTEST_STATE[12]=${BASH_SUBSHELL}
+    # only error on exit if reset called
+    _SHTEST_STATE[9]=''
+  }
+  trap 'shtest::_handle_exit $?' EXIT
+}
+
+shtest::_disable_strict() {
+  # remove strict tracking file
   if [[ ${_SHTEST_STATE[2]-} ]]; then
      shtest::_rm "${_SHTEST_STATE[2]}"
      # unset strict mode
      set +eu
   fi
-  local i
-  # clear strict, trap, trace
-  for i in 2 4 6; do _SHTEST_STATE[$i]=''; done
+  # clear strict
+  _SHTEST_STATE[2]=''
+  trap - ERR
   return 0
 }
 
-shtest::cleanup() {
+shtest::_enable_strict() {
+  # only enable once
+  [[ ${_SHTEST_STATE[2]} ]] ||
+    _SHTEST_STATE[2]=$(command -p mktemp -u -t "shtest-strict-XXXXXX" || :)
+  [[ ${_SHTEST_STATE[2]} ]] ||
+    shtest::fatal "shtest::strict: Unable to setup tmpfile"
+  shtest::_enable_onexit
+  trap shtest::_handle_err ERR
+  set -eEu
+}
+
+shtest::_cleanup() { # [ <1=full> ]
   # any cleanup?
   [[ ${_SHTEST_STATE[0]-} ]] || return 0
   shtest::_disable_strict
-  # close our log
-  exec 88>&-
+  # close our log if "full" cleanup
+  [[ ${1-} == 1 ]] && {
+    shtest::_disable_onexit
+    exec 88>&-
+  }
   unset _SHTEST_STATE _SHTEST_TESTLIST _SHTEST_REG_FILES _SHTEST_FOCUS
-  unset _SHTEST_FAILED
+  unset _SHTEST_FAILED _SHTEST_ONEXIT
   unset _SHTEST_WHITELIST _SHTEST_GLOBAL_WHITELIST
+}
+
+shtest::cleanup() {
+  shtest::_cleanup 1
 }
 
 # initialize all globals
@@ -209,17 +266,19 @@ shtest::_init_globals() {
   # internal state
   # 0 - COUNT, 1 - FAILED, 2 - STRICT, 3 - VERBOSE, 4 - NEXT_EXITTRAP,
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK, 8 - MUTE, 9 - TOP_SUBSHELL
-  # 10 - LOGFD, 11 - MULTI_TEST
+  # 10 - LOGFD, 11 - MULTI_TEST, 12 - ONEXIT_SUBSHELL
   _SHTEST_STATE=(0 0)
-  for (( i=2; i<=11; i++ )); do _SHTEST_STATE[${i}]=''; done
-  _SHTEST_STATE[9]=${BASH_SUBSHELL}
+  for (( i=2; i<=12; i++ )); do _SHTEST_STATE[${i}]=''; done
   _SHTEST_REG_FILES=() _SHTEST_FOCUS=() _SHTEST_FAILED=()
+  _SHTEST_ONEXIT=() _SHTEST_TESTLIST=()
 
   # strict mode lists
-  _SHTEST_TESTLIST=() _SHTEST_WHITELIST=() _SHTEST_GLOBAL_WHITELIST=()
+  _SHTEST_WHITELIST=() _SHTEST_GLOBAL_WHITELIST=()
 
-  # dup stderr to 88
-  exec 88>&2
+  # save top-subshell for exit/strict checks
+  _SHTEST_STATE[9]=${BASH_SUBSHELL}
+  # save onexit subshell
+  _SHTEST_STATE[12]=${BASH_SUBSHELL}
 }
 
 # returns 1 if strict mode failed
@@ -285,16 +344,30 @@ shtest::_backtrace() { # <skip>
   done
 }
 
+shtest::alert() { # [ <msg> ]
+  if [[ ${_SHTEST_STATE[0]+set} != set ]]; then
+    # enable temp stderr log
+    local _SHTEST_STATE=(''); _SHTEST_STATE[10]=2
+    shtest::log "${1-}"
+  else
+    # temporarily unmute
+    local mute=${_SHTEST_STATE[8]}; _SHTEST_STATE[8]=''
+    shtest::log "${1-}"
+    _SHTEST_STATE[8]=${mute}
+  fi
+  return 0
+}
+
 shtest::fatal() { # <msg> [ <backtrace-skip> ]
   # just in case...
   [[ ${_SHTEST_FATAL-} ]] &&
-    { echo >&2 "shtest::fatal: called itself!"; exit 1; }
+    { printf >&2 '%s\n' "shtest::fatal: called itself!"; exit 1; }
   _SHTEST_FATAL=1
   [[ ${_SHTEST_STATE[0]+set} != set ]] && {
     # enable log
     _SHTEST_STATE[0]='' _SHTEST_STATE[10]=2
   }
-  _SHTEST_STATE[8]= # unmute
+  _SHTEST_STATE[8]='' # unmute
   if [[ ${1-} ]]; then
     shtest::log "FATAL: $1"
   else
@@ -307,11 +380,11 @@ shtest::fatal() { # <msg> [ <backtrace-skip> ]
 
 shtest::log_setfd() { # <fd>/0
   shtest::_checkinit
-  [[ ${1-} ]] || { echo -n "${_SHTEST_STATE[10]:-88}"; return 0; }
+  [[ ${1-} ]] || { printf '%s' "${_SHTEST_STATE[10]:-88}"; return 0; }
   [[ $1 == 0 ]] && { _SHTEST_STATE[10]=''; return 0; }
   local -i fd
-  printf 2>/dev/null -v fd "%d" "${1-}" || fd=0
-  [[ ${fd} -lt 1 ]] && shtest::fatal "shtest::set_logfd: bad fd '$1'" 1
+  printf 2>/dev/null -v fd '%d' "${1-}" || fd=0
+  [[ ${fd} -lt 1 ]] && shtest::fatal "shtest::log_setfd: bad fd '$1'" 1
   _SHTEST_STATE[10]=${fd}
 }
 
@@ -504,7 +577,7 @@ shtest::reg_file() { # [ <filename> ]
   [[ ${1-} ]] || {
     local file
     for file in "${_SHTEST_REG_FILES[@]-}"; do
-      [[ ${file} ]] && echo "${file}"
+      [[ ${file} ]] && printf '%s\n' "${file}"
     done
     return 0
   }
@@ -516,7 +589,7 @@ shtest::dereg_file() { # <filename>
   shtest::_checkinit
   [[ ${1-} ]] || return 0
   for i in ${!_SHTEST_REG_FILES[*]}; do
-    [[ ${_SHTEST_REG_FILES[${i}]} == "$1" ]] && unset _SHTEST_REG_FILES["${i}"]
+    [[ ${_SHTEST_REG_FILES[$i]} == "$1" ]] && unset "_SHTEST_REG_FILES[$i]"
   done
 }
 
@@ -557,10 +630,35 @@ shtest::add_focus() { # <id/pattern>
   local p IFS; unset IFS
   shtest::_checkinit
   shtest::_toreg p "${1-}" || return
-  [[ ${_SHTEST_FOCUS[*]-} =~ (^| )"$p"($| ) ]] && return
+  [[ ${_SHTEST_FOCUS[*]-} =~ (^| )"$p"($| ) ]] && return 0
   _SHTEST_FOCUS+=("$p")
   # mutes log/_log except during test
   _SHTEST_STATE[8]=1
+  return 0
+}
+
+shtest::add_onexit() { # [ <cmd> ]
+  local IFS cmd; unset IFS
+  shtest::_checkinit
+  [[ ${1-} ]] || {
+    for cmd in "${_SHTEST_ONEXIT[@]-}"; do
+      [[ ${cmd} ]] && printf '%s\n' "${cmd}"
+    done
+    return 0
+  }
+  shtest::_enable_onexit
+  [[ ${_SHTEST_ONEXIT[*]-} =~ (^| )"$1"($| ) ]] && return 0
+  _SHTEST_ONEXIT+=("$1")
+  return 0
+}
+
+shtest::remove_onexit() { # <cmd>
+  local i
+  shtest::_checkinit
+  [[ ${1-} ]] || return 0
+  for i in ${!_SHTEST_ONEXIT[*]}; do
+    [[ ${_SHTEST_ONEXIT[$i]} == "$1" ]] && unset "_SHTEST_ONEXIT[$i]"
+  done
   return 0
 }
 
@@ -627,76 +725,100 @@ shtest::summary_report() { # [ <title> ]
 }
 
 shtest::quiet() { # [ 0 ]
-  # mutes all except _log
   shtest::_checkinit
   if [[ ${#_SHTEST_FOCUS[*]} != 0 ]]; then
+    # focus mutes _log too (no summary)
    _SHTEST_STATE[8]=1
   elif [[ ${1-} == 0 ]]; then
     _SHTEST_STATE[8]=''
   else
+    # mutes all except _log (summary only)
     _SHTEST_STATE[8]=2
   fi
   return 0
 }
 
 shtest::_handle_err() {
-  set +eu
+  # allow code to continue (leave unbound set)
+  set +e
   local IFS='|'
   [[ ${#_SHTEST_WHITELIST[*]} != 0 &&
        ${FUNCNAME[1]} =~ ^${_SHTEST_WHITELIST[*]}$ ]] && return 0
   [[ ${#_SHTEST_GLOBAL_WHITELIST[*]} != 0 &&
        ${FUNCNAME[1]} =~ ^${_SHTEST_GLOBAL_WHITELIST[*]}$ ]] && return 0
   # may be in subshell, so touch file to communicate strict failure
-  shtest::_touch "${_SHTEST_STATE[2]}"
-  # rest is backtrace if requested
-  [[ ${_SHTEST_STATE[6]} ]] || return 0
-  shtest::_backtrace 0
+  printf '%s' "" >> "${_SHTEST_STATE[2]}"
+  # show backtrace if requested
+  if [[ ${_SHTEST_STATE[6]} ]]; then
+    shtest::log "Strict mode failure"
+    shtest::_backtrace 0
+  else
+    shtest::log "${BASH_SOURCE[1]}: line ${BASH_LINENO[0]}: Strict mode failure (try trace for details)"
+  fi
+  return 0
 }
 
 shtest::_handle_exit() { # <$?>
-  local -i _shtest_rc=${1-0}
-  # do we still have state? (avoids recursion too)
-  [[ ${_SHTEST_STATE[0]-} ]] || return "${_shtest_rc}"
-  [[ ${BASH_SUBSHELL} == "${_SHTEST_STATE[9]}" ]] || return "${_shtest_rc}"
-  _SHTEST_STATE[8]= # unmute
-  [[ ${_shtest_rc} == 0 ]] && _shtest_rc=1
-  if [[ $- =~ u && ${_shtest_rc} == 1 ]]; then
-    shtest::log "Unexpected exit, likely unbound variable"
-  else
-    shtest::log "Unexpected exit ${_shtest_rc}"
+  # still have state?
+  [[ -z ${_SHTEST_STATE[0]-} ]] && return 0
+
+  # don't do anything in a untrapped subshell (in case we're called by another)
+  (( BASH_SUBSHELL > _SHTEST_STATE[12] )) && return 0
+  _SHTEST_STATE[12]=0
+
+  # check if we're strict, or in reset subshell
+  if [[ ${_SHTEST_STATE[2]} ]] ||
+       { [[ ${_SHTEST_STATE[9]} ]] &&
+           (( BASH_SUBSHELL <= _SHTEST_STATE[9] )); } then
+    shtest::_disable_strict
+    _SHTEST_STATE[8]='' # unmute
+    if [[ ${_SHTEST_STATE[6]} ]]; then
+      shtest::log "Unexpected exit ${1:-0}"
+      shtest::_backtrace 0
+    else
+      shtest::log "Unexpected exit ${1:-0} (try trace for details)"
+    fi
   fi
-  # always show backtrace on unexpected exit
-  shtest::_backtrace 0
-  local _shtest_next=${_SHTEST_STATE[4]-}
+
+  # call onexits (may be subshel of reset)
+  local _shtest_cmd
+  for _shtest_cmd in ${_SHTEST_ONEXIT[*]+"${_SHTEST_ONEXIT[@]}"}; do
+    "${_shtest_cmd}" "${1:-0}"
+  done
+
+  # if not in reset subshell, stop
+  (( BASH_SUBSHELL > _SHTEST_STATE[9] )) && return 0
+
   shtest::cleanup
-  [[ ${_shtest_next} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
-    eval "${BASH_REMATCH[1]//\$?/\${_shtest_rc}}" || _shtest_rc=$?
-  }
-  [ "${BASH_VERSINFO[0]}" -ge 4 ] || exit ${_shtest_rc}
-  return ${_shtest_rc}
+
+  # call previous traps (if not subshell)
+  (( BASH_SUBSHELL == 0 )) &&
+    [[ ${_SHTEST_STATE[4]} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
+    eval "${BASH_REMATCH[1]//\$?/\$1}" || exit; }
+  return 0
 }
 
-shtest::strict() { # [ "trace" | "notrace" | "off" ]
+shtest::trace() { # [ "on" | "off" ]
   shtest::_checkinit
-  if [[ ${1-} == trace ]]; then
-    _SHTEST_STATE[6]=1
-  elif [[ ${1-} == notrace ]]; then
-    _SHTEST_STATE[6]=''
-  elif [[ ${1-} == off ]]; then
-    shtest::_disable_strict
-    return 0
-  elif [[ ${1-} ]]; then
-    shtest::fatal "Usage: shtest::strict [ trace | notrace | off ]" 1
-  fi
-  # only enable once
-  [[ ${_SHTEST_STATE[2]} ]] && return 0
-  _SHTEST_STATE[2]=$(command -p mktemp -u -t "shtest-strict-XXXXXX") || :
-  [[ ${_SHTEST_STATE[2]} ]] ||
-    shtest::fatal "shtest::strict: Unable to setup tmpfile"
-  _SHTEST_STATE[4]=$(trap -p EXIT)
-  trap 'shtest::_handle_exit $?' EXIT
-  trap shtest::_handle_err ERR
-  set -eEu
+  case ${1-} in
+    ''|on) _SHTEST_STATE[6]=1 ;;
+    off) _SHTEST_STATE[6]='' ;;
+    *) shtest::fatal "Usage: shtest::trace [ on | off ]" 1 ;;
+  esac
+  shtest::_enable_onexit
+  return 0
+}
+
+shtest::strict() { # [ "on" | "trace" | "notrace" | "off" ]
+  shtest::_checkinit
+  case ${1-} in
+    ''|on) ;;
+    trace) _SHTEST_STATE[6]=1 ;;
+    notrace) _SHTEST_STATE[6]='' ;;
+    off) shtest::_disable_strict; return 0 ;;
+    *) shtest::fatal "Usage: shtest::strict [ trace | notrace | off ]" 1 ;;
+  esac
+  shtest::_enable_strict
 }
 
 shtest::whitelist() { # <pattern>...
@@ -730,18 +852,20 @@ shtest::reset() {
   local i state=("${_SHTEST_STATE[@]-}")
   # remove focus mute
   [[ ${state[8]-} == 1 ]] && state[8]=''
-  shtest::cleanup
+  shtest::_cleanup
   shtest::_init_globals
-  # restore logging state
-  for i in 3 8 10; do _SHTEST_STATE[${i}]=${state[${i}]-}; done
+  shtest::_enable_onexit
+  if (( ${#state[*]} == 1 )); then
+    # empty prev-state, init default log fd
+    exec 88>&2
+  else
+    # restore logging
+    for i in 3 6 8 10; do _SHTEST_STATE[$i]=${state[$i]-}; done
+    # if toplevel, keep saved trap
+    (( BASH_SUBSHELL == 0 )) && _SHTEST_STATE[4]=${state[4]}
+  fi
+  return 0
 }
 
 # initialize everything
 shtest::reset
-
-# Local Variables:
-# mode: sh
-# sh-basic-offset: 2
-# sh-indentation: 2
-# indent-tabs-mode: nil
-# End:

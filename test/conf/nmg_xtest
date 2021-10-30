@@ -8,7 +8,7 @@
 #
 # To use:
 #   - source this file
-#   - define "xmain()"
+#   - define "xmain()" - return !0 on failure
 #   - call xstart "$@"
 #
 # Provided functions:
@@ -27,7 +27,7 @@
 #     feedback if it exits.
 #
 #   xstart [ <args>... ]
-#     Main entry
+#     Main entry, returns result of xmain
 #
 # shellcheck shell=bash disable=SC1090,SC2123
 
@@ -69,21 +69,50 @@ xread_value() {
   read -r -d '' "$1" || :
 }
 
-_xload_check() {
+xnmg::_onexit() { # <rc>
+  local rc=${1:-?}
+
+  [[ ${XERR-} && ${XLOG-} ]] || return 0
+
+  [[ -e ${XERR} || -e ${XLOG} ]] && {
+    shtest::alert "Tests did not complete: exit ${rc}"
+
+    # early exit (exit, unbound etc) would leave these files, show them
+    [[ -s ${XERR} ]] && {
+      shtest::alert "==== stdout / stderr ==="
+      shtest::alert "$(< "${XERR}")"
+    }
+    [[ -s ${XLOG} ]] && {
+      shtest::alert "==== nmg log ===="
+      shtest::alert "$(< "${XLOG}" >&2)"
+    }
+  }
+
+  # cleanup
+  xrm "${XERR}" "${XLOG}"
+  return 0
+}
+
+xnmg::_xload_check() {
   local xrc="exit 0" IFS; unset IFS
 
   [[ -s ${XERR}-flag ]] &&
     { read -r -d '' xrc || :; } 2>/dev/null < "${XERR}-flag"
   xrm "${XERR}-flag"
 
+  # everything work?
   [[ ${xrc} == "result 0" && ! -s ${XLOG} && ! -s ${XERR} ]] && return 0
 
+  # nope, cleanup and fail
   shtest::cleanup
-  if [[ ${xrc} == "result 0" ]]; then
-    xtest::fail "  Loading '$1' failed (output/log)"
-  else
-    xtest::fail "  Loading '$1' failed (${xrc})"
-  fi
+
+  # avoid unexpected exit warning if no errors
+  [[ -s ${XLOG} ]] || xrm "${XLOG}"
+  [[ -s ${XERR} ]] || xrm "${XERR}"
+
+  [[ ${xrc} == "result 0" ]] && xrc="output/log"
+
+  xtest::fail "  Loading '$1' failed (${xrc})"
 }
 
 xload_script() {
@@ -98,12 +127,14 @@ xload_script() {
 
   xrm "${XERR}-flag"
   ( # check for exit/errors
+    shtest::reset
     shtest::strict off
     xwrap source "$@"
-    echo >>"${XERR}-flag" "result $?"
-  ) || echo >>"${XERR}-flag" "exit $?"
+    echo >"${XERR}-flag" "result $?"
+    shtest::cleanup
+  ) || echo >"${XERR}-flag" "exit $?"
 
-  _xload_check "$1"
+  xnmg::_xload_check "$1"
 
   # load script in current subshell
   xwrap source "$@"
@@ -130,8 +161,7 @@ xstart() {
   exec 4>&2
 
   (
-    # reset (in subshell)
-    shtest::reset
+    shtest::add_onexit xnmg::_onexit
 
     shtest::reg_file "$XLOG"
     shtest::reg_file "$XERR"
@@ -143,25 +173,23 @@ xstart() {
     xtest::parse_options "$@"
 
     xmain "$@"
+    local rc=$?
 
-    [[ ${IFS} == - ]] || xtest::err "Error: IFS was modified (now '${IFS-}')"
+    [[ ${IFS} == - ]] || {
+      xtest::err "Error: IFS was modified (now '${IFS-}')"
+      rc=1
+    }
+    xrm "${XERR}" "${XLOG}"
+    shtest::cleanup
+
+    return ${rc}
   )
   local rc=$?
 
-  (( rc != 0 )) && {
-    [[ -s ${XERR} ]] && {
-      xtest::err "==== stdout / stderr ==="
-      command -p cat "${XERR}"
-    }
-    [[ -s ${XLOG} ]] && {
-      xtest::err "==== nmg log ===="
-      command -p cat "${XLOG}"
-    }
-  }
-
-  # cleanup
-  xrm "${XERR}" "${XLOG}"
+  xnmg::_onexit "${rc}"
   exec 4>&-
+
+  shtest::cleanup
 
   return ${rc}
 }
