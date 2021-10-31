@@ -429,7 +429,7 @@ connection.wait-device-timeout:-1
 802-3-ethernet.wake-on-lan-password:
 ipv4.method:manual
 ipv4.dns:127.0.0.1
-ipv4.dns-search:
+ipv4.dns-search:example.test
 ipv4.dns-options:
 ipv4.dns-priority:0
 ipv4.addresses:192.168.88.1/24

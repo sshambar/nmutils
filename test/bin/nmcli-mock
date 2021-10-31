@@ -20,7 +20,29 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-VERSION=0.2.0
+# USAGE
+#
+# Values returned are from the datafile defined in NMCLI_MOCK_VALUES
+# (default "conf/nmcli-mock-values").  See below for format of file.
+#
+# Individual values may be overridden by setting:
+#   NMCLI_MOCK_FORCE_<name>=<value> (even empty)
+# Primary keys not force-able (GENERAL.DEVICE, connection.uuid, connection.id)
+#
+# All output formats of original nmcli command are supported, including
+# terse, tabular, and multiline
+#
+# Filtering fields is fully supported.
+#
+# Currently supports the following modes:
+#
+#   nmcli
+#   nmcli general
+#   nmcli dev status
+#   nmcli dev show [ <DEVICE> ]
+#   nmcli con show [ <CONNECTION> ]
+#
+VERSION=0.3.0
 
 # app in not case sensitive
 shopt -s nocasematch
@@ -47,7 +69,7 @@ MODE=''
 # empty to non-escape
 ESCAPE=1
 
-ORIG_ARGS="$*"
+ORIG_ARGS=("$@")
 
 err() {
   local IFS; unset IFS
@@ -104,7 +126,9 @@ pre_match() {
 
 mock_cmd() {
   # echo commands if requested
-  [[ ${MOCK_ECHO} ]] && echo "nmcli ${ORIG_ARGS}"
+  args='' arg=''
+  for arg in "${ORIG_ARGS[@]}"; do args+=" '${arg}'"; done
+  [[ ${MOCK_ECHO} ]] && echo "nmcli${args}"
 }
 
 CONN_STATUS=()
@@ -157,6 +181,17 @@ load_values() {
   return 0
 }
 
+check_force_value() { # sets "v" if override
+  # <name>
+  # don't allow force on primary keys
+  case $1 in
+    GENERAL.DEVICE|connection.uuid|connection.id) return 0 ;;
+  esac
+  local name="NMCLI_MOCK_FORCE_$1"
+  [[ ${!name+set} ]] && printf -v v '%s' "${!name}"
+  return 0
+}
+
 TABLE_BREAK=''
 print_values() {
   # <names> <values>...
@@ -171,6 +206,7 @@ print_values() {
     for values in "$@"; do
       i=0
       while read -r v; do
+        check_force_value "${anames[$i]}"
         [[ $v || ${TERSE} ]] || v="--"
         # shellcheck disable=SC2059
         printf "${fmt}\n" "${anames[$i]}:" "$v"
@@ -181,9 +217,12 @@ print_values() {
   fi
   if [[ ${TERSE} ]]; then
     for values in "$@"; do
+      i=0
       while read -r v; do
+        check_force_value "${anames[$i]}"
         [[ ${ESCAPE} ]] && v=${v//:/\\:}
         fmt+="${fmt:+:}%s" avals+=("$v")
+        ((i++)) || :
       done <<< "${values}"
       # shellcheck disable=SC2059
       printf "${fmt}\n" "${avals[@]}"
@@ -196,23 +235,29 @@ print_values() {
     anames[$i]=${name} asize[$i]=${#name}
   done
   for values in "$@"; do
-    avals=()
-    while read -r v; do avals+=("${v:---}"); done <<< "${values}"
-    for ((i=0; i<${#avals[*]}; i++)); do
-      val=${avals[$i]}
+    avals=() i=0
+    while read -r v; do
+      check_force_value "${anames[$i]}"
+      v=${v:---}
+      avals+=("$v")
       if (( ${#asize[*]} > i )); then
-        (( ${#val} > ${asize[$i]} )) && asize[$i]=${#val}
+        (( ${#v} > ${asize[$i]} )) && asize[$i]=${#v}
       else
-        asize[$i]=${#val}
+        asize[$i]=${#v}
       fi
-    done
+      ((i++)) || :
+    done <<< "${values}"
   done
   for ((j=0; j<i; j++)); do fmt+="${fmt:+  }%-${asize[$j]}s"; done
   # shellcheck disable=SC2059
   [[ ${#anames[*]} != 0 ]] && printf "${fmt}\n" "${anames[@]}"
   for values in "$@"; do
-    avals=()
-    while read -r v; do avals+=("${v:---}"); done <<< "${values}"
+    avals=() i=0
+    while read -r v; do
+      check_force_value "${anames[$i]}"
+      avals+=("${v:---}")
+      ((i++)) || :
+    done <<< "${values}"
     # shellcheck disable=SC2059
     printf "${fmt}\n" "${avals[@]}"
   done
@@ -220,11 +265,12 @@ print_values() {
 
 print_section_values() {
   # <match> <array-name>...
-  local match=$1 src="$2[@]" entry label value field found='' output=''
-  local table='' names='' values='' cur_label='' IFS=$'\n'
+  local match=$1 src="$2[@]" entry label value field output=''
+  local rc=1 IFS=$'\n'
 
   shift 2
   for entry in "${!src}"; do
+    local table='' names='' values='' cur_label='' found=''
     # shellcheck disable=SC2086
     set -- ${entry}
     while [[ ${1-} ]]; do
@@ -234,12 +280,12 @@ print_section_values() {
         print_values "${names}" "${values}"
         table='' names='' values=''
       fi
-      if [[ ${label} == "${match%%:*}" ]]; then
-        if [[ ${match#*:} ]]; then
-          [[ ${found} ]] && break
-          [[ $1 == "${match}" ]] && found=1
-        else
-          [[ ${found} ]] && TABLE_BREAK=1 || found=1
+      # shellcheck disable=SC2053
+      if [[ ${label} == ${match%%:*} ]]; then
+        # shellcheck disable=SC2053
+        if [[ -z ${match#*:} || $1 == ${match} ]]; then
+          (( rc == 0 )) && TABLE_BREAK=1
+          found=1; rc=0
         fi
       fi
       if [[ ${found} ]]; then
@@ -288,10 +334,8 @@ print_section_values() {
       shift
     done
     print_values "${names}" "${values}"
-    table='' names='' values=''
-    [[ ${found} && ${match#*:} ]] && break
   done
-  [[ ${found} ]] || return
+  return ${rc}
 }
 
 print_field_values() {
@@ -356,7 +400,8 @@ set_fields() { # sets fields
   # <allowed-,> [ <prefix> ]
   local field match found
   for field in ${FIELDS//,/ }; do
-    [[ ${field} == all ]] && fail 2 "Error: ${2-}field 'all' has to be alone"
+    [[ ${field} == all || ${field} == common ]] &&
+      fail 2 "Error: ${2-}field '${field}' has to be alone"
     found=''
     for match in ${1//,/ }; do
       [[ ${field} == "${match}" || ${field%.*} == "${match}" ]] && {
@@ -404,7 +449,8 @@ CONN_STATUS_FIELDS="NAME,UUID,TYPE,TIMESTAMP,TIMESTAMP-REAL,AUTOCONNECT,AUTOCONN
 do_conn_status() {
   local fields=()
   MODE=${MODE:-tabular}
-  FIELDS=${FIELDS:-NAME,UUID,TYPE,DEVICE}
+  [[ ${FIELDS} == common || -z ${FIELDS} ]] &&
+    FIELDS="NAME,UUID,TYPE,DEVICE"
   [[ ${FIELDS} == all ]] && FIELDS=''
   set_fields "${CONN_STATUS_FIELDS}"
   print_field_values "CONN_STATUS" "${fields[@]}"
@@ -412,16 +458,43 @@ do_conn_status() {
 
 CONN_SHOW_FIELDS="6lowpan,802-11-olpc-mesh,802-11-wireless,802-11-wireless-security,802-1x,802-3-ethernet,adsl,bluetooth,bond,bridge,bridge-port,cdma,connection,dcb,dummy,ethtool,generic,gsm,hostname,infiniband,ip-tunnel,ipv4,ipv6,macsec,macvlan,match,ovs-bridge,ovs-dpdk,ovs-external-ids,ovs-interface,ovs-patch,ovs-port,ppp,pppoe,proxy,serial,sriov,tc,team,team-port,tun,user,veth,vlan,vpn,vrf,vxlan,wifi-p2p,wimax,wireguard,wpan,GENERAL,IP4,DHCP4,IP6,DHCP6,VPN"
 
+# sets <retvar> to conn.id for <uuid>
+find_conn_id() {
+  # <retvar> <uuid>
+  local retvar=$1 uuid=$2 entry label value id
+
+  for entry in "${CONNS[@]}"; do
+    id=''
+    # shellcheck disable=SC2086
+    set -- ${entry}
+    while [[ ${1-} ]]; do
+      label=${1%%:*}
+      value=${1:${#label}:${#1}}; value=${value#:}
+      case ${label} in
+        connection.id) id=${value} ;;
+        connection.uuid)
+          [[ ${value} == "${uuid}" ]] && {
+            printf -v "${retvar}" '%s' "${id:--}"
+            return 0
+          } ;;
+      esac
+      shift
+    done
+  done
+  printf -v "${retvar}" '-'
+}
+
 do_conn_show() {
   # <conn_id>
-  local fields=()
+  local fields=() conn=$1
   MODE=${MODE:-multiline}
-  if [[ ${FIELDS} == all ]]; then
+  if [[ ${FIELDS} == all || ${FIELDS} == common ]]; then
     FIELDS="-GENERAL,-IP4,-DHCP4,-IP6,-DHCP6,-VPN"
   else
     set_fields "${CONN_SHOW_FIELDS}"
   fi
-  print_section_values "connection.id:$1" "CONNS" ||
+  [[ ${#conn} == 36 ]] && find_conn_id conn "$conn"
+  print_section_values "connection.id:${conn}" "CONNS" ||
     fail 10 "Error: $1 - no such conection profile."
 }
 
@@ -456,7 +529,8 @@ do_dev_status() {
   local fields=()
   [[ $1 ]] && fail 2 "Error: invalid extra argument '$1'."
   MODE=${MODE:-tabular}
-  FIELDS=${FIELDS:-DEVICE,TYPE,STATE,CONNECTION}
+  [[ ${FIELDS} == common || -z ${FIELDS} ]] &&
+    FIELDS="DEVICE,TYPE,STATE,CONNECTION"
   [[ ${FIELDS} == all ]] && FIELDS=''
   set_fields "${DEV_STATUS_FIELDS}" "'device status': "
   print_field_values "DEV_STATUS" "${fields[@]}"
@@ -467,8 +541,10 @@ DEV_SHOW_FIELDS="GENERAL,CAPABILITIES,INTERFACE-FLAGS,WIFI-PROPERTIES,AP,WIRED-P
 do_dev_show() {
   local fields=()
   MODE=${MODE:-multiline}
-  FIELDS=${FIELDS:-GENERAL.DEVICE,GENERAL.TYPE,GENERAL.HWADDR,GENERAL.MTU,GENERAL.STATE,GENERAL.CONNECTION,GENERAL.CON-PATH,WIRED-PROPERTIES,IP4,IP6}
+  [[ ${FIELDS} == common || -z ${FIELDS} ]] &&
+    FIELDS="GENERAL.DEVICE,GENERAL.TYPE,GENERAL.HWADDR,GENERAL.MTU,GENERAL.STATE,GENERAL.CONNECTION,GENERAL.CON-PATH,WIRED-PROPERTIES,IP4,IP6"
   [[ ${FIELDS} == all ]] && FIELDS=''
+
   set_fields "${DEV_SHOW_FIELDS}" "'device show': "
   print_section_values "GENERAL.DEVICE:$1" "DEVS" ||
     fail 10 "Error: Device '$1' not found."
@@ -499,6 +575,111 @@ do_device() {
   done
 
   fail_arg "${req}"
+}
+
+do_summary() {
+  local entry label v field version dns='' IFS=$'\n'
+
+  load_values "${NMCLI_MOCK_VALUES}"
+
+  for entry in "${DEVS[@]}"; do
+    # shellcheck disable=SC2086
+    set -- ${entry}
+    local dev='' conn='' vendor='' prod='' inet4=() route4=()
+    local inet6=() route6=() type='' driver='unknown' mac=''
+    local soft='hw' mtu='1500' def4='' def6=''
+
+    while [[ ${1-} ]]; do
+      label=${1%%:*}
+      v=${1:${#label}:${#1}}; v=${v#:}
+      check_force_value "${label}"
+      case ${label} in
+        GENERAL.DEVICE) dev=$v ;;
+        GENERAL.CONNECTION) conn=$v ;;
+        GENERAL.VENDOR) vendor=${v%% *} ;;
+        GENERAL.PRODUCT) prod=${v%% *} ;;
+        GENERAL.TYPE) type=$v ;;
+        GENERAL.DRIVER) driver=$v ;;
+        GENERAL.HWADDR) [[ ${v} ]] && mac=", $v" ;;
+        GENERAL.IS-SOFTWARE) [[ $v == yes ]] && soft='sw' ;;
+        GENERAL.MTU) mtu=$v ;;
+        GENERAL.DEFAULT) [[ $v == yes ]] && def4="ip4 default" ;;
+        GENERAL.DEFAULT6) [[ $v == yes ]] && def6="ip6 default" ;;
+        IP4.ADDRESS*) [[ $v ]] && inet4+=("$v") ;;
+        IP4.ROUTE*) [[ $v =~ "dst = " ]] && {
+                      v=${v#*dst = }; route4+=("${v%%,*}"); } ;;
+        IP6.ADDRESS*) [[ $v ]] && inet6+=("$v") ;;
+        IP6.ROUTE*) [[ $v =~ "dst = " ]] && {
+                      v=${v#*dst = }; route6+=("${v%%,*}"); } ;;
+      esac
+      shift
+    done
+
+    # now display the device summary
+    [[ ${dev} ]] || continue
+    printf '%s' "${dev}: "
+    if [[ ${conn} ]]; then
+      printf 'connected to %s\n' "${conn}"
+    else
+      printf 'unmanaged\n'
+    fi
+    if [[ ${vendor} || ${prod} ]]; then
+      printf '\t"%s%s"\n' "${vendor}" "${vendor:+ }${prod}"
+    else
+      printf '\t"%s"\n' "${dev}"
+    fi
+    if [[ ${type} == "${driver}" ]]; then
+      printf "\t%s" "${type}"
+    else
+      printf "\t%s (%s)" "${type}" "${driver}"
+    fi
+    printf "%s, %s, mtu %s\n" "${mac}" "${soft}" "${mtu}"
+    if [[ ${conn} ]]; then
+      [[ ${def4} || ${def6} ]] && printf '\t%s\n' "${def4}${def4:+, }${def6}"
+      for v in ${inet4[*]+"${inet4[@]}"}; do
+        printf "\tinet4 %s\n" "$v"
+      done
+      for v in ${route4[*]+"${route4[@]}"}; do
+        printf "\troute4 %s\n" "$v"
+      done
+      for v in ${inet6[*]+"${inet6[@]}"}; do
+        printf "\tinet6 %s\n" "$v"
+      done
+      for v in ${route6[*]+"${route6[@]}"}; do
+        printf "\troute6 %s\n" "$v"
+      done
+    fi
+    printf '\n'
+  done
+
+  for version in 4 6; do
+    for entry in "${CONNS[@]}"; do
+      # shellcheck disable=SC2086
+      set -- ${entry}
+      local dev='' servers='' dom=''
+      while [[ ${1-} ]]; do
+        label=${1%%:*}
+        v=${1:${#label}:${#1}}; v=${v#:}
+        check_force_value "${label}"
+        case ${label} in
+          connection.interface-name) dev=$v ;;
+          "ipv${version}.dns") [[ $v ]] && servers+=" $v" ;;
+          "ipv${version}.dns-search") [[ $v ]] && dom+=" $v" ;;
+        esac
+        shift
+      done
+      [[ ${dev} && ${servers} ]] || continue
+      [[ ${dns} ]] || { dns=1; printf 'DNS configuration\n'; }
+      printf '\tservers:%s\n' "${servers}"
+      [[ ${dom} ]] && printf '\tdomains:%s\n' "${dom}"
+      printf '\tinterface: %s\n' "${dev}"
+      printf '\n'
+    done
+  done
+
+  printf '%s\n' "Use \"nmcli device show\" to get complete information about known devices and"
+  printf '%s\n' "\"nmcli connection show\" to get an overview on active connection profiles."
+  printf '\n%s\n' "Consult nmcli(1) and nmcli-examples(7) manual pages for complete usage details."
 }
 
 [[ ${NMCLI_MOCK_FAIL-} || ${NMCLI_MOCK_OUTPUT-} ]] && {
