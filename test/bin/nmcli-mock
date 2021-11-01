@@ -26,7 +26,7 @@
 # (default "conf/nmcli-mock-values").  See below for format of file.
 #
 # Individual values may be overridden by setting:
-#   NMCLI_MOCK_FORCE_<name>=<value> (even empty)
+#   NMCLI_MOCK_FORCE_<name>=[ <value> ] (<name> should have '.','-' as '_')
 # Primary keys not force-able (GENERAL.DEVICE, connection.uuid, connection.id)
 #
 # All output formats of original nmcli command are supported, including
@@ -42,7 +42,7 @@
 #   nmcli dev show [ <DEVICE> ]
 #   nmcli con show [ <CONNECTION> ]
 #
-VERSION=0.3.0
+VERSION=0.3.1
 
 # app in not case sensitive
 shopt -s nocasematch
@@ -187,7 +187,9 @@ check_force_value() { # sets "v" if override
   case $1 in
     GENERAL.DEVICE|connection.uuid|connection.id) return 0 ;;
   esac
-  local name="NMCLI_MOCK_FORCE_$1"
+  # map ./- to _
+  local name="NMCLI_MOCK_FORCE_${1//./_}"
+  name=${name//-/_}
   [[ ${!name+set} ]] && printf -v v '%s' "${!name}"
   return 0
 }

@@ -337,12 +337,12 @@ ipv4.may-fail:yes
 ipv4.dad-timeout:-1
 ipv4.dhcp-vendor-class-identifier:
 ipv4.dhcp-reject-servers:
-ipv6.method:ignore
+ipv6.method:manual
 ipv6.dns:
 ipv6.dns-search:
 ipv6.dns-options:
 ipv6.dns-priority:0
-ipv6.addresses:
+ipv6.addresses:2001:db8:a0b:12f0::1/64, fdac:3741:50f8:f623::1/48
 ipv6.gateway:
 ipv6.routes:
 ipv6.route-metric:-1
@@ -380,7 +380,7 @@ GENERAL.CON-PATH:/org/freedesktop/NetworkManager/Settings/2
 GENERAL.ZONE:trusted
 GENERAL.MASTER-PATH:
 IP4.ADDRESS[1]:10.0.10.12/24
-IP4.GATEWAY:
+IP4.GATEWAY:10.0.10.1
 IP4.ROUTE[1]:dst = 10.0.10.0/24, nh = 0.0.0.0, mt = 101, table=200
 IP4.ROUTE[2]:dst = 0.0.0.0/0, nh = 10.0.10.1, mt = 101, table=200
 IP6.ADDRESS[1]:2001:db8:a0b:12f0::1/64
@@ -388,6 +388,8 @@ IP6.ADDRESS[2]:fdac:3741:50f8:f623::1/48
 IP6.ADDRESS[3]:fe80::31fd:68fd:ed8b:4d77/64
 IP6.GATEWAY:
 IP6.ROUTE[1]:dst = fe80::/64, nh = ::, mt = 256
+IP6.ROUTE[2]:dst = 2001:db8:a0b:12f0::/64, nh = ::, mt = 256
+IP6.ROUTE[3]:dst = fdac:3741:50f8::/48, nh = ::, mt = 256
 
 connection.id:br0
 connection.uuid:ff8aedcc-31e8-4a8a-9d95-081ed2c7b83d

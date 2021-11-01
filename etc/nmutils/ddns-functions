@@ -284,7 +284,7 @@ nmddns::_update() {
 
   local qtime=${DDNS_DIG_TIMEOUT:-${DDNS_GLOBAL_DIG_TIMEOUT:-3}}
   local qretry=${DDNS_DIG_RETRIES:-${DDNS_GLOBAL_DIG_RETRIES:-2}}
-  local qopts=${DDNS_DIG_OPTIONS:-$DDNS_GLOBAL_DIG_OPTIONS}
+  local qopts=${DDNS_DIG_OPTIONS:-${DDNS_GLOBAL_DIG_OPTIONS-}}
   # shellcheck disable=SC2086
   if ! nmg::run cur_value "" "${NMDDNS_DIG}" "@${DDNS_SERVER}" \
        +short +retry="${qretry}" +time="${qtime}" ${qopts} \
@@ -333,7 +333,7 @@ nmddns::_update() {
 
   # update the entry (15 sec timeout)
   local timeout=${DDNS_NSUPDATE_TIMEOUT:-${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}}
-  local options=${DDNS_NSUPDATE_OPTIONS:-$DDNS_GLOBAL_NSUPDATE_OPTIONS}
+  local options=${DDNS_NSUPDATE_OPTIONS:-${DDNS_GLOBAL_NSUPDATE_OPTIONS-}}
   # shellcheck disable=SC2086
   nmg_cmd "${NMDDNS_NSUPDATE}" -t "${timeout}" ${options} <<- EOF
 	server ${DDNS_SERVER}

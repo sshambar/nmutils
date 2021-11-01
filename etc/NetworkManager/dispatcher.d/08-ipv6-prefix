@@ -101,7 +101,7 @@
 #       private ip4 address when it's offline).  If set to "any", then
 #       even private network addresses are accepted.
 #
-#   WAN_STATIC_IP6 - comman-list of ip6 addresses/plen to add to WAN,
+#   WAN_STATIC_IP6 - comma-list of ip6 addresses/plen to add to WAN,
 #       allows mixing DHCP and static addresses.
 #
 #   WAN_STATIC_DNS6 (optional) - comma-list of ip6 dns servers added to WAN.
