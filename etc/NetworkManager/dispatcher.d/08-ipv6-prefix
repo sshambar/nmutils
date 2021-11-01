@@ -132,12 +132,15 @@
 #
 # shellcheck disable=SC1090
 
-interface="$1"
-action="$2"
-
 # for logging
 # shellcheck disable=SC2034
-NMG_TAG="${NMG_TAG-ipv6-prefix}"
+if [[ ${1-} && ${2-} ]]; then
+  # run from NM
+  NMG_TAG="${NMG_TAG-ipv6-prefix}"
+elif [[ ${interface-} ]]; then
+  # run from dhclient
+  NMG_TAG="${NMG_TAG-ipv6-prefix-dhc}"
+fi
 
 # set NMUTILS/NMCONF early, and allow environment to override
 NMUTILS="${NMUTILS:-/etc/nmutils}"
@@ -148,28 +151,42 @@ NMCONF="${NMCONF:-${NMUTILS}/conf}"
 ########## Default paths
 
 RUNDIR="${RUNDIR:-/run/nmutils}"
+LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
+ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/@WAN@/accept_ra}"
+# sysctl forwarding state (must contain "@NODE@")
 FORWARDING_PAT="${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}"
 
 ########## Support programs
 
-DHSCRIPT="${DHSCRIPT:-dhclient-ipv6-prefix}"
 NMDATE=${NMDATE:-date}
+DHCLIENT=${DHCLIENT:-dhclient}
+
+# these are optional (may be empty)
+DHCLIENT_ORIG_SCRIPT=${DHCLIENT_ORIG_SCRIPT-dhclient-script}
+NMCLI=${NMCLI-nmcli}
+
+# FIXME remove
+DHSCRIPT="${DHSCRIPT:-dhclient-ipv6-prefix}"
+
+########## Config overrides
+
+# set to 1 to spawn dhclient even if NetworkManager method=auto
+NMDH6_IGNORE_METHOD_AUTO=${NMDH6_IGNORE_METHOD_AUTO-}
+# by default, request addresses and prefixes... (cleared if method=auto)
+NMDH6_DHCLIENT_ARGS=("-N")
 
 ########## SCRIPT START
-
-# anything for us to do?
-[[ ${interface} && ${action} ]] || exit 0
 
 NMG_REQUIRED="1.5.6"
 NMDDNS_REQUIRED="1.4.3"
 
 # load ddns- or general-functions
-NMDDNS="${NMDDNS-${NMUTILS}/ddns-functions}"
+NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
 { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
   # no DDNS, use general-functions
-  NMDDNS='' NMG="${NMG:-${NMUTILS}/general-functions}"
+  NMDDNS='' NMG=${NMG:-${NMUTILS}/general-functions}
   { [[ -r ${NMG} ]] && . "${NMG}"; } || {
-    echo 1>&2 "Unable to read ${NMG}"; exit 2; }
+    echo 1>&2 "Unable to load ${NMG}"; exit 2; }
 }
 
 [[ ${NMG_VERSION} ]] || {
@@ -177,33 +194,58 @@ NMDDNS="${NMDDNS-${NMUTILS}/ddns-functions}"
 [[ -z ${NMDDNS} || ${NMDDNS_VERSION} ]] || {
   nmg_err "${0##*/} requires NMDDNS ${NMDDNS_REQUIRED}"; exit 2; }
 
-########## Config locations
+########## Config/state locations
 
 # main config
 WAN_CONFIG_PAT=${WAN_CONFIG_PAT:-${NMCONF}/ipv6-prefix-@WAN@.conf}
-# DDNS config (must contain "@LAN@-from-@WAN@")
-LAN_DDNS_CONFIG_PAT=${LAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@LAN@-from-@WAN@.conf}
 
-# State file locations
+##### dhclient config
+
+# override LEASEDIR, not LEASES
+LEASES="${LEASEDIR}/ipv6-prefix-@WAN@.leases"
+# override RUNDIR, not DHCLIENT_PID
+DHCLIENT_PID="${RUNDIR}/dhclient-ipv6-prefix-@WAN@.pid"
+
+##### WAN address
+
+# iaid state (must contain "@ID@-@WAN@")
+WAN_STATE_PAT=${WAN_STATE_PAT:-${RUNDIR}/ipv6-@ID@-@WAN@.state}
+
+# DDNS config
+WAN_DDNS_CONFIG_PAT=${WAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@WAN@.conf}
+# DDNS state (must contain "@WAN@-@RREC@")
+WAN_DDNS_STATE_PAT=${WAN_DDNS_STATE_PAT:-${RUNDIR}/ddns-@WAN@-@RREC@.state}
+
+#### prefix LAN (LAN_*_PAT values must have a single @LAN@ keyword)
+
+# main LAN config (must contain "@LAN@-from-@WAN@")
+LAN_CONFIG_PAT=${LAN_CONFIG_PAT:-${NMCONF}/ipv6-prefix-@LAN@-from-@WAN@.conf}
 
 # node assignment state (must contain "@LAN@-from-@ID@-@WAN@")
 LAN_STATE_PAT=${LAN_STATE_PAT:-${RUNDIR}/ipv6-prefix-@LAN@-from-@ID@-@WAN@.state}
+
+# DDNS config (must contain "@LAN@-from-@WAN@")
+LAN_DDNS_CONFIG_PAT=${LAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@LAN@-from-@WAN@.conf}
 # LAN DDNS state (must contain "@LAN@-from-@WAN@-@RREC@")
 LAN_DDNS_STATE_PAT=${LAN_DDNS_STATE_PAT:-${RUNDIR}/ddns-@LAN@-from-@WAN@-@RREC@.state}
 
 # internal state
-CUR_TIME=''
+RADVD_TRIGGER='' CUR_TIME='' EXIT_CODE=''
+NM_MODIFIED='' CONN_ID='' NM_CONFIG=''
 
-function ipv6_read_wan_config() {
+ipv6_wan_reset_config() {
+
+  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+  unset WAN_STATIC_IP6 WAN_STATIC_DNS6 WAN_STATIC_DNS6_SEARCH
+}
+
+ipv6_wan_read_config() {
   # <wan>
-  local config=${WAN_CONFIG_PAT/@WAN@/$1}
 
-  # load WAN config (with defaults)
-  WAN_LAN_INTFS='' WAN_REQUIRE_IP4=''
-  # shellcheck disable=SC2034
-  WAN_DHCLIENT_OPTIONS=''
-  nmg_read_config "${config}" || return
+  # load WAN config
+  nmg_read_config "${WAN_CONFIG_PAT/@WAN@/$1}" || return
 
+  # FIXME remove
   nmg_need_progs "${DHSCRIPT}" || exit
 }
 
@@ -225,9 +267,9 @@ ipv6_life_calc() { # return 0 if <retval> set, 1 if offset unavailable
 # WAN Functions
 #
 
-function ipv6_wan_check() {
+ipv6_wan_check() {
 
-  [[ ${WAN_REQUIRE_IP4} ]] || return 0
+  [[ ${WAN_REQUIRE_IP4-} ]] || return 0
 
   local priv_ok=''
   [[ ${WAN_REQUIRE_IP4} == any ]] && priv_ok=1
@@ -253,20 +295,20 @@ function ipv6_wan_check() {
   return 1
 }
 
-function ipv6_wan_start_dhclient() {
+ipv6_wan_start_dhclient() {
   export interface
   nmg_daemon "${DHSCRIPT}" "start"
 }
 
-function ipv6_wan_stop_dhclient() {
+ipv6_wan_stop_dhclient() {
   export interface
   nmg_daemon "${DHSCRIPT}" "stop"
 }
 
-function ipv6_wan_start() {
+ipv6_wan_start() {
 
   local rc=0
-  ipv6_read_wan_config "${interface}" || rc=$?
+  ipv6_wan_read_config "${interface}" || rc=$?
 
   # no file ok
   [[ ${rc} == 1 ]] && return 0
@@ -281,10 +323,10 @@ function ipv6_wan_start() {
   fi
 }
 
-function ipv6_wan_stop() {
+ipv6_wan_stop() {
 
   # stop dhclient if we have config
-  ipv6_read_wan_config "${interface}" && ipv6_wan_stop_dhclient
+  ipv6_wan_read_config "${interface}" && ipv6_wan_stop_dhclient
 
   return 0
 }
@@ -294,7 +336,7 @@ function ipv6_wan_stop() {
 #
 
 # LAN_DDNS items: <wan>[,<addr6>...]
-function ipv6_flag_lan_ddns() { # returns 0
+ipv6_lan_flag_ddns() { # returns 0
   # <wan> [ <addr6> ]
   local i wan=$1 addr=${2-} IFS; unset IFS
 
@@ -306,9 +348,9 @@ function ipv6_flag_lan_ddns() { # returns 0
   LAN_DDNS+=("${wan}${addr:+,${addr}}")
 }
 
-function ipv6_lan_add_addr() {
-  # <state> <from_wan>
-  local state=$1 wan=$2 addr6='' vlife=0 plife=0 start=0
+ipv6_lan_add_addr() {
+  # <lan> <state> <from_wan>
+  local lan=$1 state=$2 wan=$3 addr6='' vlife=0 plife=0 start=0
 
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
   if nmg::prop_get_value vlife "${state}" "valid-life" &&
@@ -318,27 +360,27 @@ function ipv6_lan_add_addr() {
       ipv6_life_calc plife "${plife}" "${start}"; then
     # don't add if address expired
     [[ ${vlife} == 0 ]] && return 0
-    nmg_add_ip6_addr "${interface}" "${addr6}" valid_lft "${vlife}" \
+    nmg_add_ip6_addr "${lan}" "${addr6}" valid_lft "${vlife}" \
                      preferred_lft "${plife}" || return 0
   else
-    nmg_add_ip6_addr "${interface}" "${addr6}" || return 0
+    nmg_add_ip6_addr "${lan}" "${addr6}" || return 0
     plife=1
   fi
 
-  [[ ${plife} != 0 ]] && ipv6_flag_lan_ddns "${wan}" "${addr6}"
+  [[ ${plife} != 0 ]] && ipv6_lan_flag_ddns "${wan}" "${addr6}"
 
   # flag radvd trigger (for later)
   RADVD_TRIGGER=1
 
   # NM sets forwarding to 0 if managed and not method=shared, correct that
   if [[ ${Forwarding} == 1 &&
-          -w ${FORWARDING_PAT//@NODE@/${interface}} ]]; then
-    nmg_write "${FORWARDING_PAT//@NODE@/${interface}}" 1 || :
+          -w ${FORWARDING_PAT//@NODE@/${lan}} ]]; then
+    nmg_write "${FORWARDING_PAT//@NODE@/${lan}}" 1 || :
   fi
   return 0
 }
 
-function ipv6_handle_lan_ddns() {
+ipv6_lan_handle_ddns() {
   local item wan addr6 addrs action ddns_vals IFS; unset IFS
 
   # DDNS available?
@@ -367,32 +409,32 @@ function ipv6_handle_lan_ddns() {
   done
 }
 
-function ipv6_lan_foreach_wan() {
+ipv6_lan_foreach_wan() {
   # <callback> [ <args> ]
   local IFS; unset IFS
   nmg::foreach_filematch "${LAN_STATE_PAT/@LAN@/${interface}}" \
-                         "from-@ID@-@WAN@" "$@" || :
+                         "@ID@-@WAN@" "$@" || :
 }
 
-function ipv6_lan_start_cb() { # returns 0
-  # <state-file> from-<iaid>-<wan>
+ipv6_lan_start_cb() { # returns 0
+  # <state-file> <iaid>-<wan>
   local file=$1 state='' wan
 
-  # should only remove from-<iaid> since <iaid> cannot include "-"
-  wan=${2#from-*-}
+  # should only remove "<iaid>-" since <iaid> cannot include "-"
+  wan=${2#*-}
   [[ ${wan} ]] || return 0
 
-  ipv6_flag_lan_ddns "${wan}"
+  ipv6_lan_flag_ddns "${wan}"
 
   # read address from state
   nmg::read state "ignore" "${file}" || return 0
 
   # get WAN_LAN_INTFS
-  ipv6_read_wan_config "${wan}" || :
+  ipv6_wan_read_config "${wan}" || :
 
   # this LAN still configured for this WAN?
-  if [[ ${WAN_LAN_INTFS} =~ (^| )"${interface}"($| ) ]]; then
-    ipv6_lan_add_addr "${state}" "${wan}"
+  if [[ ${WAN_LAN_INTFS-} =~ (^| )"${interface}"($| ) ]]; then
+    ipv6_lan_add_addr "${interface}" "${state}" "${wan}"
   else
     nmg_remove "${file}"
   fi
@@ -400,7 +442,7 @@ function ipv6_lan_start_cb() { # returns 0
   return 0
 }
 
-function ipv6_lan_start() {
+ipv6_lan_start() {
 
   # used by ipv6_lan_add_addr
   local Forwarding=0 LAN_DDNS=() RADVD_TRIGGER=''
@@ -411,52 +453,70 @@ function ipv6_lan_start() {
   # set address from each WAN
   ipv6_lan_foreach_wan ipv6_lan_start_cb
 
-  ipv6_handle_lan_ddns
+  ipv6_lan_handle_ddns
 
   # trigger radvd if prefix(es) added
   [[ ${RADVD_TRIGGER} ]] && nmg_radvd_trigger
   return 0
 }
 
-function ipv6_lan_stop_cb() { # returns 0
-  # <state-file> from-<iaid>-<wan>
+ipv6_lan_stop_cb() { # returns 0
+  # <state-file> <iaid>-<wan>
   local wan
 
-  # should only remove from-<iaid> since <iaid> cannot include "-"
-  wan=${2#from-*-}
+  # should only remove "<iaid>-" since <iaid> cannot include "-"
+  wan=${2#*-}
   [[ ${wan} ]] || return 0
 
-  ipv6_flag_lan_ddns "${wan}"
+  ipv6_lan_flag_ddns "${wan}"
 }
 
-function ipv6_lan_stop() {
+ipv6_lan_stop() {
   # reset DDNS for each WAN
   local LAN_DDNS=()
 
   ipv6_lan_foreach_wan ipv6_lan_stop_cb
 
-  ipv6_handle_lan_ddns
+  ipv6_lan_handle_ddns
 
   # trigger radvd as prefix(es) removed
   nmg_radvd_trigger
 }
 
-nmg_debug "interface: ${interface} action: ${action}"
+if [[ ${1-} && ${2-} ]]; then
 
-[[ -e ${RUNDIR} ]] || {
-  nmg_cmd mkdir -p "${RUNDIR}" || exit
-}
+  # run from NM
+  interface=$1
+  action=$2
 
-case "${action}" in
-  up)
-    ipv6_lan_start
-    ipv6_wan_start
-    ;;
-  dhcp4-change)
-    ipv6_wan_start
-    ;;
-  down)
-    ipv6_lan_stop
-    ipv6_wan_stop
-    ;;
-esac
+  nmg_debug "interface: ${interface} action: ${action}"
+
+  [[ -e ${RUNDIR} ]] || {
+    nmg_cmd mkdir -p "${RUNDIR}" || exit
+  }
+
+  case "${action}" in
+    up)
+      ipv6_lan_start
+      ipv6_wan_start
+      ;;
+    dhcp4-change)
+      ipv6_wan_start
+      ;;
+    down)
+      ipv6_lan_stop
+      ipv6_wan_stop
+      ;;
+  esac
+
+elif [[ ${interface-} ]]; then
+
+  # run from dhclient
+
+  # check if we're still configured
+  ipv6_wan_read_config || exit 0
+
+  [[ ${EXIT_CODE} ]] && exit "${EXIT_CODE}"
+fi
+
+: # for loading in tests

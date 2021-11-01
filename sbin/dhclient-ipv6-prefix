@@ -65,13 +65,14 @@ NMCONF="${NMCONF:-${NMUTILS}/conf}"
 
 RUNDIR="${RUNDIR:-/run/nmutils}"
 LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
-ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/${interface-}/accept_ra}"
+ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/@WAN@/accept_ra}"
 # sysctl forwarding state (must contain "@NODE@")
 FORWARDING_PAT="${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}"
 
 ########## Support programs
 
 DHCLIENT=${DHCLIENT:-dhclient}
+# FIXME DIFFERS
 DHSCRIPT=${DHSCRIPT:-$0}
 # these may be empty
 DHCLIENT_ORIG_SCRIPT=${DHCLIENT_ORIG_SCRIPT-dhclient-script}
@@ -110,9 +111,9 @@ NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
 ########## Config/state locations
 
 # override LEASEDIR, not LEASES
-LEASES="${LEASEDIR}/ipv6-prefix-${interface}.leases"
+LEASES="${LEASEDIR}/ipv6-prefix-@WAN@.leases"
 # override RUNDIR, not DHCLIENT_PID
-DHCLIENT_PID="${RUNDIR}/dhclient-ipv6-prefix-${interface}.pid"
+DHCLIENT_PID="${RUNDIR}/dhclient-ipv6-prefix-@WAN@.pid"
 
 # main config
 WAN_CONFIG_PAT=${WAN_CONFIG_PAT:-${NMCONF}/ipv6-prefix-@WAN@.conf}
@@ -164,14 +165,12 @@ ipv6_life_calc() { # return 0 if <retval> set, 1 if offset unavailable
 }
 
 ipv6_handle_ddns_cb() { # returns 0
-  # <file> <iaid> <lan>
-  local state addr6 ip6 pref start plife
+  # <file> <iaid> <interface>
+  local state addr6 pref start plife
 
   # load address
   nmg::read state "" "$1" || return 0
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
-  # ensure address is applied
-  nmg::query_ips ip6 "" 6a "$3" "${addr6}" || return 0
 
   # if pref-life 0, don't place in DNS (shouldn't be used for
   # new connections) - use state values to avoid races
@@ -180,27 +179,27 @@ ipv6_handle_ddns_cb() { # returns 0
       ipv6_life_calc plife "${pref}" "${start}"; then
     [[ ${plife} == 0 ]] && return 0
   fi
-  ddns_addrs+=("${ip6}")
+
+  # ensure address is applied and ready
+  nmg::wait_dad6 "$3" "${addr6}" && ddns_addrs+=("${addr6%%/*}")
 
   return 0
 }
 
 ipv6_handle_ddns() { # returns 0
   # <pat_with_@ID@> <interface> <ddns-config> <ddns-state-pat>
-  local ddns_addrs=() ddns_vals=() addr6 ip6 plife action=down IFS
-  unset IFS
+  local ddns_addrs=() action=down IFS; unset IFS
 
   # DDNS available?
   [[ ${NMDDNS} ]] || return 0
 
+  # any ddns config?
+  [[ -e $3 ]] || return 0
+
   # gather addresses in ddns_addrs
   nmg::foreach_filematch "$1" "@ID@" ipv6_handle_ddns_cb "$2"
 
-  for addr6 in ${ddns_addrs[@]+"${ddns_addrs[@]}"}; do
-    nmg::wait_dad6 "$2" "${addr6}" || continue
-    ddns_vals+=("${addr6%%/*}")
-  done
-  IFS=,; local addrs="${ddns_vals[*]-}"; unset IFS
+  IFS=,; local addrs="${ddns_addrs[*]-}"; unset IFS
 
   # address present determines "up" or "down", not interface state
   [[ ${addrs} ]] && action=up
@@ -217,7 +216,7 @@ ipv6_prefix_lan_ddns() { # returns 0
     "${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@/${1}-from-${interface}}"
 }
 
-ipv6_del_addr() { # returns 0
+ipv6_lan_del_addr() { # returns 0
   # <interface> <addr/plen>
 
   # flag radvd trigger (not WAN)
@@ -264,13 +263,20 @@ ipv6_lan_node_remove() { # returns 0
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
 
   # delete matching addr (if any, remove "-from-<iaid>" if present)
-  ipv6_del_addr "${lan%-from-*}" "${addr6}"
+  ipv6_lan_del_addr "${lan%-from-*}" "${addr6}"
 
   return 0
 }
 
+ipv6_lan_reset_config() { # returns 0
+  unset LAN_NODE LAN_PREFIX_LEN LAN_SITE
+}
+
 ipv6_lan_read_config() { # returns 0
   # <interface>
+
+  # clear config
+  ipv6_lan_reset_config
 
   # load LAN config (with defaults)
   LAN_PREFIX_LEN=64 LAN_SITE=auto LAN_NODE=auto
@@ -333,7 +339,7 @@ ipv6_foreach_lan() {
   # call callback [(<intf>)] for each LAN in WAN_LAN_INTFS.
   local func=$1 lan IFS; unset IFS
   shift
-  for lan in ${WAN_LAN_INTFS}; do "${func}" "${lan}" "$@"; done
+  for lan in ${WAN_LAN_INTFS-}; do "${func}" "${lan}" "$@"; done
 
   return 0
 }
@@ -449,7 +455,7 @@ ipv6_lan_node_assign() { # returns 0
         [[ ${new_addr} != "${old_addr}" ]]; then
       # remove old (different) address
       nmg_remove "${sfile}"
-      ipv6_del_addr "${lan}" "${old_addr}"
+      ipv6_lan_del_addr "${lan}" "${old_addr}"
     fi
 
     astate+=("inet6:${new_addr}")
@@ -629,14 +635,19 @@ ipv6_nm_config_diff() { # return 0 if differ, 1 if same
   return 0
 }
 
-# verify iaid for filename use
+# verify iaid (which is a number, possibly hex) for filename use
 ipv6_verify_iaid() { # return 0 if valid, !0 otherwise
   # <retvar> <iaid>
+  local _id
   [[ ${2-} ]] || return
-  local _id=$2
-  while [[ ${_id} =~ ([^0-9a-zA-Z_-]) ]]; do
+  nmg::lowercase _id "$2"
+  while [[ ${_id} =~ ([^0-9a-f]) ]]; do
     _id=${_id//"${BASH_REMATCH[1]}"}
   done
+  [[ ${_id} ]] || {
+    nmg_err "dhclient on ${interface} passed invalid IAID '$2'"
+    return 1
+  }
   printf -v "$1" %s "${_id}" || return
 }
 
@@ -837,7 +848,7 @@ ipv6_check_nm() {
     # allow override
     [[ ${NMDH6_IGNORE_METHOD_AUTO} ]] && return
     # allow if we're using a alt port (testing?)
-    for v in ${WAN_DHCLIENT_OPTIONS}; do [[ ${v} == -p ]] && return 0; done
+    for v in ${WAN_DHCLIENT_OPTIONS-}; do [[ ${v} == -p ]] && return 0; done
     return 1
   fi
   return 0
@@ -975,16 +986,19 @@ ipv6_up() {
 
   # allow autoconfig on WAN to set default route to ipv6 gateway
   # (this handles NM ipv6.method=disabled)
-  [[ -w ${ACCEPT_RA} ]] && {
-    nmg_write "${ACCEPT_RA}" 2 || :
+  local rafile=${ACCEPT_RA/@WAN@/${interface}}
+
+  [[ -w ${rafile} ]] && {
+    nmg_write "${rafile}" 2 || :
     # update dependent sysctls in case they are off
     for sys in defrtr pinfo rtr_pref; do
-      [[ -w ${ACCEPT_RA}_${sys} ]] && { nmg_write "${ACCEPT_RA}_$sys" 1 || :; }
+      [[ -w ${rafile}_${sys} ]] && { nmg_write "${rafile}_$sys" 1 || :; }
     done
   }
 
+  local pidfile=${DHCLIENT_PID/@WAN@/${interface}}
   # already running?
-  if nmg_is_running "${DHCLIENT}" "${DHCLIENT_PID}"; then
+  if nmg_is_running "${DHCLIENT}" "${pidfile}"; then
     nmg_debug "${DHCLIENT} already running"
   elif nmg::query_ips link_addr "" 6a "${interface}" "" "scope" "link"; then
     # make sure address is active
@@ -992,8 +1006,9 @@ ipv6_up() {
       # start dhclient to get addresses/prefixes
       # shellcheck disable=SC2086
       nmg_daemon "${DHCLIENT}" -P ${NMDH6_DHCLIENT_ARGS[*]-} -nw \
-                 -sf "${DHSCRIPT}" -pf "${DHCLIENT_PID}" -lf "${LEASES}" \
-                 ${WAN_DHCLIENT_OPTIONS} "${interface}"
+                 -sf "${DHSCRIPT}" -pf "${pidfile}" \
+                 -lf "${LEASES/@WAN@/${interface}}" \
+                 ${WAN_DHCLIENT_OPTIONS-} "${interface}"
     else
       nmg_err "Timed out waiting for link address ${link_addr[0]}"
     fi
@@ -1005,11 +1020,15 @@ ipv6_up() {
 
 ipv6_down() {
 
+  local pidfile=${DHCLIENT_PID/@WAN@/${interface}}
+
   # stop the dhclient if it's running
-  if nmg_is_running "${DHCLIENT}" "${DHCLIENT_PID}" 1; then
-    nmg_cmd "${DHCLIENT}" -x -sf "${DHSCRIPT}" -pf "${DHCLIENT_PID}" \
+  if nmg_is_running "${DHCLIENT}" "${pidfile}" 1; then
+    nmg_cmd "${DHCLIENT}" -x -sf "${DHSCRIPT}" -pf "${pidfile}" \
             "${interface}"
   fi
+  nmg_remove "${pidfile}"
+
   # dhclient -x should call this script with STOP6, but doesn't...
   # work around it.
   ipv6_flush

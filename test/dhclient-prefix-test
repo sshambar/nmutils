@@ -274,7 +274,7 @@ xtest::group1::prefix() {
   ftest P56f "br0 cannot be configured, no /64 prefixes available" \
         " - logs info"
 
-  unset LAN_NODE LAN_PREFIX_LEN LAN_SITE
+  ipv6_lan_reset_config
 }
 
 xtest::onexit::addr() {
@@ -330,9 +330,9 @@ xtest::group2::addr() {
   xtest A3 t "(<addr> <expired lifetimes>) - returns true"
   ftest A3f "" " - does not add address"
 
-  shtest::prefix "ipv6_del_addr"
+  shtest::prefix "ipv6_lan_del_addr"
 
-  xwrap ipv6_del_addr br0 "fdc0:4455:b240::1/64"
+  xwrap ipv6_lan_del_addr br0 "fdc0:4455:b240::1/64"
   xtest A11 t "(<addr>) - returns true"
   xread_value out <<-EOF
 	Removing fdc0:4455:b240::1/64 from br0
@@ -348,7 +348,7 @@ xtest::group2::addr() {
   shtest::check_value A21b "LAN_PREFIX_LEN" "63" " - ''"
   shtest::check_value A21c "LAN_NODE" "auto" " - uses defaults"
 
-  unset LAN_SITE LAN_PREFIX_LEN LAN_NODE
+  ipv6_lan_reset_config
   xtest::onexit::addr
 }
 
@@ -627,7 +627,7 @@ xtest::group3::lan() {
   xtest L31k f " - br1 11:22 state file removed"
 
   # cleanup
-  unset LAN_SITE LAN_PREFIX_LEN LAN_NODE
+  ipv6_lan_reset_config
   nmddns_reset_config
   xtest::onexit::lan
 }
@@ -899,8 +899,8 @@ xtest::onexit::wan_ddns() {
   [[ ${WAN_STATE_PAT-} ]] || return 0
   local file="${WAN_STATE_PAT%-dhc}-dhc"
   file=${file/@WAN@/eth0}
-  xrm "${file/@ID@/yyy}"
-  xrm "${file/@ID@/zzz}"
+  xrm "${file/@ID@/1a1a}"
+  xrm "${file/@ID@/2b2b}"
 
   file="${WAN_DDNS_STATE_PAT%-dhc}-dhc"
   file=${file/@WAN@/eth0}
@@ -917,8 +917,8 @@ xtest::group3::wan_ddns() {
   xtest D0 t " (check WAN_STATE_PAT)"
   shtest::last_check_ok || return 1
   state1=${WAN_STATE_PAT/@WAN@/${interface}}
-  state2=${state1/@ID@/zzz}
-  state1=${state1/@ID@/yyy}
+  state2=${state1/@ID@/2b2b}
+  state1=${state1/@ID@/1a1a}
   xrm "$state1"
 
   shtest::prefix "ipv6_addr_start"
@@ -928,7 +928,7 @@ xtest::group3::wan_ddns() {
   dstate1=${dstate1/@RREC@/AAAA}
   xrm "$dstate1"
 
-  local new_ip6_address='2001:db8:871a:28c1::1' new_ip6_prefixlen=64 new_iaid='yyy'
+  local new_ip6_address='2001:db8:871a:28c1::1' new_ip6_prefixlen=64 new_iaid='1a1a'
   local -x NMCLI_MOCK_FORCE_ipv6_method="manual"
   local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64"
 
@@ -949,7 +949,7 @@ xtest::group3::wan_ddns() {
   shtest::check_file D1d "$dstate1" "2001:db8:871a:28c1::1" \
                      " - creates dns state file"
 
-  local new_ip6_address='2001:db8:4860:4860::8888' new_ip6_prefixlen=64 new_iaid='zzz'
+  local new_ip6_address='2001:db8:4860:4860::8888' new_ip6_prefixlen=64 new_iaid='2b2b'
   local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64, 2001:db8:4860:4860::8888/64"
 
   xwrap ipv6_addr_start
@@ -966,16 +966,16 @@ xtest::group3::wan_ddns() {
 	EOF
   ftest D2f "$out" " - adds DNS"
   shtest::check_file D2y "$state1" "inet6:2001:db8:871a:28c1::1/64" \
-                     " - creates yyy state file"
+                     " - creates 1a1a state file"
   shtest::check_file D2z "$state2" "inet6:2001:db8:4860:4860::8888/64" \
-                     " - creates zzz state file"
+                     " - creates 2b2b state file"
   shtest::check_file D2d "$dstate1" "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
                      " - creates dns state file"
 
   shtest::prefix "ipv6_addr_stop"
 
   unset new_ip6_address new_ip6_prefixlen new_iaid
-  local old_ip6_address='2001:db8:871a:28c1::1' old_ip6_prefixlen=64 old_iaid='yyy'
+  local old_ip6_address='2001:db8:871a:28c1::1' old_ip6_prefixlen=64 old_iaid='1a1a'
   local -x DIG_MOCK_OUTPUT="2001:db8:871a:28c1::1,2001:db8:4860:4860::8888"
 
   xwrap ipv6_addr_stop
@@ -991,15 +991,15 @@ xtest::group3::wan_ddns() {
 	update add www.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	EOF
-  ftest D11f "$out" " - removes yyy from NM/DNS"
+  ftest D11f "$out" " - removes 1a1a from NM/DNS"
   [[ -e "$state1" ]]
-  xtest D11y f " - yyy state file removed"
+  xtest D11y f " - 1a1a state file removed"
   [[ -e "$state2" ]]
-  xtest D11z t " - zzz state file remains"
+  xtest D11z t " - 2b2b state file remains"
   shtest::check_file D11d "$dstate1" "2001:db8:4860:4860::8888" \
                      " - updates dns state file"
 
-  old_ip6_address='2001:db8:4860:4860::8888' old_ip6_prefixlen=64 old_iaid='zzz'
+  old_ip6_address='2001:db8:4860:4860::8888' old_ip6_prefixlen=64 old_iaid='2b2b'
   NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:4860:4860::8888/64"
   DIG_MOCK_OUTPUT="2001:db8:4860:4860::8888"
 
@@ -1015,9 +1015,9 @@ xtest::group3::wan_ddns() {
 	update delete www.example.test AAAA
 	send
 	EOF
-  ftest D12f "$out" " - removes zzz from NM/DNS"
+  ftest D12f "$out" " - removes 2b2b from NM/DNS"
   [[ -e "$state2" ]]
-  xtest D12z f " - zzz state file removed"
+  xtest D12z f " - 2b2b state file removed"
   [[ -e "$dstate1" ]]
   xtest D12d f " - removes dns state file"
 
@@ -1039,11 +1039,11 @@ xtest::group3::wan_ddns() {
 	update delete www.example.test AAAA
 	send
 	EOF
-  ftest D21f "$out" " - removes yyy/zzz from NM/DNS (no apply)"
+  ftest D21f "$out" " - removes 1a1a/2b2b from NM/DNS (no apply)"
   [[ -e "$state1" ]]
-  xtest D21y f " - yyy state file removed"
+  xtest D21y f " - 1a1a state file removed"
   [[ -e "$state2" ]]
-  xtest D21z f " - zzz state file removed"
+  xtest D21z f " - 2b2b state file removed"
   [[ -e "$dstate1" ]]
   xtest D21d f " - removes dns state file"
 

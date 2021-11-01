@@ -51,7 +51,7 @@ xtest::group3::wan() {
   shtest::last_check_ok && wait $!
   ftest W11f "dhclient 'stop'" " - echos stop"
 
-  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+  ipv6_wan_reset_config
 }
 
 xtest::onexit::lan() {
@@ -143,8 +143,8 @@ xtest::group3::lan() {
   [[ -e "$state4" ]]
   xtest L11d f " - DDNS state file removed"
 
-  nmddns_cleanup
-  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_DHCLIENT_OPTIONS
+  nmddns_reset_config
+  ipv6_wan_reset_config
   xtest::onexit::lan
 }
 
@@ -160,8 +160,7 @@ xmain() {
   # disable helper so we get nsupdate results
   local TEST_DDNS_HELPER=''
 
-  xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix" \
-               dummy general
+  xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix"
 
   xtest::run_tests "08-ipv6-prefix Test Summary" "$@"
   local rc=$?
