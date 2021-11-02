@@ -42,6 +42,9 @@ all: general ddns all-prefix all-radvd
 help:
 	@echo "make targets:"
 	@echo "  all               - run all tests"
+	@echo "  general           - run general-funcions tests"
+	@echo "  ddns              - run ddns-funcions tests"
+	@echo "  all-prefix        - run all ipv6 prefix tests"
 	@echo "  all-radvd         - run all radvd tests"
 	@echo "  radvd-test-#      - run radvd test # (1, 2, etc)"
 	@echo "  bless-radvd-test  - replace a test results (prompts for #)"
@@ -54,16 +57,16 @@ general:
 ddns:
 	$(TEST_SHELL) $(TEST_ROOT)/ddns-test $(STRICT)
 
-all-prefix: ipv6-prefix nm-ddns dhclient-prefix
+all-prefix: ipv6-prefix-nm nm-ddns ipv6-prefix-dhclient
 
-ipv6-prefix:
-	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-test $(STRICT)
+ipv6-prefix-nm:
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-nm-test $(STRICT)
 
 nm-ddns:
 	$(TEST_SHELL) $(TEST_ROOT)/nm-ddns-test $(STRICT)
 
-dhclient-prefix:
-	$(TEST_SHELL) $(TEST_ROOT)/dhclient-prefix-test $(STRICT)
+ipv6-prefix-dhclient:
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-dhclient-test $(STRICT)
 
 
 $(TEST_OUT):

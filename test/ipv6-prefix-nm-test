@@ -1,9 +1,8 @@
 #!/bin/bash
-# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
-# vim:set ft=sh et sw=2 ts=2:
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t; -*-
+# vim:set ft=sh sw=2 ts=2:
 #
-# Test suite for 08-ipv6-prefix
-#   - this is a companion to dhscript-prefix-test
+# Test suite for 08-ipv6-prefix (NetworkManager functions)
 #
 # shellcheck disable=SC2034,SC1090,SC2123
 
@@ -13,8 +12,12 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
 
 xtest::group3::wan() {
 
-  local IP4_NUM_ADDRESSES=0 IP4_ADDRESS_0=''
-  local -x DUMMY_MOCK_OUTPUT="dhclient @ARGS@"
+  local out
+  local -x DHCLIENT_MOCK_OUTPUT="dhclient @ARGS@"
+  local -x PGREP_MOCK_OUTPUT="100"
+
+  # pretend dhclient is running (using pgrep-mock)
+  DHCLIENT_PID=${XFILE}
 
   shtest::title "WAN Dispatcher Tests (wan group)"
 
@@ -22,34 +25,57 @@ xtest::group3::wan() {
 
   shtest::prefix "ipv6_wan_start"
 
+  local IP4_NUM_ADDRESSES=0 IP4_ADDRESS_0=''
+  printf "" >>"${DHCLIENT_PID}"
+
   xwrap ipv6_wan_start
   xtest W1 t "(<no ip>) - returns true"
-  if shtest::last_check_ok; then
-    wait $!
-    xtest W1w t " - background echo completes"
-  fi
-  ftest W1f "No ip4 addresses available"$'\n'"dhclient 'stop'" \
-        " - echos stop (config requires ip)"
+  xread_value out <<-EOF
+	No ip4 addresses available
+	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	EOF
+  ftest W1f "$out" " - echos stop (config requires ip)"
+  [[ -e ${DHCLIENT_PID} ]]
+  xtest W1p f " - pid file removed"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=192.168.55.1/24
+  printf "" >>"${DHCLIENT_PID}"
+
   xwrap ipv6_wan_start
   xtest W2 t "(<priv ip>) - returns true"
-  shtest::last_check_ok && wait $!
-  ftest W2f "No public ip4 addresses available"$'\n'"dhclient 'stop'" \
-        " - echos stop (config requires public)"
+  xread_value out <<-EOF
+	No public ip4 addresses available
+	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	EOF
+  ftest W2f "$out" " - echos stop (config requires public)"
+  [[ -e ${DHCLIENT_PID} ]]
+  xtest W2p f " - pid file removed"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=203.0.113.5/24
+
   xwrap ipv6_wan_start
   xtest W3 t "(<ip>) - returns true"
-  shtest::last_check_ok && wait $!
-  ftest W3f "dhclient 'start'" " - echos start"
+  if shtest::last_check_ok; then
+    wait $!
+    xtest W3w t " - background echo completes"
+  fi
+  xread_value out <<-EOF
+	dhclient '-P' '-N' '-nw' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' '-lf' '${LEASES/@WAN@/wan0}' 'wan0'
+	EOF
+  ftest W3f "$out" " - echos start"
 
   shtest::prefix "ipv6_wan_stop"
 
+  printf "" >>"${DHCLIENT_PID}"
   xwrap ipv6_wan_stop
   xtest W11 t "() - returns true"
-  shtest::last_check_ok && wait $!
-  ftest W11f "dhclient 'stop'" " - echos stop"
+  xread_value out <<-EOF
+	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	EOF
+  ftest W11f "$out" " - echos stop"
 
   ipv6_wan_reset_config
 }
@@ -64,7 +90,7 @@ xtest::onexit::lan() {
 }
 
 xtest::group3::lan() {
-  local out state1 state2 state3 state4 CUR_TIME=''
+  local out state1 state2 state3 dstate1 CUR_TIME=''
   local -x DUMMY_MOCK_OUTPUT="radvd triggered"
 
   shtest::title "LAN Dispatcher Tests (lan group)"
@@ -75,8 +101,8 @@ xtest::group3::lan() {
   state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-aa:1-wan1}
   state2=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-bb:1-wan1}
   state3=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-cc:2-wan2}
-  state4=${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan1-AAAA}
-  xrm "$state1" "$state2" "$state3" "$state4"
+  dstate1=${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan1-AAAA}
+  xrm "$state1" "$state2" "$state3" "$dstate1"
 
   local FORWARDING_PAT=${XFILE}
   xrm "$XFILE"
@@ -100,7 +126,7 @@ xtest::group3::lan() {
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
   ftest L1f "$out" " - adds addr/dns"
-  shtest::check_file L1d "$state4" "2001:db8:100:2:32fb:93c5:555:1" \
+  shtest::check_file L1d "$dstate1" "2001:db8:100:2:32fb:93c5:555:1" \
                      " - DDNS state file created"
 
   echo "inet6:2001:db8:200:2:32fb:93c5:555:1/64" > "$state2"
@@ -140,7 +166,7 @@ xtest::group3::lan() {
   xtest L11j t " - bb:1 state file remains"
   [[ -e "$state3" ]]
   xtest L11k t " - cc:2 state file remains"
-  [[ -e "$state4" ]]
+  [[ -e "$dstate1" ]]
   xtest L11d f " - DDNS state file removed"
 
   nmddns_reset_config
@@ -160,9 +186,12 @@ xmain() {
   # disable helper so we get nsupdate results
   local TEST_DDNS_HELPER=''
 
+  # don't load wan config by mistake
+  unset interface
+
   xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix"
 
-  xtest::run_tests "08-ipv6-prefix Test Summary" "$@"
+  xtest::run_tests "ipv6-prefix-nm-test Summary" "$@"
   local rc=$?
 
   xtest::onexit
