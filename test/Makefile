@@ -37,37 +37,30 @@ TEST_SYSTEMCTL := $(TEST_BIN)/dummy-mock
 # default addrs for ip-mock
 IP_MOCK_ADDRS := $(TEST_CONF)/ip-mock-addrs
 
-all: general ddns all-prefix all-radvd
+all: general ddns prefix all-radvd
 
 help:
 	@echo "make targets:"
 	@echo "  all               - run all tests"
 	@echo "  general           - run general-funcions tests"
 	@echo "  ddns              - run ddns-funcions tests"
-	@echo "  all-prefix        - run all ipv6 prefix tests"
-	@echo "  all-radvd         - run all radvd tests"
+	@echo "  prefix            - run ipv6 prefix tests"
+	@echo "  all-radvd          - run all radvd tests"
 	@echo "  radvd-test-#      - run radvd test # (1, 2, etc)"
 	@echo "  bless-radvd-test  - replace a test results (prompts for #)"
-
-all-radvd: radvd-test-1 radvd-test-2 radvd-test-3 radvd-test-4
 
 general:
 	$(TEST_SHELL) $(TEST_ROOT)/general-test $(STRICT)
 
 ddns:
 	$(TEST_SHELL) $(TEST_ROOT)/ddns-test $(STRICT)
-
-all-prefix: ipv6-prefix-nm nm-ddns ipv6-prefix-dhclient
-
-ipv6-prefix-nm:
-	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-nm-test $(STRICT)
-
-nm-ddns:
 	$(TEST_SHELL) $(TEST_ROOT)/nm-ddns-test $(STRICT)
 
-ipv6-prefix-dhclient:
+prefix:
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-nm-test $(STRICT)
 	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-dhclient-test $(STRICT)
 
+all-radvd: radvd-test-1 radvd-test-2 radvd-test-3 radvd-test-4
 
 $(TEST_OUT):
 	@mkdir -p "$(TEST_OUT)"
