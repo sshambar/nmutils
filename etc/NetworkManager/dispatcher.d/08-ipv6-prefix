@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.1 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.2 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -78,6 +78,7 @@
 #
 #   RUNDIR/ipv6-prefix-<lan>-from-<iaid>-<wan>.state
 #   RUNDIR/ipv6-<iaid>-<wan>.state
+#   RUNDIR/ipv6-<wan>.state
 #   RUNDIR/ddns-<wan>-<rrec>.state
 #   RUNDIR/ddns-<lan>-from-<wan>-<rrec>.state
 #
@@ -131,8 +132,7 @@
 # shellcheck disable=SC1090
 
 # for logging
-# shellcheck disable=SC2034
-if [[ ${1-} && ${2-} ]]; then
+if [[ ${NM_DISPATCHER_ACTION-} ]]; then
   # run from NM
   NMG_TAG="${NMG_TAG-ipv6-prefix}"
 elif [[ ${interface-} ]]; then
@@ -172,7 +172,7 @@ NMDH6_DHCLIENT_ARGS=("-N")
 
 ########## SCRIPT START
 
-NMG_REQUIRED="1.5.6"
+NMG_REQUIRED="1.5.7"
 NMDDNS_REQUIRED="1.4.3"
 
 # load ddns- or general-functions
@@ -204,7 +204,10 @@ DHCLIENT_PID="${RUNDIR}/dhclient-ipv6-prefix-@WAN@.pid"
 ##### WAN address
 
 # iaid state (must contain "@ID@-@WAN@")
-WAN_STATE_PAT=${WAN_STATE_PAT:-${RUNDIR}/ipv6-@ID@-@WAN@.state}
+WAN_STATE_PAT=${WAN_STATE_PAT:-${RUNDIR}/ipv6-addr-@ID@-@WAN@.state}
+
+# connection state (must contain "@WAN@")
+WAN_CONNSTATE_PAT=${WAN_CONNSTATE_PAT:-${RUNDIR}/ipv6-@WAN@.state}
 
 # DDNS config
 WAN_DDNS_CONFIG_PAT=${WAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@WAN@.conf}
@@ -285,6 +288,8 @@ ipv6_handle_ddns_cb() { # returns 0
   # load address
   nmg::read state "" "$1" || return 0
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
+
+  nmg::is_ip6_prefix "${addr6}" && return 0
 
   # if pref-life 0, don't place in DNS (shouldn't be used for
   # new connections) - use state values to avoid races
@@ -378,10 +383,25 @@ ipv6_lan_flag_ddns() { # returns 0
 }
 
 ipv6_lan_del_addr() { # returns 0
-  # <interface> <addr/plen>
+  # <lan> <addr/plen>
+
+  # skip if just prefix
+  nmg::is_ip6_prefix "$2" && return 0
 
   # flag radvd trigger (not WAN)
   nmg_del_ip6_addr "$1" "$2" && RADVD_TRIGGER=1
+
+  return 0
+}
+
+ipv6_lan_change_addr() { # returns 0
+  # <lan> <addr/plen> <ip-args>
+
+  # skip if just prefix
+  nmg::is_ip6_prefix "$2" && return 0
+
+  # flag radvd trigger (not WAN)
+  nmg_change_ip6_addr "$@" && RADVD_TRIGGER=1
 
   return 0
 }
@@ -391,6 +411,9 @@ ipv6_lan_add_addr() {
   local lan=$1 state=$2 addr6='' vlife=0 plife=0 start=0
 
   nmg::prop_get_value addr6 "${state}" "inet6" || return 0
+  # skip if just prefix
+  nmg::is_ip6_prefix "${addr6}" && return 0
+
   if nmg::prop_get_value vlife "${state}" "valid-life" &&
       nmg::prop_get_value plife "${state}" "pref-life" &&
       nmg::prop_get_value start "${state}" "life-start" &&
@@ -409,10 +432,9 @@ ipv6_lan_add_addr() {
   RADVD_TRIGGER=1
 
   # NM sets forwarding to 0 if managed and not method=shared, correct that
-  if [[ ${Forwarding} == 1 &&
-          -w ${FORWARDING_PAT//@NODE@/${lan}} ]]; then
-    nmg_write "${FORWARDING_PAT//@NODE@/${lan}}" 1 || :
-  fi
+  [[ ${Forwarding} == 1 && -w ${FORWARDING_PAT//@NODE@/${lan}} ]] && {
+    nmg_write "${FORWARDING_PAT//@NODE@/${lan}}" 1 || :; }
+
   return 0
 }
 
@@ -435,9 +457,24 @@ ipv6_lan_foreach_wan() {
                          "@ID@-@WAN@" "$@" || :
 }
 
+# calc address from prefix
+ipv6_lan_calc_address() { # returns 0 if <retvar> set
+  # <retvar> <lan> <prefix> <node>
+  local host
+
+  # still need to calc address (interface was down)
+  nmg_debug "Calculating address for prefix $3"
+
+  nmg::create_ip6_host host "$2" "$4" &&
+    nmg::create_ip6_addr "$1" "$3" "${host}" &&
+    return 0
+
+  return 1
+}
+
 ipv6_lan_start_cb() { # returns 0
   # <state-file> <iaid>-<wan>
-  local file=$1 state='' wan
+  local file=$1 state wan addr6
 
   # should only remove "<iaid>-" since <iaid> cannot include "-"
   wan=${2#*-}
@@ -445,18 +482,29 @@ ipv6_lan_start_cb() { # returns 0
 
   ipv6_lan_flag_ddns "${wan}"
 
-  # read address from state
-  nmg::read state "ignore" "${file}" || return 0
-
   # get WAN_LAN_INTFS
   ipv6_wan_read_config "${wan}" || :
 
   # this LAN still configured for this WAN?
-  if [[ ${WAN_LAN_INTFS-} =~ (^| )"${interface}"($| ) ]]; then
-    ipv6_lan_add_addr "${interface}" "${state}"
-  else
+  [[ ${WAN_LAN_INTFS-} =~ (^| )"${interface}"($| ) ]] || {
     nmg_remove "${file}"
+    return 0
+  }
+
+  # read address from state
+  nmg::read state "info" "${file}" || return 0
+
+  if nmg::prop_get_value addr6 "${state}" "inet6" &&
+      nmg::is_ip6_prefix "${addr6}"; then
+
+    # try to calc address
+    ipv6_lan_calc_address addr6 "${interface}" "${addr6}" "${LAN_NODE}" && {
+      nmg::prop_set_value state "${state}" "inet6" "${addr6}"
+      nmg_write "${file}" "${state}" || :
+    }
   fi
+
+  ipv6_lan_add_addr "${interface}" "${state}"
 
   return 0
 }
@@ -467,6 +515,8 @@ ipv6_lan_start() {
   local Forwarding=0 LAN_DDNS=() RADVD_TRIGGER=''
 
   nmg::read Forwarding "" "${FORWARDING_PAT//@NODE@/all}" || Forwarding=0
+
+  ipv6_lan_read_config "${interface}"
 
   # set address from each WAN
   ipv6_lan_foreach_wan ipv6_lan_start_cb
@@ -648,13 +698,11 @@ ipv6_lan_node_load() { # returns 0
   Lans+=("${lan} ${plen} ${LAN_NODE} ${site}")
 }
 
-# sets <retvar> if addr found, adds to Assigned
+# sets <retvars> if addr/prefix found, adds to Assigned
 ipv6_lan_node_calc() { # returns 0
-  # <retvar> <lan> [ <prefix-len> <node> <site> ]
-  local lan=$2 plen=${3-} node=${4-} site=${5-} hsite p
+  # <retaddr> <retsite> <lan> <prefix-len> <node> <site>
+  local lan=$3 plen=$4 node=$5 site=$6 hsite p addr_prefix
   local pspace=${new_ip6_prefix#*/}
-
-  [[ -z ${site} ]] && return
 
   if [[ ${site} == auto ]]; then
 
@@ -665,6 +713,7 @@ ipv6_lan_node_calc() { # returns 0
   else
 
     for p in ${Assigned[*]+"${Assigned[@]}"}; do
+      # check if requested site overlaps with assigned
       ipv6_prefix_overlap "${site}" "${plen}" "$p" || continue
       # ignore requested site, fallback to autosite
       ipv6_find_autosite site "${pspace}" "${plen}" || {
@@ -679,15 +728,16 @@ ipv6_lan_node_calc() { # returns 0
   nmg::2hex hsite "${site}"
 
   # build address prefix and host parts
-  local addr_prefix addr_host
-  if nmg::create_ip6_prefix addr_prefix "${new_ip6_prefix}" \
-                            "${hsite}" "${plen}" &&
-      nmg::create_ip6_host addr_host "${lan}" "${node}" &&
-      nmg::create_ip6_addr "$1" "${addr_prefix}" "${addr_host}"; then
+  nmg::create_ip6_prefix addr_prefix "${new_ip6_prefix}" \
+                         "${hsite}" "${plen}" || return 0
 
-    # consume prefix space
-    Assigned+=("${site}/${plen}")
-  fi
+  # consume prefix space
+  Assigned+=("${site}/${plen}")
+  printf -v "$2" '%s' "${site}/${plen}"
+
+  # calc address, or just return prefix (lan down)
+  ipv6_lan_calc_address "$1" "${lan}" "${addr_prefix}" "${node}" ||
+    printf -v "$1" '%s' "${addr_prefix}"
 
   return 0
 }
@@ -695,29 +745,35 @@ ipv6_lan_node_calc() { # returns 0
 # sets Assigned
 ipv6_lan_node_assign() { # returns 0
   # <lan> [ <plen> <node> <site> ]
-  local lan=$1 new_addr='' id old_addr astate=() state
+  # <lan> [ <addr6> <site6> ]
+  local lan=$1 new_addr='' new_site='' state old_addr
 
-  ipv6_lan_node_calc new_addr "$@"
+  if [[ ${4-} ]]; then
+    ipv6_lan_node_calc new_addr new_site "$@"
+  elif [[ ${3-} ]]; then
+    new_addr=$2 new_site=$3
+  fi
 
-  ipv6_verify_iaid id "${new_iaid}" || return 0
-
-  local sfile=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/${lan}-from-${id}-${interface}}
+  local sfile=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/${lan}-from-${Iaid}-${interface}}
 
   if [[ ${new_addr} ]]; then
+
     if nmg::read state "nolog" "${sfile}" &&
         nmg::prop_get_value old_addr "${state}" "inet6" &&
         [[ ${new_addr} != "${old_addr}" ]]; then
       # remove old (different) address
-      nmg_remove "${sfile}"
-      ipv6_lan_del_addr "${lan}" "${old_addr}"
+      ipv6_lan_node_remove "${sfile}" "${lan}"
     fi
 
-    astate+=("inet6:${new_addr}")
-    [[ ${new_max_life-} && ${new_preferred_life-} && ${new_life_starts-} ]] &&
-      astate+=("valid-life:${new_max_life}" "pref-life:${new_preferred_life}" \
-                                            "life-start:${new_life_starts}")
+    nmg::prop_set_value state "" "inet6" "${new_addr}"
+    nmg::prop_set_value state "${state}" "site6" "${new_site}"
+    [[ ${new_max_life-} && ${new_preferred_life-} &&
+         ${new_life_starts-} ]] && {
+      nmg::prop_set_value state "${state}" "valid-life" "${new_max_life}"
+      nmg::prop_set_value state "${state}" "pref-life" "${new_preferred_life}"
+      nmg::prop_set_value state "${state}" "life-start" "${new_life_starts}"
+    }
     # write state even if address isn't added (interface may be added later)
-    local IFS=$'\n'; state="${astate[*]}"; unset IFS
     nmg_write "${sfile}" "${state}" || :
     ipv6_lan_add_addr "${lan}" "${state}"
   else
@@ -728,27 +784,80 @@ ipv6_lan_node_assign() { # returns 0
   return 0
 }
 
+ipv6_prefix_load_assigned() {
+  # <file> <lan>
+  local file=$1 lan=$2 i state addr6 site6
+
+  # check if lan still in config
+  for (( i = 0; i < ${#Lans[*]}; i++ )); do
+    # shellcheck disable=SC2086
+    set -- ${Lans[$i]}
+    [[ $1 == "${lan}" ]] && break
+    set --
+  done
+
+  [[ ${4-} ]] || {
+    # no longer configured, remove node
+    ipv6_lan_node_remove "${file}" "${lan}"
+    return 0
+  }
+
+  if nmg::read state "" "${file}" &&
+      nmg::prop_get_value addr6 "${state}" "inet6" &&
+      nmg::prop_get_value site6 "${state}" "site6"; then
+    # add to Assigned
+    Assigned+=("${site6}")
+    # update Lans with addr, site
+    Lans[$i]="${lan} ${addr6} ${site6}"
+  else
+    # invalid state file
+    nmg_remove "${file}"
+  fi
+
+  return 0
+}
+
 ipv6_lan_node_depref() { # returns 0
   # <state-file> <lan>
-  local file=$1 lan=$2 state='' addr6='' astate=() new_state
+  local file=$1 lan=$2 state addr6 vlife=0
 
-  nmg::read state "" "${file}" || return 0
-  nmg::prop_get_value addr6 "${state}" "inet6" || return 0
-  if [[ ${cur_max_life:-1} == 0 ]]; then
+  [[ ${cur_max_life-} && ${cur_life_starts-} ]] && {
+    ipv6_life_calc vlife "${cur_max_life}" "${cur_life_starts}" || :
+  }
+
+  if [[ ${vlife} == 0 ]] ||
+       ! [[ ${WAN_LAN_INTFS-} =~ (^| )"${lan}"($| ) ]]; then
     # remove address from lan
-    nmg_remove "${file}"
-    nmg_del_ip6_addr "${lan}" "${addr6}" || :
-  else
-    astate+=("inet6:${addr6}")
-    if [[ ${cur_max_life-} && ${cur_life_starts-} ]]; then
-      astate+=("valid-life:${cur_max_life}" \
-                    "pref-life:0" "life-start:${cur_life_starts}")
-    fi
-    local IFS=$'\n'; new_state="${astate[*]}"; unset IFS
-    nmg_write "${file}" "${new_state}" || :
-    nmg_change_ip6_addr "${lan}" "${addr6}" \
-                        valid_lft "${cur_max_life:-0}" preferred_lft 0 || :
+    ipv6_lan_node_remove "${file}" "${lan}"
+    return 0
   fi
+
+  if nmg::read state "" "${file}" &&
+      nmg::prop_get_value addr6 "${state}" "inet6"; then
+
+    nmg::prop_set_value state "${state}" "valid-life" "${cur_max_life}"
+    nmg::prop_set_value state "${state}" "pref-life" "0"
+    nmg::prop_set_value state "${state}" "life-start" "${cur_life_starts}"
+
+    if nmg::is_ip6_prefix "${addr6}"; then
+
+      # load lan config
+      ipv6_lan_read_config "${lan}"
+
+      # calc address from prefix
+      ipv6_lan_calc_address addr6 "${lan}" "${addr6}" "${LAN_NODE}" &&
+        nmg::prop_set_value state "${state}" "inet6" "${addr6}"
+    fi
+
+    nmg_write "${file}" "${state}" || :
+
+    ipv6_lan_change_addr "${lan}" "${addr6}" \
+                         valid_lft "${vlife}" preferred_lft 0
+  else
+    # invalid file
+    nmg_remove "${file}"
+  fi
+
   return 0
 }
 
@@ -763,10 +872,18 @@ ipv6_prefix_setup_nodes() {
   nmg::read Forwarding "" "${FORWARDING_PAT//@NODE@/all}" || Forwarding=0
 
   # check all nodes for config issues
-  local args Lans=() Assigned=() Reserved=()
+  local args Iaid Lans=() Assigned=() Reserved=()
+
+  # calc iaid for state file
+  ipv6_verify_iaid Iaid "${new_iaid}" || return 0
 
   # load Lans, Reserved
   ipv6_foreach_lan ipv6_lan_node_load "${pspace}"
+
+  # load existing assignments (if any)
+  nmg::foreach_filematch \
+    "${LAN_STATE_PAT/@ID@-@WAN@/${Iaid}-${interface}}" "@LAN@" \
+    ipv6_prefix_load_assigned
 
   # assign lan nodes in order
   for args in ${Lans[*]+"${Lans[@]}"}; do
@@ -789,9 +906,28 @@ ipv6_prefix_flush_iaid() {
     ipv6_lan_node_remove
 }
 
+ipv6_prefix_finish_cb() {
+  # <file> "<lan>-from-<id>"
+  Forwarding=1
+}
+
 ipv6_prefix_finish() {
   # update all LAN DDNS
+  local Forwarding=0
+
   ipv6_foreach_lan ipv6_lan_from_wan_ddns "${interface}" "${LAN_STATE_PAT}"
+
+  # any assigned prefix, and we can forward
+  nmg::foreach_filematch \
+    "${LAN_STATE_PAT/@WAN@/${interface}}" "@LAN@-from-@ID@" \
+    ipv6_prefix_finish_cb
+
+  [[ -w ${FORWARDING_PAT//@NODE@/${interface}} ]] && {
+    nmg_write "${FORWARDING_PAT//@NODE@/${interface}}" "${Forwarding}" || :
+    # if forwarding enabled, make sure global forwarding is on
+    [[ ${Forwarding} == 1 && -w ${FORWARDING_PAT//@NODE@/all} ]] && {
+      nmg_write "${FORWARDING_PAT//@NODE@/all}" 1 || :; }
+  }
 
   # trigger radvd if we changed any LAN addresses
   [[ ${RADVD_TRIGGER} ]] && nmg_radvd_trigger
@@ -799,31 +935,52 @@ ipv6_prefix_finish() {
   return 0
 }
 
-ipv6_prefix_start() {
+ipv6_prefix_check_lan() {
+  # <state-file> "<lan>-from-<id>"
+  local file=$1 lan=${2%-from-*}
 
-  nmg_debug "prefix-start: new: ${new_ip6_prefix-} old: ${old_ip6_prefix-}"
+  # make sure lan is still configured for wan
+  [[ ${WAN_LAN_INTFS-} =~ (^| )"${lan}"($| ) ]] && return 0
+
+  # remove address from lan
+  ipv6_lan_node_remove "${file}" "${lan}"
+}
+
+ipv6_prefix_bind() {
+
+  local na="${new_ip6_prefix}" oa="${old_ip6_prefix-}"
+  if [[ ${oa} && ${na} != "${oa}" ]]; then
+    nmg_debug "prefix-bind - ${na} (old: ${oa})"
+  else
+    nmg_debug "prefix-bind - ${na}"
+  fi
 
   if [[ ${new_max_life-} == 0 ]]; then
     # flush dead prefix
-    ipv6_prefix_flush_iaid "${new_iaid-}"
+    ipv6_prefix_flush_iaid "${new_iaid}"
   else
     if [[ ${old_ip6_prefix-} &&
-            ${old_ip6_prefix} != "${new_ip6_prefix-}" ]]; then
+            ${old_ip6_prefix} != "${new_ip6_prefix}" ]]; then
       # flush old prefix
-      ipv6_prefix_flush_iaid "${old_iaid-}"
+      ipv6_prefix_flush_iaid "${old_iaid}"
     fi
 
-    [[ ${new_ip6_prefix-} && ${new_iaid-} ]] && ipv6_prefix_setup_nodes
+    # cleanup any LANs no longer configured
+    nmg::foreach_filematch \
+      "${LAN_STATE_PAT/@WAN@/${interface}}" "@LAN@-from-@ID@" \
+      ipv6_prefix_check_lan
+
+    ipv6_prefix_setup_nodes
   fi
 
   ipv6_prefix_finish
 }
 
-ipv6_prefix_stop() {
+ipv6_prefix_release() {
 
-  nmg_debug "prefix-stop: ${old_ip6_prefix}"
+  nmg_debug "prefix-release - ${old_ip6_prefix}"
 
-  ipv6_prefix_flush_iaid "${old_iaid-}"
+  ipv6_prefix_flush_iaid "${old_iaid}"
 
   ipv6_prefix_finish
 }
@@ -832,9 +989,10 @@ ipv6_prefix_depref() {
 
   local id
 
-  nmg_debug "prefix-depref: ${cur_ip6_prefix}"
+  nmg_debug "prefix-depref - ${cur_ip6_prefix}"
 
   ipv6_verify_iaid id "${cur_iaid-}" && {
+    # only process currently assigned lans...
     nmg::foreach_filematch \
       "${LAN_STATE_PAT/@ID@-@WAN@/${id}-${interface}}" "@LAN@" \
       ipv6_lan_node_depref
@@ -886,6 +1044,7 @@ ipv6_nm_reapply() { # returns 0 if applied ok, !0 if DAD failure
       # set EXIT_CODE so dhclient performs DECLINE
       nmg_err "DAD timeout for ${new_addr}"; EXIT_CODE=1; return 1; }
   fi
+
   return 0
 }
 
@@ -934,7 +1093,7 @@ ipv6_addr_state_times() { # returns 0
 
 # loads addr-state file, adds to addrs(), dns(), and dns_srch()
 ipv6_merge_state() { # returns 0
-  # <state-file> <iaid (unused)>
+  # <state-file> <iaid(unused)>
   local state val item IFS; unset IFS
   nmg::read state "" "$1" || return 0
   nmg::prop_get_value val "${state}" "inet6" && addrs+=("${val}")
@@ -988,8 +1147,8 @@ ipv6_nm_update() { # returns 0
       args+=("ipv6.dns" "" "ipv6.dns-search" "")
     fi
 
-    nmg_cmd "${NMCLI}" conn modify --temporary "${CONN_ID}" "${args[@]}" &&
-      NM_MODIFIED=1
+    nmg_cmd "${NMCLI}" conn modify --temporary \
+            "${CONNECTION_UUID}" "${args[@]}" && NM_MODIFIED=1
   fi
 
   ipv6_nm_reapply || {
@@ -1014,8 +1173,6 @@ ipv6_addr_remove_state_iaid() { # <iaid>
 #   inet6:<ip6>/<plen> [ valid-life:<life> pref-life:<life> life-start:<ts> ]
 #   [ dns:<ip6>[,<ip6>]... ] [ dns-search:<domain>[,<domain>]... ]
 ipv6_addr_write_state() {
-  local cur_state='' new_state val IFS; unset IFS
-  local astate=() dns=() dns_srch=()
   local state_pat=${WAN_STATE_PAT/@WAN@/${interface}}
 
   [[ ${new_iaid-} && ${new_ip6_address-} && ${new_ip6_prefixlen-} &&
@@ -1024,25 +1181,27 @@ ipv6_addr_write_state() {
     return 0
   }
 
-  astate+=("inet6:${new_ip6_address}/${new_ip6_prefixlen}")
+  local state val dns=() dns_srch=()
+  nmg::prop_set_value state "" "inet6" \
+                      "${new_ip6_address}/${new_ip6_prefixlen}"
 
-  [[ ${new_max_life-} && ${new_preferred_life-} && ${new_life_starts-} ]] &&
-    astate+=("valid-life:${new_max_life}" "pref-life:${new_preferred_life}" \
-                                          "life-start:${new_life_starts}")
+  [[ ${new_max_life-} && ${new_preferred_life-} &&
+       ${new_life_starts-} ]] && {
+    nmg::prop_set_value state "${state}" "valid-life" "${new_max_life}"
 
+    nmg::prop_set_value state "${state}" "pref-life" "${new_preferred_life}"
+    nmg::prop_set_value state "${state}" "life-start" "${new_life_starts}"
+  }
+  local IFS; unset IFS
   for val in ${new_dhcp6_name_servers-}; do dns+=("${val}"); done
   nmg::array_join val "," "${dns[@]-}"
-  [[ ${val} ]] && astate+=("dns:${val}")
+  [[ ${val} ]] && nmg::prop_set_value state "${state}" "dns" "${val}"
 
   for val in ${new_dhcp6_domain_search-}; do dns_srch+=("${val}"); done
   nmg::array_join val "," "${dns_srch[@]-}"
-  [[ ${val} ]] && astate+=("dns-search:${val}")
+  [[ ${val} ]] && nmg::prop_set_value state "${state}" "dns-search" "${val}"
 
-  local IFS=$'\n'; new_state="${astate[*]}"; unset IFS
-
-  ipv6_read_state_iaid cur_state "${state_pat}" "${new_iaid}" || :
-  [[ ${new_state} == "$cur_state}" ]] ||
-    ipv6_write_by_iaid "${state_pat}" "${new_iaid}" "${new_state}"
+  ipv6_write_by_iaid "${state_pat}" "${new_iaid}" "${state}"
 }
 
 ipv6_addr_ddns() { # returns 0
@@ -1058,6 +1217,7 @@ ipv6_addr_ddns() { # returns 0
 ipv6_check_nm() {
   # clear NMCLI until we know it works
   local method nmcli=${NMCLI} IFS; unset IFS; NMCLI=''
+  local state='' cfile=${WAN_CONNSTATE_PAT/@WAN@/${interface}}
 
   # check if we're a NetworkManager connection
   [[ ${nmcli} ]] || return 0
@@ -1066,21 +1226,36 @@ ipv6_check_nm() {
   command >/dev/null -v "${nmcli}" || {
     nmg_err "${nmcli} not found in path"; return; }
 
-  # check if we can talk to NM
-  nmg::saferun CONN_ID "" "${nmcli}" -g "GENERAL.CONNECTION" \
-               device show "${interface}" || return 0
+  if [[ -z ${CONNECTION_UUID-} ]]; then
+    # dhclient ran us, load connection state file
+    nmg::read state "" "${cfile}" && {
+      nmg::prop_get_value CONNECTION_UUID "${state}" "conn-uuid" || :; }
+    [[ ${CONNECTION_UUID} ]] || return 0
+  fi
 
-  # validate method
-  nmg::saferun NM_CONFIG "" "${nmcli}" -t -f ipv6 conn show "${CONN_ID}" ||
-    return 0
+  # load config
+  nmg::saferun NM_CONFIG "" "${nmcli}" -t -f connection,ipv6 \
+               conn show "${CONNECTION_UUID}" || return 0
+
   # remove spaces from all values
   NM_CONFIG=${NM_CONFIG// }
 
+  # get CONN_ID for logging....
+  nmg::prop_get_value CONN_ID "${NM_CONFIG}" "connection.id" || {
+    nmg_err "Unable to find connection.id for ${CONNECTION_UUID}"; return 0; }
+
+  # check ipv6.method
   nmg::prop_get_value method "${NM_CONFIG}" "ipv6.method" || {
     nmg_err "Unable to locate ipv6.method for ${CONN_ID}"; return 0; }
 
-  # NMCLI works
+  # NMCLI appears to be working...
   NMCLI=${nmcli}
+
+  [[ -z "${state}" ]] && {
+    # didn't load UUID, save for dhclient mode
+    nmg::prop_set_value state "" "conn-uuid" "${CONNECTION_UUID}"
+    nmg_write "${cfile}" "${state}" || return 0;
+  }
 
   [[ ${method} == disabled ]] && return 2
 
@@ -1099,14 +1274,21 @@ ipv6_check_nm() {
   return 0
 }
 
+# remove any stale state files
+ipv6_state_cleanup() {
+  nmg::foreach_filematch \
+    "${LAN_STATE_PAT/@WAN@/${interface}}" "@LAN@-from-@ID@" nmg_remove
+  nmg::foreach_filematch \
+    "${WAN_STATE_PAT/@WAN@/${interface}}" "@ID@" nmg_remove
+}
+
 # return 1 if NMCLI unavail (dhclient-script called) or method auto/disabled
 ipv6_check_nm_or_fallback() {
 
   # check for invalid config (and working nmcli or sets NMCLI=)
   ipv6_check_nm || {
     # method auto/disabled, cleanup state files
-    nmg::foreach_filematch \
-      "${WAN_STATE_PAT/@WAN@/${interface}}" "@ID@" nmg_remove
+    ipv6_state_cleanup
     return 1
   }
 
@@ -1116,7 +1298,7 @@ ipv6_check_nm_or_fallback() {
       command >/dev/null -v "${DHCLIENT_ORIG_SCRIPT}" &&
         exec "${DHCLIENT_ORIG_SCRIPT}"
 
-      nm_err "nmcli unavailable and DHCLIENT_ORIG_SCRIPT not found"
+      nmg_err "nmcli unavailable and DHCLIENT_ORIG_SCRIPT not found"
     fi
     # just succeed to prevent DECLINE loops
     return 1
@@ -1125,13 +1307,19 @@ ipv6_check_nm_or_fallback() {
   return 0
 }
 
-ipv6_addr_start() {
+ipv6_addr_bind() {
 
-  nmg_debug "start: new: ${new_ip6_address-} old: ${old_ip6_address-}"
+  local na="${new_ip6_address}/${new_ip6_prefixlen}"
+  local oa="${old_ip6_address-}/${old_ip6_prefixlen-}"
+  if [[ ${oa} != / && ${na} != "${oa}" ]]; then
+    nmg_debug "addr-bind - ${na} (old: ${oa})"
+  else
+    nmg_debug "addr-bind - ${na}"
+  fi
 
   ipv6_check_nm_or_fallback || return 0
 
-  [[ ${old_iaid-} && ${old_iaid} != "${new_iaid-}" ]] &&
+  [[ ${old_iaid-} && ${old_iaid} != "${new_iaid}" ]] &&
     ipv6_addr_remove_state_iaid "${old_iaid}"
 
   ipv6_addr_write_state
@@ -1139,9 +1327,9 @@ ipv6_addr_start() {
   ipv6_addr_ddns
 }
 
-ipv6_addr_stop() {
+ipv6_addr_release() {
 
-  nmg_debug "stop: ${old_ip6_address}"
+  nmg_debug "addr-release - ${old_ip6_address}/${old_ip6_prefixlen}"
 
   ipv6_check_nm_or_fallback || return 0
 
@@ -1150,29 +1338,9 @@ ipv6_addr_stop() {
   ipv6_addr_ddns
 }
 
-ipv6_start() {
-  # is this a prefix delegation or address?
-  if [[ ${new_ip6_prefix-} || ${old_ip6_prefix-} ]]; then
-    ipv6_prefix_start
-  elif [[ ${new_ip6_address-} || ${old_ip6_address-} ]]; then
-    ipv6_addr_start
-  fi
-  return 0
-}
-
-ipv6_stop() {
-
-  if [[ ${old_ip6_prefix-} ]]; then
-    ipv6_prefix_stop
-  elif [[ ${old_ip6_address-} ]]; then
-    ipv6_addr_stop
-  fi
-  return 0
-}
-
 ipv6_addr_depref() {
 
-  nmg_debug "depref: ${cur_ip6_address}"
+  nmg_debug "addr-depref - ${cur_ip6_address}/${cur_ip6_prefixlen}"
 
   ipv6_check_nm_or_fallback || return 0
 
@@ -1189,7 +1357,27 @@ ipv6_addr_depref() {
   ipv6_addr_ddns
 }
 
-ipv6_depref() {
+ipv6_dhc_bind() {
+  # is this a prefix delegation or address?
+  if [[ ${new_ip6_prefix-} ]]; then
+    ipv6_prefix_bind
+  elif [[ ${new_ip6_address-} && ${new_ip6_prefixlen-} ]]; then
+    ipv6_addr_bind
+  fi
+  return 0
+}
+
+ipv6_dhc_release() {
+
+  if [[ ${old_ip6_prefix-} ]]; then
+    ipv6_prefix_release
+  elif [[ ${old_ip6_address-} && ${old_ip6_prefixlen-} ]]; then
+    ipv6_addr_release
+  fi
+  return 0
+}
+
+ipv6_dhc_depref() {
   [[ ${cur_iaid-} ]] || return 0
   if [[ ${cur_ip6_prefix-} ]]; then
     ipv6_prefix_depref
@@ -1212,12 +1400,8 @@ ipv6_addrs_flush() {
   ipv6_addr_ddns
 }
 
-ipv6_flush() {
-  ipv6_prefix_flush
-  ipv6_addrs_flush
-}
-
-ipv6_up() {
+# check NM works, ensure link-local is available, start dhclient
+ipv6_dhclient_start() {
   local sys rc=0 link_addr=() IFS; unset IFS
 
   nmg_need_progs "${DHCLIENT}" || exit
@@ -1251,6 +1435,8 @@ ipv6_up() {
   elif nmg::query_ips link_addr "" 6a "${interface}" "" "scope" "link"; then
     # make sure address is active
     if nmg::wait_dad6 "${interface}" "${link_addr[0]}"; then
+      # cleanup any stale state
+      ipv6_state_cleanup
       # start dhclient to get addresses/prefixes
       # shellcheck disable=SC2086
       nmg_daemon "${DHCLIENT}" -P ${NMDH6_DHCLIENT_ARGS[*]-} -nw \
@@ -1266,9 +1452,10 @@ ipv6_up() {
   return 0
 }
 
-ipv6_down() {
+ipv6_dhclient_stop() {
 
   local pidfile=${DHCLIENT_PID/@WAN@/${interface}}
+  local cfile=${WAN_CONNSTATE_PAT/@WAN@/${interface}}
 
   nmg_need_progs "${DHCLIENT}" || exit
 
@@ -1277,11 +1464,16 @@ ipv6_down() {
     nmg_cmd "${DHCLIENT}" -x -sf "${BASH_SOURCE[0]}" -pf "${pidfile}" \
             "${interface}"
   fi
-  [[ ${pidfile} ]] && nmg_remove "${pidfile}"
 
   # dhclient -x should call this script with STOP6, but doesn't...
   # work around it.
-  ipv6_flush
+  ipv6_prefix_flush
+  ipv6_addrs_flush
+
+  # cleanup files
+  [[ -e ${pidfile} ]] && nmg_remove "${pidfile}"
+  [[ -e ${cfile} ]] && nmg_remove "${cfile}"
+  return 0
 }
 
 ipv6_wan_start() {
@@ -1296,33 +1488,34 @@ ipv6_wan_start() {
 
   # start dhclient
   if ipv6_wan_check; then
-    ipv6_up
+    ipv6_dhclient_start
   else
-    ipv6_down
+    ipv6_dhclient_stop
   fi
 }
 
 ipv6_wan_stop() {
 
   # stop dhclient if we have config
-  ipv6_wan_read_config "${interface}" && ipv6_down
+  ipv6_wan_read_config "${interface}" && ipv6_dhclient_stop
 
   return 0
 }
 
-if [[ ${1-} && ${2-} ]]; then
+if [[ ${DEVICE_IP_IFACE-} && ${NM_DISPATCHER_ACTION-} ]]; then
 
-  interface=$1
-  action=$2
+  # used in functions
+  interface=${DEVICE_IP_IFACE}
 
   # run from NM
-  nmg_debug "interface: ${interface} action: ${action}"
+  nmg_debug "interface: ${interface} action: ${NM_DISPATCHER_ACTION}"
 
+  # only create RUNDIR when run by NM (permissions)
   [[ -e ${RUNDIR} ]] || {
     nmg_cmd mkdir -p "${RUNDIR}" || exit
   }
 
-  case "${action}" in
+  case "${NM_DISPATCHER_ACTION}" in
     up)
       ipv6_lan_start
       ipv6_wan_start
@@ -1351,15 +1544,15 @@ elif [[ ${interface-} && ${reason-} ]]; then
   case "${reason-}" in
     BOUND6|RENEW6|REBIND6)
       # (old_) new_ values
-      ipv6_start
+      ipv6_dhc_bind
       ;;
     DEPREF6)
       # cur_ values
-      ipv6_depref
+      ipv6_dhc_depref
       ;;
     EXPIRE6|RELEASE6|STOP6)
       # old_ values
-      ipv6_stop
+      ipv6_dhc_release
       ;;
   esac
 

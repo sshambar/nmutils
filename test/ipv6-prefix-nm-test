@@ -10,9 +10,14 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
 { [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
+xtest::onexit::wan() {
+  [[ ${WAN_CONNSTATE_PAT-} ]] || return 0
+  xrm "${WAN_CONNSTATE_PAT/@WAN@/wan0}"
+}
+
 xtest::group3::wan() {
 
-  local out
+  local out state1
   local -x DHCLIENT_MOCK_OUTPUT="dhclient @ARGS@"
   local -x PGREP_MOCK_OUTPUT="100"
 
@@ -21,61 +26,73 @@ xtest::group3::wan() {
 
   shtest::title "WAN Dispatcher Tests (wan group)"
 
-  local interface=wan0
-
-  shtest::prefix "ipv6_wan_start"
+  local connid=9613d84e-2555-4e7f-a6c2-2a7da5f4d07b
+  local interface=wan0 CONNECTION_UUID=${connid}
+  state1=${WAN_CONNSTATE_PAT/@WAN@/wan0}
+  xrm "$state1"
 
   local IP4_NUM_ADDRESSES=0 IP4_ADDRESS_0=''
   printf "" >>"${DHCLIENT_PID}"
 
+  shtest::prefix "ipv6_wan_start(<no ip>) - "
   xwrap ipv6_wan_start
-  xtest W1 t "(<no ip>) - returns true"
+  xtest W1 t "returns true"
   xread_value out <<-EOF
 	No ip4 addresses available
 	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${connid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
 	EOF
-  ftest W1f "$out" " - echos stop (config requires ip)"
+  ftest W1f "$out" "echos stop (config requires ip)"
   [[ -e ${DHCLIENT_PID} ]]
-  xtest W1p f " - pid file removed"
+  xtest W1p f "pid file removed"
+  [[ -e ${state1} ]]
+  xtest W1s f "conn-state file not created"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=192.168.55.1/24
-  printf "" >>"${DHCLIENT_PID}"
+  printf "" >"${DHCLIENT_PID}"
+  printf '%s' "conn-uuid:${connid}" >"$state1"
 
+  shtest::prefix "ipv6_wan_start(<priv ip>) - "
   xwrap ipv6_wan_start
-  xtest W2 t "(<priv ip>) - returns true"
+  xtest W2 t "returns true"
   xread_value out <<-EOF
 	No public ip4 addresses available
 	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${connid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
 	EOF
-  ftest W2f "$out" " - echos stop (config requires public)"
+  ftest W2f "$out" "echos stop (config requires public)"
   [[ -e ${DHCLIENT_PID} ]]
-  xtest W2p f " - pid file removed"
+  xtest W2p f "pid file removed"
+  [[ -e ${state1} ]]
+  xtest W2s f "conn-state file removed"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=203.0.113.5/24
 
+  shtest::prefix "ipv6_wan_start(<ip>) - "
   xwrap ipv6_wan_start
-  xtest W3 t "(<ip>) - returns true"
+  xtest W3 t "returns true"
   if shtest::last_check_ok; then
     wait $!
-    xtest W3w t " - background echo completes"
+    xtest W3w t "background echo completes"
   fi
   xread_value out <<-EOF
 	dhclient '-P' '-N' '-nw' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' '-lf' '${LEASES/@WAN@/wan0}' 'wan0'
 	EOF
-  ftest W3f "$out" " - echos start"
-
-  shtest::prefix "ipv6_wan_stop"
+  ftest W3f "$out" "echos start"
+  shtest::check_file W3s "$state1" "conn-uuid:${connid}" "creates uuid file"
 
   printf "" >>"${DHCLIENT_PID}"
+
+  shtest::prefix "ipv6_wan_stop() - "
   xwrap ipv6_wan_stop
-  xtest W11 t "() - returns true"
+  xtest W11 t "returns true"
   xread_value out <<-EOF
 	${DHCLIENT} => dhclient '-x' '-sf' '${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix' '-pf' '${DHCLIENT_PID}' 'wan0'
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' 'isp' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${connid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
 	EOF
-  ftest W11f "$out" " - echos stop"
+  ftest W11f "$out" "echos stop"
+  [[ -e $state1 ]]
+  xtest W11s f "removes state file"
 
   ipv6_wan_reset_config
 }
@@ -108,11 +125,11 @@ xtest::group3::lan() {
   xrm "$XFILE"
   echo 1 > "$XFILE"
 
-  shtest::prefix "ipv6_lan_start"
-
   echo "inet6:2001:db8:100:2:32fb:93c5:555:1/64" > "$state1"
+
+  shtest::prefix "ipv6_lan_start(<1 addr>) - "
   xwrap ipv6_lan_start
-  xtest L1 t "() - returns true"
+  xtest L1 t "returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
 	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
@@ -125,23 +142,54 @@ xtest::group3::lan() {
 	send
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
-  ftest L1f "$out" " - adds addr/dns"
+  ftest L1f "$out" "adds addr/dns"
   shtest::check_file L1d "$dstate1" "2001:db8:100:2:32fb:93c5:555:1" \
-                     " - DDNS state file created"
+                     "DDNS state file created"
 
-  echo "inet6:2001:db8:200:2:32fb:93c5:555:1/64" > "$state2"
-  echo "inet6:2001:db8:600::1/64"$'\n'"valid-life:240"$'\n'"pref-life:120"$'\n'"life-start:3000" > "$state3"
+  xcat > "$state2" <<-EOF
+	inet6:2001:db8:200:2:32fb:93c5:555:1/64
+	valid-life:240
+	pref-life:120
+	life-start:3000
+	EOF
+  echo "inet6:2001:db8:600::1/64" > "$state3"
   # deprecate one address
   CUR_TIME=3200
+
+  shtest::prefix "ipv6_lan_start(<3 addrs, 1 dep>) - "
   xwrap ipv6_lan_start
-  xtest L2 t "() - returns true"
+  xtest L2 t "returns true"
+  xread_value out <<-EOF
+	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
+	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
+	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '40' 'preferred_lft' '0'
+	Adding 2001:db8:600::1/64 to br1
+	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:600::1/64' 'dev' 'br1'
+	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
+	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	server 127.0.0.1
+	zone example.test
+	update delete wan1.example.test AAAA
+	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	send
+	${NMG_RADVD_TRIGGER} => radvd triggered
+	EOF
+  ftest L2f "$out" "adds addresses, dns"
+  shtest::check_file L2d "$dstate1" "2001:db8:100:2:32fb:93c5:555:1" \
+                     "DDNS state file created"
+
+  xrm "$state3"
+  echo "inet6:2001:db8:200:2::/64" >"$state2"
+
+  shtest::prefix "ipv6_lan_start(<prefix>) - "
+  xwrap ipv6_lan_start
+  xtest L3 t "returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
 	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
 	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Adding 2001:db8:600::1/64 to br1
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:600::1/64' 'dev' 'br1' 'valid_lft' '40' 'preferred_lft' '0'
 	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1,2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -152,24 +200,26 @@ xtest::group3::lan() {
 	send
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
-  ftest L2f "$out" " - adds addresses, dns"
+  ftest L3f "$out" "adds addr/dns"
+  shtest::check_file L3y "$state2" "inet6:2001:db8:200:2:32fb:93c5:555:1/64" \
+                     "bb:1 state file updated"
+  shtest::check_file L3d "$dstate1" "2001:db8:100:2:32fb:93c5:555:1,2001:db8:200:2:32fb:93c5:555:1" \
+                     "DDNS state file created"
 
-  shtest::prefix "ipv6_lan_stop"
-
+  shtest::prefix "ipv6_lan_stop() - "
   xwrap ipv6_lan_stop
-  xtest L11 t "() - returns true"
-  ftest L11f "${NMG_RADVD_TRIGGER} => radvd triggered" " - triggers radvd"
+  xtest L11 t "returns true"
+  ftest L11f "${NMG_RADVD_TRIGGER} => radvd triggered" "triggers radvd"
 
   [[ -e "$state1" ]]
-  xtest L11i t " - aa:1 state file remains"
+  xtest L11i t "aa:1 state file remains"
   [[ -e "$state2" ]]
-  xtest L11j t " - bb:1 state file remains"
-  [[ -e "$state3" ]]
-  xtest L11k t " - cc:2 state file remains"
+  xtest L11j t "bb:1 state file remains"
   [[ -e "$dstate1" ]]
-  xtest L11d f " - DDNS state file removed"
+  xtest L11d f "DDNS state file removed"
 
   nmddns_reset_config
+  ipv6_lan_reset_config
   ipv6_wan_reset_config
   xtest::onexit::lan
 }
