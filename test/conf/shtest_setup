@@ -1,7 +1,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.4.0 - Shell script testing functions
+# shtest v1.4.1 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -489,7 +489,7 @@ shtest::check_value() { # <id> <varname> [ <ref> [ <desc> ] ]
 
   shtest::_check_entry "${id}" "${desc}" || return 0
 
-  if [[ ${varname//[a-zA-Z0-0_]/} ]]; then
+  if [[ ${varname//[a-zA-Z0-9_]/} ]]; then
     shtest::_log_fail "${id}" "${desc}" "invalid <varname> '${varname}'"
   elif [[ ${!varname+set} != set ]]; then
     shtest::_log_fail "${id}" "${desc}" "<varname> '${varname}' is not set"
@@ -514,7 +514,7 @@ shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
     shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 1
   fi
   # check valid variable names
-  if [[ ${an//[a-zA-Z0-0_]/} || ${rn//[a-zA-Z0-0_]/} ]]; then
+  if [[ ${an//[a-zA-Z0-9_]/} || ${rn//[a-zA-Z0-9_]/} ]]; then
     shtest::fatal "shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 1
   fi
   shtest::_check_entry "${id}" "${desc}" || return 0

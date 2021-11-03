@@ -22,6 +22,9 @@
 #   xread_value <retvar> (<stdin)
 #     Reads stdin into <retvar> (verbatim, but strips final newline)
 #
+#   xread_value2 <retvar> (<stdin)
+#     Reads stdin into <retvar> (verbatim, but adds final newline)
+#
 #   xload_script <file> [ <args>... ]
 #     Parse-tests, and sources <file> with <args>, calling xtest::fail with
 #     feedback if it exits.
@@ -67,6 +70,19 @@ xread_value() {
   # <retvar> <stdin
   local IFS; unset IFS
   read -r -d '' "$1" || :
+}
+
+xread_value2() {
+  # <retvar> <stdin
+  local REPLY IFS; unset IFS
+  read -r -d '' || :
+  printf -v "$1" '%s' "${REPLY}"
+}
+
+xcat() {
+  # <stdin
+  local REPLY IFS; unset IFS
+  read -r -d '' || printf '%s' "${REPLY}"
 }
 
 xnmg::_onexit() { # <rc>
