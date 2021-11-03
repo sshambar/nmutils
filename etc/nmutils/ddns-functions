@@ -31,7 +31,7 @@
 #       NMUTILS=${NMUTILS:-/etc/nmutils}
 #       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
-#       # optional required
+#       # optional min-version required
 #       NMDDNS_REQUIRED="1.3.7"
 #
 #       NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}

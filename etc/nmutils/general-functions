@@ -31,7 +31,7 @@
 #       NMUTILS=${NMUTILS:-/etc/nmutils}
 #       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
-#       # optional required
+#       # optional min-version requirement
 #       NMG_REQUIRED="1.4.1"
 #
 #       NMG=${NMG:-${NMUTILS}/general-functions}
@@ -308,7 +308,8 @@
 #   nmg::create_ip6_host <retvar> <intf> [ <node> ]
 #
 #     Assigns <retvar> appropriate host-part for <intf> if <node>=auto/<unset>,
-#     or <node> otherwise.  Returns 1 if none can be determined.
+#     or <node> otherwise.  Returns 1 if none can be determined;
+#     if <node>=auto, no error logged (retry later)
 #
 #   nmg_create_ip6_host <intf> [ <node> ]
 #
@@ -339,6 +340,11 @@
 #     Assign <retvar> (optional) the value of property <name> from <props>.
 #     <props> format is "<name>:<value>[\n<name>:<value>]..."
 #     Returns 0 if found, 1 if not (<retvar> cleared)
+#
+#   nmg::prop_set_value <retvar> <props> <name> [ <value> ]
+#
+#     Search <props>, and replace/add <name> with <value>, or
+#     remove <name> if <value> empty.  Assign <retvar> with new <props>
 #
 #   nmg::prop_has_value <props> <name> <value> [ <sep> ]
 #
@@ -391,7 +397,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.6"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.7"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -1439,21 +1445,23 @@ nmg_del_ip6_addr() {
 # called from nmg::_wrap
 nmg::_create_ip6_host() { # returns 0
   # <intf> [ <node> ]
-  local intf=${1-} node=${2-} link_addrs
+  local intf=${1-} node=${2-} addr link_addrs
 
   [[ ${intf} ]] || { nmg::_err "missing <intf>"; return; }
 
   if [[ -z ${node} || ${node} == auto ]]; then
 
-    node=''
     if nmg::query_ips link_addrs "nolog" 6a "${intf}" "" "scope" "link"; then
 
-      for node in "${link_addrs[@]}"; do
-        node=${node#*::}; node=${node%/*}
-        [[ ${node} ]] && break
+      for addr in "${link_addrs[@]}"; do
+        addr=${addr#*::}; addr=${addr%/*}
+        [[ ${addr} ]] && { node=${addr}; break; }
       done
     fi
   fi
+
+  # if query failed in auto (interface down?), don't log
+  [[ ${node} == auto ]] && { _nmgrc=1; return; }
 
   [[ ${node} ]] || {
     nmg::_err "Unable to determine an auto host-part for interface ${intf}"
@@ -1521,6 +1529,7 @@ nmg_radvd_trigger() {
     nmg_debug "signaling ${NMG_RADVD}"
     local pid
     nmg::read pid "ignore" "${NMG_RADVD_PID}"
+    pid=${pid%$'\n'} # strip newline
     [[ ${pid} ]] && { nmg_cmd kill -HUP "${pid}" || :; }
   fi
   return 0
@@ -1538,6 +1547,25 @@ nmg::prop_get_value() {
     return 0
   done <<< "$2"
   return 1
+}
+
+nmg::prop_set_value() {
+  # <retvar> <props> <name> [ <value> ]
+  local _nmgprop _nmgnew=() _nmgfound=''
+  nmg::_clearvar "${1-}" "" || return
+  [[ ${3-} ]] || return 1
+  local IFS=$'\n'
+  while read -r _nmgprop; do
+    [[ ${_nmgprop} ]] || continue
+    if [[ ${_nmgprop} =~ ^${3}: ]]; then
+      _nmgfound=1
+      [[ ${4+x} ]] && _nmgnew+=("${3}:$4")
+    else
+      _nmgnew+=("${_nmgprop}")
+    fi
+  done <<< "$2"
+  [[ -z ${_nmgfound} && ${4+x} ]] && _nmgnew+=("${3}:$4")
+  printf -v "$1" '%s\n' "${_nmgnew[*]-}"
 }
 
 nmg::prop_has_value() {

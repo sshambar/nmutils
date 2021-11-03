@@ -1,6 +1,6 @@
 #!/bin/bash
-# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
-# vim:set ft=sh et sw=2 ts=2:
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t; -*-
+# vim:set ft=sh sw=2 ts=2:
 #
 # Test suite for general-functions
 #
@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.5.6"
+NMG_REQUIRED="1.5.7"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -169,7 +169,7 @@ xtest::group2::err() {
 xtest::group3::prop() {
   local var=''
   local dict
-  xread_value dict <<- EOF
+  xread_value2 dict <<- EOF
 	first:val
 	empty:
 	item:value
@@ -262,6 +262,73 @@ xtest::group3::prop() {
 
   xwrap nmg::prop_match_values "$dict" "item" "," ""
   xtest N36 f "(<empty>) returns false"
+
+  shtest::prefix "nmg::prop_set_value"
+
+  xwrap nmg::prop_set_value
+  xtest N41 1 "(<no args>) returns 1"
+  ftest N41f "" " - does not log"
+
+  xwrap nmg::prop_set_value "bad#name" "$dict" "item"
+  xtest N42 3 "(<bad#name>) returns 3"
+  ftest N42f "ERR: nmg::prop_set_value: invalid <retvar> 'bad#name'" \
+        " - logs error"
+
+  var="bogus"
+  xwrap nmg::prop_set_value var
+  xtest N43 1 "(<no props>) returns 1"
+  vtest N43v "" " - clears retvar"
+  ftest N43f "" " - does not log"
+
+  var="bogus"
+  xwrap nmg::prop_set_value var "" ""
+  xtest N44 1 "(<no name>) returns 1"
+  vtest N44v "" " - clears retvar"
+  ftest N44f "" " - does not log"
+
+  xwrap nmg::prop_set_value var "$dict" "itemx"
+  xtest N45 t "(<new remove>) returns true"
+  vtest N45v "$dict" " - returns original"
+
+  xwrap nmg::prop_set_value var "$dict" "itemx" ""
+  xtest N46 t "(<new empty>) returns true"
+  vtest N46v "${dict}itemx:"$'\n' " - returns updated props"
+
+  xwrap nmg::prop_set_value var "$dict" "itemx" "val"
+  xtest N47 t "(<new add>) returns true"
+  vtest N47v "${dict}itemx:val"$'\n' " - returns updated props"
+
+  xread_value2 dict <<- EOF
+	first:val
+	empty:
+	item:
+	mitem:xx,yy
+	last:test
+	EOF
+  xwrap nmg::prop_set_value var "$dict" "item" ""
+  xtest N48 t "(<replace empty>) returns true"
+  vtest N48v "$dict" " - returns updated props"
+
+  xread_value2 dict <<- EOF
+	first:val
+	empty:
+	item:newval
+	mitem:xx,yy
+	last:test
+	EOF
+  xwrap nmg::prop_set_value var "$dict" "item" "newval"
+  xtest N49 t "(<replace>) returns true"
+  vtest N49v "$dict" " - returns updated props"
+
+  xread_value2 dict <<- EOF
+	first:val
+	empty:
+	mitem:xx,yy
+	last:test
+	EOF
+  xwrap nmg::prop_set_value var "$dict" "item"
+  xtest N50 t "(<remove>) returns true"
+  vtest N50v "$dict" " - returns updated props"
 }
 
 xtest::group3::cmd() {
@@ -269,7 +336,11 @@ xtest::group3::cmd() {
 
   # used for several tests
   xrm "$XFILE"
-  echo "#!/bin/sh"$'\n'"echo >&2 \"arg=\$1\"; exit \$1" > "$XFILE"
+  xcat > "$XFILE" <<-"EOF"
+	#!/bin/sh
+	echo >&2 "arg=$1"
+	exit $1
+	EOF
   command -p chmod +x "$XFILE"
 
   shtest::title "Command Tests (cmd group)"
@@ -777,12 +848,16 @@ xtest::group3::ip6() {
   ftest P43f "ERR: nmg::create_ip6_host: missing <intf>" " - logs error"
 
   xwrap nmg::create_ip6_host var "ethx" "auto"
-  xtest P44 1 "(<bad intf>) returns 1"
-  ftest P44f "ERR: nmg::create_ip6_host: Unable to determine an auto host-part for interface ethx" " - logs error"
+  xtest P44 1 "(<bad intf>, auto) returns 1"
+  ftest P44f "" " - does not log"
 
   xwrap nmg::create_ip6_host var "eth0" "1"
   xtest P45 t "(eth0 1) returns true"
   vtest P45v "1" " - sets retvar to 1"
+
+  xwrap nmg::create_ip6_host var "ethx" ""
+  xtest P46 1 "(<bad intf>) returns 1"
+  ftest P46f "ERR: nmg::create_ip6_host: Unable to determine an auto host-part for interface ethx" " - logs error"
 
   shtest::prefix "nmg::create_ip6_addr"
 
