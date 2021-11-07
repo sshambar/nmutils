@@ -397,7 +397,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.7"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.8"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -591,11 +591,18 @@ nmg_required_config() {
 
 nmg_need_progs() {
   # <exe>...
-  local exe=
+  local exe file
 
   for exe in "$@"; do
-    command &>/dev/null -v "${exe}" || {
-      nmg_err "Where is ${exe:-(empty)}? (locate in ${NMCONF}/general.conf)"
+    [[ $exe ]] || {
+      nmg::_perr "<exe> cannot be empty."; return 3; }
+    read -r file <<< "$(command -v "${exe}" || :)"
+    [[ $file ]] || {
+      nmg_err "'${exe}' not found (locate in ${NMCONF}/general.conf)"
+      return 2
+    }
+    [[ -x $file ]] || {
+      nmg_err "${file} is required, but not executable!"
       return 2
     }
   done
@@ -608,8 +615,7 @@ nmg_daemon() {
 
   nmg_debug "nmg_daemon:" "$@"
 
-  command &>/dev/null -v "$1" || {
-    nmg::_perr "command '$1' not found"; return 2; }
+  nmg_need_progs "$1" || return
 
   # fork, add to daemon cgroup (if any) and re-exec command
   (

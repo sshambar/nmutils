@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.5.7"
+NMG_REQUIRED="1.5.8"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -410,7 +410,7 @@ xtest::group3::cmd() {
 
   xwrap nmg_need_progs "/bin/ls" "$XNOFILE"
   xtest X32 2 "(<missing>) returns 2"
-  ftest X32f "ERR: Where is ${XNOFILE}? (locate in ./conf/general.conf)" \
+  ftest X32f "ERR: '${XNOFILE}' not found (locate in ./conf/general.conf)" \
         " - logs error"
 
   shtest::prefix "nmg_daemon"
@@ -432,7 +432,8 @@ xtest::group3::cmd() {
 
   xwrap nmg_daemon "$XNOFILE"
   xtest X43 2 "('not-there') returns 2"
-  ftest X43f "ERR: nmg_daemon: command '$XNOFILE' not found" " - logs error"
+  ftest X43f "ERR: '$XNOFILE' not found (locate in ./conf/general.conf)" \
+	" - logs error"
 }
 
 xtest::group3::ip() {
