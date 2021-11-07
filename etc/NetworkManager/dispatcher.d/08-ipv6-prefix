@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.3 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.4 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -132,9 +132,11 @@
 # shellcheck disable=SC1090
 
 # for logging
-if [[ ${NM_DISPATCHER_ACTION-} ]]; then
+if [[ ${1-} && ${2-} ]]; then
   # run from NM
   NMG_TAG="${NMG_TAG-ipv6-prefix}"
+  # or if not, log to stderr
+  [[ ${NM_DISPATCHER_ACTION} ]] || nmg_log_stderr=1
 elif [[ ${interface-} ]]; then
   # run from dhclient
   NMG_TAG="${NMG_TAG-ipv6-prefix-dhc}"
@@ -172,8 +174,8 @@ NMDH6_DHCLIENT_ARGS=("-N")
 
 ########## SCRIPT START
 
-NMG_REQUIRED="1.5.7"
-NMDDNS_REQUIRED="1.4.3"
+NMG_REQUIRED="1.5.8"
+NMDDNS_REQUIRED="1.4.5"
 
 # load ddns- or general-functions
 NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
@@ -1241,8 +1243,7 @@ ipv6_check_nm() {
   [[ ${nmcli} ]] || return 0
 
   # we need nmcli to talk to NM
-  command >/dev/null -v "${nmcli}" || {
-    nmg_err "${nmcli} not found in path"; return; }
+  nmg_need_progs "${nmcli}" || return
 
   if [[ -z ${CONNECTION_UUID-} ]]; then
     # dhclient ran us, load connection state file
@@ -1512,16 +1513,20 @@ ipv6_wan_stop() {
   return 0
 }
 
-if [[ ${DEVICE_IP_IFACE-} && ${NM_DISPATCHER_ACTION-} ]]; then
+if [[ ${1-} && ${2-} ]]; then
 
   # used in functions
-  interface=${DEVICE_IP_IFACE}
+  interface=$1
 
   # run from NM
-  nmg_debug "interface: ${interface} action: ${NM_DISPATCHER_ACTION}"
+  nmg_debug "interface: ${interface} action: $2"
 
   # only create RUNDIR when run by NM (permissions)
   [[ -e ${RUNDIR} ]] || {
+    [[ ${NM_DISPATCHER_ACTION} ]] || {
+      nmg_err "RUNDIR ${RUNDIR} missing; run from NetworkManager as dispatcher to create with correct permissions!"
+      exit 1
+    }
     nmg_cmd mkdir -p "${RUNDIR}" || exit
   }
 
