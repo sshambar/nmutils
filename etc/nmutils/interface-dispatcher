@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# interface-dispatcher v1.1 - service restart on interface change
+# interface-dispatcher v1.2 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2015-2019 Scott Shambarger
