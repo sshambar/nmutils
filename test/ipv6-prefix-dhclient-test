@@ -257,7 +257,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 63 auto 0
   xtest P51 t "returns true"
   vtest P51v "2001:db8:33:0:32fb:93c5:6555:845a/63" "sets address"
-  shtest::check_value P51s "var2" "0/63" "sets site 0/63"
+  ltest P51s "var2" "0/63" "sets site 0/63"
   ftest P51f "" "does not log"
   aref=("2/64" "0/63")
   atest P51a Assigned aref "appends to Assigned"
@@ -268,7 +268,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 63 auto 1
   xtest P52 t "returns true"
   vtest P52v "orig" "does not set address"
-  shtest::check_value P52s "var2" "orig" "does not set site"
+  ltest P52s "var2" "orig" "does not set site"
   ftest P52f "br0 cannot be configured, no /63 prefixes available" \
         "logs info"
 
@@ -278,7 +278,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 64 auto 2
   xtest P53 t "returns true"
   vtest P53v "2001:db8:33:0:32fb:93c5:6555:845a/64" "set address"
-  shtest::check_value P53s "var2" "0/64" "sets site 0/64"
+  ltest P53s "var2" "0/64" "sets site 0/64"
   ftest P53f "" "does not log"
 
   new_ip6_prefix="2001:db8:33::/62"
@@ -288,7 +288,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
   xtest P54 t "returns true"
   vtest P54v "2001:db8:33:3:32fb:93c5:6555:845a/64" "set address"
-  shtest::check_value P54s "var2" "3/64" "sets site 3/64"
+  ltest P54s "var2" "3/64" "sets site 3/64"
   ftest P54f "" "does not log"
 
   Assigned=("0/63" "3/64") Reserved=("0/63" "2/64") var='' var2=''
@@ -297,7 +297,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
   xtest P55 t "returns true"
   vtest P55v "2001:db8:33:2:32fb:93c5:6555:845a/64" "set retvar to reserved"
-  shtest::check_value P55s "var2" "2/64" "sets site 2/64"
+  ltest P55s "var2" "2/64" "sets site 2/64"
   ftest P55f "" "does not log"
 
   Assigned=("0/63" "3/64" "2/64") var="orig" var2="orig"
@@ -306,7 +306,7 @@ xtest::group1::prefix() {
   xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
   xtest P56 t "returns true"
   vtest P56v "orig" "does not set address"
-  shtest::check_value P56s "var2" "orig" "does not set site"
+  ltest P56s "var2" "orig" "does not set site"
   ftest P56f "br0 cannot be configured, no /64 prefixes available" \
         "logs info"
 
@@ -388,9 +388,9 @@ xtest::group2::addr() {
   shtest::prefix "ipv6_lan_read_config(br0) - "
   xwrap ipv6_lan_read_config br0
   xtest A21 t "returns true"
-  shtest::check_value A21a "LAN_SITE" "ab80" "sets LAN_SITE"
-  shtest::check_value A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
-  shtest::check_value A21c "LAN_NODE" "auto" "uses defaults"
+  ltest A21a "LAN_SITE" "ab80" "sets LAN_SITE"
+  ltest A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
+  ltest A21c "LAN_NODE" "auto" "uses defaults"
 
   ipv6_lan_reset_config
   xtest::onexit::addr

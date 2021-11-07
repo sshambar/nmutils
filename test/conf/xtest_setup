@@ -1,7 +1,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# xtest_setup v1.2.0 - shtest suite in a box
+# xtest_setup v1.2.1 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -78,6 +78,7 @@
 #   xtest => shtest::check_result
 #   vtest => shtest::check_var
 #   atest => shtest::check_array
+#   ltest => shtest::check_value
 #   ftest => xtest::reg_test
 #   ftest2 => xtest::reg_test2
 #
@@ -112,6 +113,7 @@ shopt -s expand_aliases
 alias xtest='shtest::check_result'
 alias vtest='shtest::check_var'
 alias atest='shtest::check_array'
+alias ltest='shtest::check_value'
 alias ftest='xtest::reg_test'
 alias ftest2='xtest::reg_test2'
 
