@@ -198,7 +198,7 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.4"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.5"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -244,7 +244,10 @@ NMG_REQUIRED="1.5.6"
 nmddns::_loaded() {
 
   # test if general-functions loaded..
-  [[ ${NMG} ]] || return
+  [[ ${NMG} ]] || {
+    # exit, as any fallback will fail to load NMG anyway
+    exit 2
+  }
 
   if [[ ${NMDDNS_NMG_REQ} ]]; then
     NMG_REQUIRED=${NMDDNS_NMG_REQ}
