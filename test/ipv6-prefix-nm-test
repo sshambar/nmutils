@@ -231,7 +231,6 @@ xtest::onexit() {
 xmain() {
   local XFILE="$TEST_OUT/prefix file"
   local TEST_RADVD_TRIGGER="$TEST_BIN/dummy-mock"
-  local TEST_DHSCRIPT="$TEST_BIN/dummy-mock"
 
   # disable helper so we get nsupdate results
   local TEST_DDNS_HELPER=''
