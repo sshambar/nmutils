@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.2 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.3 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -74,7 +74,7 @@
 #   LAN_CONFIG_PAT - must contain single "@LAN@-from-@WAN@", default:
 #     ${NMCONF}/ipv6-prefix-@LAN@-from-@WAN@.conf
 #
-# State files (created by dhclient-ipv6-prefix and this script):
+# State files (created by this script):
 #
 #   RUNDIR/ipv6-prefix-<lan>-from-<iaid>-<wan>.state
 #   RUNDIR/ipv6-<iaid>-<wan>.state
@@ -1020,6 +1020,22 @@ ipv6_addr_update_times() { # returns 0
                       valid_lft "${vlife}" preferred_lft "${plife}" || :
 }
 
+# necessary after each device reapply as NM will set these values off
+# (we actually want to permit default route)
+ipv6_update_ra() {
+  local sys rafile=${ACCEPT_RA/@WAN@/${interface}}
+
+  [[ -w ${rafile} ]] && {
+    nmg_write "${rafile}" 2 || :
+    # update dependent sysctls in case they are off
+    for sys in defrtr pinfo rtr_pref; do
+      [[ -w ${rafile}_${sys} ]] && { nmg_write "${rafile}_${sys}" 1 || :; }
+    done
+  }
+
+  return 0
+}
+
 # nmcli device reapply, update lifetimes
 ipv6_nm_reapply() { # returns 0 if applied ok, !0 if DAD failure
   local new_addr mod=${NM_MODIFIED}
@@ -1030,7 +1046,9 @@ ipv6_nm_reapply() { # returns 0 if applied ok, !0 if DAD failure
   [[ ${NM_SKIP_APPLY-} ]] && mod=''
 
   [[ ${mod} ]] && {
-    nmg_cmd "${NMCLI}" device reapply "${interface}" || return 0; }
+    nmg_cmd "${NMCLI}" device reapply "${interface}" || return 0
+    ipv6_update_ra
+  }
 
   # are we recovering from DAD failure?
   [[ ${EXIT_CODE} ]] && return 0
@@ -1402,7 +1420,7 @@ ipv6_addrs_flush() {
 
 # check NM works, ensure link-local is available, start dhclient
 ipv6_dhclient_start() {
-  local sys rc=0 link_addr=() IFS; unset IFS
+  local rc=0 link_addr=() IFS; unset IFS
 
   nmg_need_progs "${DHCLIENT}" || exit
 
@@ -1418,15 +1436,7 @@ ipv6_dhclient_start() {
 
   # allow autoconfig on WAN to set default route to ipv6 gateway
   # (this handles NM ipv6.method=disabled)
-  local rafile=${ACCEPT_RA/@WAN@/${interface}}
-
-  [[ -w ${rafile} ]] && {
-    nmg_write "${rafile}" 2 || :
-    # update dependent sysctls in case they are off
-    for sys in defrtr pinfo rtr_pref; do
-      [[ -w ${rafile}_${sys} ]] && { nmg_write "${rafile}_$sys" 1 || :; }
-    done
-  }
+  ipv6_update_ra
 
   local pidfile=${DHCLIENT_PID/@WAN@/${interface}}
   # already running?
