@@ -5,14 +5,12 @@
 #
 .EXPORT_ALL_VARIABLES:
 
-# display mock args to stderr
-#MOCK_ECHO := 1
 # command progress to stderr
 #VERBOSE := 1
 # logs of debug output to stderr
 #DEBUG := 2
-# strict mode
-STRICT := strict
+# test args
+TEST_ARGS := strict verbose
 
 TEST_ROOT := .
 TEST_BIN := $(TEST_ROOT)/bin
@@ -50,15 +48,15 @@ help:
 	@echo "  bless-radvd-test  - replace a test results (prompts for #)"
 
 general:
-	$(TEST_SHELL) $(TEST_ROOT)/general-test $(STRICT)
+	$(TEST_SHELL) $(TEST_ROOT)/general-test $(TEST_ARGS)
 
 ddns:
-	$(TEST_SHELL) $(TEST_ROOT)/ddns-test $(STRICT)
-	$(TEST_SHELL) $(TEST_ROOT)/nm-ddns-test $(STRICT)
+	$(TEST_SHELL) $(TEST_ROOT)/ddns-test $(TEST_ARGS)
+	$(TEST_SHELL) $(TEST_ROOT)/nm-ddns-test $(TEST_ARGS)
 
 prefix:
-	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-nm-test $(STRICT)
-	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-dhclient-test $(STRICT)
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-nm-test $(TEST_ARGS)
+	$(TEST_SHELL) $(TEST_ROOT)/ipv6-prefix-dhclient-test $(TEST_ARGS)
 
 all-radvd: radvd-test-1 radvd-test-2 radvd-test-3 radvd-test-4
 

@@ -27,39 +27,33 @@ xtest::group1::life() {
 
   var='bogus'
   CUR_TIME=''
-  shtest::prefix "ipv6_life_calc(0) - "
-  xwrap ipv6_life_calc var "0" "${base_time}"
+  xwrap2 "0" ipv6_life_calc var "0" "${base_time}"
   xtest S1 t "returns true"
   vtest S1v "0" "sets retvar to 0"
   ftest S1f "" "should not log"
   [[ ${CUR_TIME} ]] && (( CUR_TIME > 0 ))
   xtest S1g t "should set \$CUR_TIME"
 
-  shtest::prefix "ipv6_life_calc(<max-int> 0) - "
-  xwrap ipv6_life_calc var 4294967295 "0"
+  xwrap2 "<max-int> 0" ipv6_life_calc var 4294967295 "0"
   xtest S2 t "returns true"
   vtest S2v "forever" "sets retvar to forever"
 
-  shtest::prefix "ipv6_life_calc(0 <max-int>) - "
-  xwrap ipv6_life_calc var "0" "4294967295"
+  xwrap2 "0 <max-int>" ipv6_life_calc var "0" "4294967295"
   xtest S3 1 "returns 1"
   ftest S3f "" "should not log"
 
   (( base_time = CUR_TIME - 100 )) || :
 
-  shtest::prefix "ipv6_life_calc(300 <time-100>) - "
-  xwrap ipv6_life_calc var "300" "${base_time}"
+  xwrap2 "300 <time-100>" ipv6_life_calc var "300" "${base_time}"
   xtest S4 t "returns true"
   vtest S4v "200" "should return 200"
 
-  shtest::prefix "ipv6_life_calc(50 <time-100>) - "
-  xwrap ipv6_life_calc var "50" "${base_time}"
+  xwrap2 "50 <time-100>" ipv6_life_calc var "50" "${base_time}"
   xtest S5 t "returns true"
   vtest S5v "0" "should return 0"
 
   CUR_TIME=0
-  shtest::prefix "ipv6_life_calc(<failed-time>) - "
-  xwrap ipv6_life_calc var "0" "0"
+  xwrap2 "<failed-time>" ipv6_life_calc var "0" "0"
   xtest S6 1 "returns 1"
   CUR_TIME=''
 
@@ -72,25 +66,22 @@ xtest::group1::prefix() {
 
   shtest::title "Prefix Function Tests (life group)"
 
-  shtest::prefix "ipv6_prefix_overlap"
+  xwrap2 "0/64 0/64" ipv6_prefix_overlap 0 64 0/64
+  xtest P1 t "returns true"
+  xwrap2 "2/64 1/63" ipv6_prefix_overlap 2 64 1/63
+  xtest P2 t "returns true"
+  xwrap2 "1/64 1/64" ipv6_prefix_overlap 1 64 1/63
+  xtest P3 f "returns false"
+  xwrap2 "2/64 1/63" ipv6_prefix_overlap 2 64 1/63
+  xtest P4 t "returns true"
+  xwrap2 "4/64 1/62" ipv6_prefix_overlap 4 64 1/62
+  xtest P5 t "returns true"
+  xwrap2 "7/64 1/62" ipv6_prefix_overlap 7 64 1/62
+  xtest P6 t "returns true"
+  xwrap2 "7/64 4/62" ipv6_prefix_overlap 7 64 4/62
+  xtest P7 f "returns false"
 
-  xwrap ipv6_prefix_overlap 0 64 0/64
-  xtest P1 t "(0/64 0/64) - returns true"
-  xwrap ipv6_prefix_overlap 2 64 1/63
-  xtest P2 t "(2/64 1/63) - returns true"
-  xwrap ipv6_prefix_overlap 1 64 1/63
-  xtest P3 f "(1/64 1/64) - returns false"
-  xwrap ipv6_prefix_overlap 2 64 1/63
-  xtest P4 t "(2/64 1/63) - returns true"
-  xwrap ipv6_prefix_overlap 4 64 1/62
-  xtest P5 t "(4/64 1/62) - returns true"
-  xwrap ipv6_prefix_overlap 7 64 1/62
-  xtest P6 t "(7/64 1/62) - returns true"
-  xwrap ipv6_prefix_overlap 7 64 4/62
-  xtest P7 f "(7/64 4/62) - returns false"
-
-  shtest::prefix "ipv6_lan_node_load(br0 56) - "
-  xwrap ipv6_lan_node_load "br0" "56"
+  xwrap2 "br0 56" ipv6_lan_node_load "br0" "56"
   xtest P21 t "returns true"
   ftest P21f "" "does not log"
   aref=("br0 63 auto 0")
@@ -98,8 +89,7 @@ xtest::group1::prefix() {
   aref=("0/63")
   atest P21r Reserved aref "sets Reserved"
 
-  shtest::prefix "ipv6_lan_node_load(br1 56) - "
-  xwrap ipv6_lan_node_load "br1" "56"
+  xwrap2 "br1 56" ipv6_lan_node_load "br1" "56"
   xtest P22 t "returns true"
   ftest P22f "" "does not log"
   aref=("br0 63 auto 0" "br1 64 auto auto")
@@ -108,8 +98,7 @@ xtest::group1::prefix() {
   atest P22r Reserved aref "doesn't add to Reserved"
 
   Lans=() Reserved=()
-  shtest::prefix "ipv6_lan_node_load(br0 64) - "
-  xwrap ipv6_lan_node_load "br0" "64"
+  xwrap2 "br0 64" ipv6_lan_node_load "br0" "64"
   xtest P23 t "returns true"
   ftest P23f "br0 not configured, LAN_PREFIX_LEN 63 < available 64" \
         "log info"
@@ -124,8 +113,7 @@ xtest::group1::prefix() {
   echo "LAN_SITE=bogus" > "$XFILE"
 
   Lans=() Reserved=()
-  shtest::prefix "ipv6_lan_node_load(<bad-site>) - "
-  xwrap ipv6_lan_node_load "brx" "64"
+  xwrap2 "<bad-site>" ipv6_lan_node_load "brx" "64"
   xtest P24 t "returns true"
   xread_value out <<-EOF
 	ERR: nmg::2dec: invalid <value> '0xbogus'
@@ -140,11 +128,9 @@ xtest::group1::prefix() {
   echo "LAN_PREFIX_LEN=0" > "$XFILE"
   Lans=() Reserved=()
 
-  shtest::prefix "ipv6_lan_node_load(<bad-plen>) - "
-  xwrap ipv6_lan_node_load "brx" "64"
+  xwrap2 "<bad-plen>" ipv6_lan_node_load "brx" "64"
   xtest P25 t "returns true"
-  ftest P25f "ERR: brx config error, invalid LAN_PREFIX_LEN '0'" \
-        "log error"
+  ftest P25f "ERR: brx config error, invalid LAN_PREFIX_LEN '0'" "log error"
   aref=("brx")
   atest P25l Lans aref "sets Lans"
   aref=()
@@ -153,8 +139,7 @@ xtest::group1::prefix() {
   echo "LAN_PREFIX_LEN=128" > "$XFILE"
   Lans=() Reserved=()
 
-  shtest::prefix "ipv6_lan_node_load(<128 plen>) - "
-  xwrap ipv6_lan_node_load "brx" "64"
+  xwrap2 "<128 plen>" ipv6_lan_node_load "brx" "64"
   xtest P26 t "returns true"
   ftest P26f "" "does not log"
   aref=("brx 128 auto 0")
@@ -165,8 +150,7 @@ xtest::group1::prefix() {
   echo "LAN_PREFIX_LEN=63"$'\n'"LAN_SITE=7" > "$XFILE"
   Lans=() Reserved=()
 
-  shtest::prefix "ipv6_lan_node_load(<site 7> 61) - "
-  xwrap ipv6_lan_node_load "brx" "61"
+  xwrap2 "<site 7> 61" ipv6_lan_node_load "brx" "61"
   xtest P27 t "returns true"
   ftest P27f "" "does not log"
   aref=("brx 63 auto 3")
@@ -176,8 +160,7 @@ xtest::group1::prefix() {
 
   Lans=() Reserved=()
 
-  shtest::prefix "ipv6_lan_node_load(<site 7> 63) - "
-  xwrap ipv6_lan_node_load "brx" "63"
+  xwrap2 "<site 7> 63" ipv6_lan_node_load "brx" "63"
   xtest P28 t "returns true"
   ftest P28f "" "does not log"
   aref=("brx 63 auto 0")
@@ -186,66 +169,55 @@ xtest::group1::prefix() {
   atest P28r Reserved aref "sets Reserved"
 
   var="bogus"
-  shtest::prefix "ipv6_find_freesite(64 64 0/64) - "
-  xwrap ipv6_find_freesite var 64 64 "0/64"
+  xwrap2 "64 64 0/64" ipv6_find_freesite var 64 64 "0/64"
   xtest P31 f "returns false"
   ftest P31f "" "does not log"
   vtest P31v "bogus" "does not set retvar"
 
-  shtest::prefix "ipv6_find_freesite(64 64) - "
-  xwrap ipv6_find_freesite var 64 64
+  xwrap2 "64 64" ipv6_find_freesite var 64 64
   xtest P32 t "returns true"
   vtest P32v "0" "sets retvar 0"
 
-  shtest::prefix "ipv6_find_freesite(62 64 <2-63>) - "
-  xwrap ipv6_find_freesite var 62 64 "0/63" "1/63"
+  xwrap2 "62 64 <2-63>" ipv6_find_freesite var 62 64 "0/63" "1/63"
   xtest P33 f "returns false"
 
-  shtest::prefix "ipv6_find_freesite(62 64 <1 63>) - "
-  xwrap ipv6_find_freesite var 62 64 "0/63"
+  xwrap2 "62 64 <1 63>" ipv6_find_freesite var 62 64 "0/63"
   xtest P34 t "returns true"
   vtest P34v "2" "sets retvar 2"
 
-  shtest::prefix "ipv6_find_freesite(62 64 <'1' free>) - "
-  xwrap ipv6_find_freesite var 62 64 "1/63" "0/64"
+  xwrap2 "62 64 <'1' free>" ipv6_find_freesite var 62 64 "1/63" "0/64"
   xtest P35 t "returns true"
   vtest P35v "1" "sets retvar 1"
 
-  shtest::prefix "ipv6_find_freesite(62 64 <'3' free>) - "
-  xwrap ipv6_find_freesite var 62 64 "0/63" "2/64"
+  xwrap2 "62 64 <'3' free>" ipv6_find_freesite var 62 64 "0/63" "2/64"
   xtest P36 t "returns true"
   vtest P36v "3" "sets retvar 3"
 
-  shtest::prefix "ipv6_find_freesite(64 64 <empty>) - "
-  xwrap ipv6_find_freesite var 64 64 "" ""
+  xwrap2 "64 64 <empty>" ipv6_find_freesite var 64 64 "" ""
   xtest P37 t "returns true"
   vtest P37v "0" "sets retvar 0"
 
   Assigned=() Reserved=("0/63")
 
-  shtest::prefix "ipv6_find_autosite(62 64 <0/63 reserved>) - "
-  xwrap ipv6_find_autosite var 62 64
+  xwrap2 "62 64 <0/63 reserved>" ipv6_find_autosite var 62 64
   xtest P41 t "returns true"
   vtest P41v "2" "sets retvar 2 (avoids reserved)"
 
   Assigned=("0/63" "2/64") Reserved=("3/64")
 
-  shtest::prefix "ipv6_find_autosite(62 64 <0/63 2/64 used, 3/64 reserved>) - "
-  xwrap ipv6_find_autosite var 62 64
+  xwrap2 "62 64 <0/63 2/64 used, 3/64 reserved>" ipv6_find_autosite var 62 64
   xtest P42 t "returns true"
   vtest P42v "3" "sets retvar 3 (uses reserved)"
 
   Assigned=() Reserved=()
 
-  shtest::prefix "ipv6_find_autosite(62 63) - "
-  xwrap ipv6_find_autosite var 62 63
+  xwrap2 "62 63" ipv6_find_autosite var 62 63
   xtest P43 t "returns true"
   vtest P43v "0" "sets retvar 0"
 
   Assigned=("0/63") Reserved=() var="bogus"
 
-  shtest::prefix "ipv6_find_autosite(63 64 <used 63>) - "
-  xwrap ipv6_find_autosite var 63 64
+  xwrap2 "63 64 <used 63>" ipv6_find_autosite var 63 64
   xtest P44 f "returns false"
   vtest P44v "bogus" "does not set retvar"
   ftest P44f "" "does not log"
@@ -253,8 +225,7 @@ xtest::group1::prefix() {
   local new_ip6_prefix="2001:db8:33::/63"
   Assigned=("2/64") Reserved=("0/63") var=""
 
-  shtest::prefix "ipv6_lan_node_calc(<reserved 0/63>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 63 auto 0
+  xwrap2 "<reserved 0/63>" ipv6_lan_node_calc var var2 br0 63 auto 0
   xtest P51 t "returns true"
   vtest P51v "2001:db8:33:0:32fb:93c5:6555:845a/63" "sets address"
   ltest P51s "var2" "0/63" "sets site 0/63"
@@ -264,18 +235,15 @@ xtest::group1::prefix() {
 
   Assigned=("0/63" "2/64") Reserved=("0/63" "1/63") var='orig' var2='orig'
 
-  shtest::prefix "ipv6_lan_node_calc(<unavail pfx>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 63 auto 1
+  xwrap2 "<unavail pfx>" ipv6_lan_node_calc var var2 br0 63 auto 1
   xtest P52 t "returns true"
   vtest P52v "orig" "does not set address"
   ltest P52s "var2" "orig" "does not set site"
-  ftest P52f "br0 cannot be configured, no /63 prefixes available" \
-        "logs info"
+  ftest P52f "br0 cannot be configured, no /63 prefixes available" "logs info"
 
   Assigned=("1/63") Reserved=("1/63" "2/64") var='' var2=''
 
-  shtest::prefix "ipv6_lan_node_calc(<unavail reserved 2/64>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 64 auto 2
+  xwrap2 "<unavail reserved 2/64>" ipv6_lan_node_calc var var2 br0 64 auto 2
   xtest P53 t "returns true"
   vtest P53v "2001:db8:33:0:32fb:93c5:6555:845a/64" "set address"
   ltest P53s "var2" "0/64" "sets site 0/64"
@@ -284,8 +252,7 @@ xtest::group1::prefix() {
   new_ip6_prefix="2001:db8:33::/62"
   Assigned=("0/63") Reserved=("0/63" "2/64") var='' var2=''
 
-  shtest::prefix "ipv6_lan_node_calc(<autosite>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
+  xwrap2 "<autosite>" ipv6_lan_node_calc var var2 br0 64 auto auto
   xtest P54 t "returns true"
   vtest P54v "2001:db8:33:3:32fb:93c5:6555:845a/64" "set address"
   ltest P54s "var2" "3/64" "sets site 3/64"
@@ -293,8 +260,8 @@ xtest::group1::prefix() {
 
   Assigned=("0/63" "3/64") Reserved=("0/63" "2/64") var='' var2=''
 
-  shtest::prefix "ipv6_lan_node_calc(<autosite, only reserved>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
+  xwrap2 "<autosite, only reserved>" ipv6_lan_node_calc var var2 br0 64 \
+	 auto auto
   xtest P55 t "returns true"
   vtest P55v "2001:db8:33:2:32fb:93c5:6555:845a/64" "set retvar to reserved"
   ltest P55s "var2" "2/64" "sets site 2/64"
@@ -302,13 +269,11 @@ xtest::group1::prefix() {
 
   Assigned=("0/63" "3/64" "2/64") var="orig" var2="orig"
 
-  shtest::prefix "ipv6_lan_node_calc(<autosite, unavail>) - "
-  xwrap ipv6_lan_node_calc var var2 br0 64 auto auto
+  xwrap2 "<autosite, unavail>" ipv6_lan_node_calc var var2 br0 64 auto auto
   xtest P56 t "returns true"
   vtest P56v "orig" "does not set address"
   ltest P56s "var2" "orig" "does not set site"
-  ftest P56f "br0 cannot be configured, no /64 prefixes available" \
-        "logs info"
+  ftest P56f "br0 cannot be configured, no /64 prefixes available" "logs info"
 
   ipv6_lan_reset_config
 }
@@ -335,8 +300,7 @@ xtest::group2::addr() {
   shtest::check_file A0c "$state1" "" "created forwarding test file"
   shtest::last_check_ok || return 1
 
-  shtest::prefix "ipv6_lan_add_addr(<addr>) - "
-  xwrap ipv6_lan_add_addr br0 "inet6:2001:db8:100::1/64"
+  xwrap2 "<addr>" ipv6_lan_add_addr br0 "inet6:2001:db8:100::1/64"
   xtest A1 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:100::1/64 to br0
@@ -358,26 +322,22 @@ xtest::group2::addr() {
 	life-start:3000
 	EOF
 
-  shtest::prefix "ipv6_lan_add_addr(<addr> <lifetimes set>) - "
-  xwrap ipv6_lan_add_addr br0 "$state"
+  xwrap2 "<addr> <lifetimes set>" ipv6_lan_add_addr br0 "$state"
   xtest A2 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:100::1/64 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100::1/64' 'dev' 'br0' 'valid_lft' '180' 'preferred_lft' '60'
+	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100::1/64' 'dev' 'br0'\
+ 'valid_lft' '180' 'preferred_lft' '60'
 	EOF
   ftest A2f "$out" "adds address with lifetimes"
 
   CUR_TIME=3300
 
-  shtest::prefix "ipv6_lan_add_addr(<addr> <expired lifetimes>) - "
-  xwrap ipv6_lan_add_addr br0 "$state"
+  xwrap2 "<addr> <expired lifetimes>" ipv6_lan_add_addr br0 "$state"
   xtest A3 t "returns true"
   ftest A3f "" "does not add address"
 
-  shtest::prefix "ipv6_lan_del_addr"
-
-  shtest::prefix "ipv6_lan_add_addr(<addr>) - "
-  xwrap ipv6_lan_del_addr br0 "fdc0:4455:b240::1/64"
+  xwrap2 "<addr>" ipv6_lan_del_addr br0 "fdc0:4455:b240::1/64"
   xtest A11 t "returns true"
   xread_value out <<-EOF
 	Removing fdc0:4455:b240::1/64 from br0
@@ -385,8 +345,7 @@ xtest::group2::addr() {
 	EOF
   ftest A11f "$out" "removes address"
 
-  shtest::prefix "ipv6_lan_read_config(br0) - "
-  xwrap ipv6_lan_read_config br0
+  xwrap2 "br0" ipv6_lan_read_config br0
   xtest A21 t "returns true"
   ltest A21a "LAN_SITE" "ab80" "sets LAN_SITE"
   ltest A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
@@ -438,12 +397,13 @@ xtest::group3::lan() {
   local new_ip6_prefix="2001:db8:100::/56" new_iaid="88:99"
   local new_max_life=240 new_preferred_life=120 new_life_starts=3000
 
-  shtest::prefix "ipv6_dhc_bind(<br0 brx, 88:99>) - "
-  xwrap ipv6_dhc_bind
+  xwrap2 "<br0 brx, 88:99>" ipv6_dhc_bind
   xtest L2 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180' 'preferred_lft' '60'
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180'\
+ 'preferred_lft' '60'
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
   ftest L2f "$out" "adds address"
@@ -462,16 +422,18 @@ xtest::group3::lan() {
 	pref-life:120
 	life-start:3000
 	EOF
-  shtest::check_file L2m "$state5" "$out" "creates brx 88:99 state file (prefix)"
+  shtest::check_file L2m "$state5" "$out" \
+		     "creates brx 88:99 state file (prefix)"
 
   new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22"
 
-  shtest::prefix "ipv6_prefix_bind(<brx br0, 11:22>) - "
-  xwrap ipv6_prefix_bind
+  xwrap2 "<brx br0, 11:22>" ipv6_prefix_bind
   xtest L3 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180' 'preferred_lft' '60'
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180'\
+ 'preferred_lft' '60'
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
   ftest L3f "$out" "adds address"
@@ -490,18 +452,19 @@ xtest::group3::lan() {
 	pref-life:120
 	life-start:3000
 	EOF
-  shtest::check_file L3n "$state6" "$out" "creates brx 11:22 state file (prefix)"
+  shtest::check_file L3n "$state6" "$out" \
+		     "creates brx 11:22 state file (prefix)"
 
   # reverse lan order, check existing assignments are kept
   WAN_LAN_INTFS="brx br1"
   new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
 
-  shtest::prefix "ipv6_prefix_bind(<brx br1, 11:22>) - "
-  xwrap ipv6_prefix_bind
+  xwrap2 "<brx br1, 11:22>" ipv6_prefix_bind
   xtest L4 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:200:0:32fb:93c5:555:1/64 to br1
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:200:0:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:200:0:32fb:93c5:555:1/64' 'dev' 'br1'
 	Removing home.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -531,14 +494,15 @@ xtest::group3::lan() {
 
   new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
 
-  shtest::prefix "ipv6_prefix_bind(<br1>) - "
-  xwrap ipv6_prefix_bind
+  xwrap2 "<br1>" ipv6_prefix_bind
   xtest L5 t "returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'replace'\
+ '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -572,16 +536,18 @@ xtest::group3::lan() {
   echo "inet6:2001:db8:100:2:32fb:93c5:555:1/64" > "$state3"
   new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
 
-  shtest::prefix "ipv6_prefix_bind(<br1-with-old>) - "
-  xwrap ipv6_prefix_bind
+  xwrap2 "<br1-with-old>" ipv6_prefix_bind
   xtest L6 t "returns true"
   xread_value out <<-EOF
 	Removing 2001:db8:100:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'del'\
+ '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'replace'\
+ '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -616,15 +582,17 @@ xtest::group3::lan() {
 
   new_ip6_prefix="2001:db8:100::/56" new_iaid="88:99"
 
-  shtest::prefix "ipv6_prefix_bind(<br1>) - "
-  xwrap ipv6_prefix_bind
+  xwrap2 "<br1>" ipv6_prefix_bind
   xtest L7 t "returns true"
   xread_value out <<-EOF
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'replace'\
+ '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
-	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1
+	${NMG_IP} => ip '-6' 'addr' 'add'\
+ '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
+	Setting home.example.test AAAA to\
+ 2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
@@ -678,14 +646,17 @@ xtest::group3::lan() {
 
   WAN_LAN_INTFS="br0 brx br1"
 
-  shtest::prefix "ipv6_dhc_depref(<88:99>) - "
-  xwrap ipv6_dhc_depref
+  xwrap2 "<88:99>" ipv6_dhc_depref
   xtest L11 t "returns true"
   xread_value out <<-EOF
 	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '120' 'preferred_lft' '0'
+	${NMG_IP} => ip '-6' 'addr' 'replace'\
+ '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '120'\
+ 'preferred_lft' '0'
 	Changing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120' 'preferred_lft' '0'
+	${NMG_IP} => ip '-6' 'addr' 'change'\
+ '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120'\
+ 'preferred_lft' '0'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -711,7 +682,8 @@ xtest::group3::lan() {
 	pref-life:0
 	life-start:3000
 	EOF
-  shtest::check_file L11k "$state3" "$out" "updates br1 88:99 state file with address"
+  shtest::check_file L11k "$state3" "$out" \
+		     "updates br1 88:99 state file with address"
   xread_value out <<-EOF
 	inet6:2001:db8:100:fe::/63
 	site6:fe/63
@@ -719,19 +691,21 @@ xtest::group3::lan() {
 	pref-life:0
 	life-start:3000
 	EOF
-  shtest::check_file L11m "$state5" "$out" "updates brx 88:99 state file (prefix)"
+  shtest::check_file L11m "$state5" "$out" \
+		     "updates brx 88:99 state file (prefix)"
   shtest::check_file \
     L11d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" \
     "updates ddns state file"
 
   WAN_LAN_INTFS="br1"
 
-  shtest::prefix "ipv6_prefix_depref(<br1, 88:99>) - "
-  xwrap ipv6_prefix_depref
+  xwrap2 "<br1, 88:99>" ipv6_prefix_depref
   xtest L12 t "returns true"
   xread_value out <<-EOF
 	Changing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120' 'preferred_lft' '0'
+	${NMG_IP} => ip '-6' 'addr' 'change'\
+ '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120'\
+ 'preferred_lft' '0'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -759,12 +733,12 @@ xtest::group3::lan() {
 
   old_ip6_prefix="2001:db8:100::/56" old_iaid="88:99"
 
-  shtest::prefix "ipv6_dhc_release(<88:99>) - "
-  xwrap ipv6_dhc_release
+  xwrap2 "<88:99>" ipv6_dhc_release
   xtest L21 t "returns true"
   xread_value out <<-EOF
 	Removing 2001:db8:100:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del' '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'del'\
+ '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -783,12 +757,12 @@ xtest::group3::lan() {
 
   unset old_ip6_prefix old_iaid
 
-  shtest::prefix "ipv6_prefix_flush() - "
-  xwrap ipv6_prefix_flush
+  xwrap2 "" ipv6_prefix_flush
   xtest L31 t "returns true"
   xread_value out <<-EOF
 	Removing 2001:db8:200:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	${NMG_IP} => ip '-6' 'addr' 'del'\
+ '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
 	Removing home.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
@@ -840,8 +814,7 @@ xtest::group3::wan_start() {
   xrm "$state1" "$state2"
 
   # interface is wan0
-  shtest::prefix "ipv6_check_nm() - "
-  xwrap ipv6_check_nm
+  xwrap2 "" ipv6_check_nm
   xtest W1 t "returns true"
   ftest W1f "" "does not log"
   [[ $NMCLI ]]
@@ -849,8 +822,7 @@ xtest::group3::wan_start() {
 
   local new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=64 new_iaid='a:b:c'
 
-  shtest::prefix "ipv6_dhc_bind(<exiting addr>) - "
-  xwrap ipv6_dhc_bind
+  xwrap2 "<exiting addr>" ipv6_dhc_bind
   xtest W11 t "returns true"
   ftest W11f "" "does nothing"
   shtest::check_file W11s "$state1" "inet6:2001:db8:800::2/64" \
@@ -859,12 +831,12 @@ xtest::group3::wan_start() {
   local new_max_life=3600 new_life_starts=3000 new_preferred_life=1800
   CUR_TIME=3000
 
-  shtest::prefix "ipv6_addr_bind(<new lifetimes>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<new lifetimes>" ipv6_addr_bind
   xtest W12 t "returns true"
   xread_value out <<-EOF
 	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64' 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
+	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
+ 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
 	EOF
   ftest W12f "$out" "updates lifetimes"
   xread_value out <<-EOF
@@ -879,14 +851,17 @@ xtest::group3::wan_start() {
   new_ip6_address='2001:db8:aaa::2' new_ip6_prefixlen=64 new_iaid='c:d:e'
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<moving addr>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<moving addr>" ipv6_addr_bind
   xtest W13 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:aaa::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:aaa::2/64'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	ERR: DAD timeout for 2001:db8:aaa::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
+ 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	EOF
   ftest W13f "${out}" "adds, then removes new addr"
@@ -903,11 +878,14 @@ xtest::group3::wan_start() {
   local WAN_STATIC_DNS6_SEARCH='home.lan, office.lan'
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<static dns>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<static dns>" ipv6_addr_bind
   xtest W14 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64' 'ipv6.dns' '2001:db8:aaaa::1,2001:db8:bbbb::1' 'ipv6.dns-search' 'home.lan,office.lan'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64'\
+ 'ipv6.dns' '2001:db8:aaaa::1,2001:db8:bbbb::1'\
+ 'ipv6.dns-search' 'home.lan,office.lan'
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	EOF
   ftest W14f "${out}" "adds static/dhcp addrs, static dns"
@@ -918,11 +896,14 @@ xtest::group3::wan_start() {
   local new_dhcp6_domain_search='dns-search.lan dns-search2.lan'
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<static/dhcp dns>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<static/dhcp dns>" ipv6_addr_bind
   xtest W15 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64' 'ipv6.dns' '2001:db8:aaaa::1,2001:db8:bbbb::1,2001:db8:111::1,2001:db8:222::1' 'ipv6.dns-search' 'home.lan,office.lan,dns-search.lan,dns-search2.lan'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64' 'ipv6.dns'\
+ '2001:db8:aaaa::1,2001:db8:bbbb::1,2001:db8:111::1,2001:db8:222::1'\
+ 'ipv6.dns-search' 'home.lan,office.lan,dns-search.lan,dns-search2.lan'
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	EOF
   ftest W15f "${out}" "adds static/dhcp addrs/dns"
@@ -939,11 +920,13 @@ xtest::group3::wan_start() {
   local -x NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns=yes
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<no-auto-dns>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<no-auto-dns>" ipv6_addr_bind
   xtest W16 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:55::1/64,2001:db8:800::2/64' 'ipv6.dns' '2001:db8:aaaa::1' 'ipv6.dns-search' 'home.lan'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:55::1/64,2001:db8:800::2/64' 'ipv6.dns' '2001:db8:aaaa::1'\
+ 'ipv6.dns-search' 'home.lan'
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	EOF
   ftest W16f "${out}" "adds static/dhcp addrs, static dns"
@@ -958,11 +941,13 @@ xtest::group3::wan_start() {
   unset NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<dhcp only dns>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<dhcp only dns>" ipv6_addr_bind
   xtest W17 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64' 'ipv6.dns' '2001:db8:111::1,2001:db8:222::1' 'ipv6.dns-search' 'dns-search.lan,dns-search2.lan'
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
+ 'ipv6.dns' '2001:db8:111::1,2001:db8:222::1'\
+ 'ipv6.dns-search' 'dns-search.lan,dns-search2.lan'
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	EOF
   ftest W17f "${out}" "adds dhcp addrs/dns"
@@ -979,14 +964,16 @@ xtest::group3::wan_start() {
   CUR_TIME=3000
   xrm "$state2"
 
-  shtest::prefix "ipv6_addr_bind(<new ip/lifetimes>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<new ip/lifetimes>" ipv6_addr_bind
   xtest W18 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64' 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
+	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
+ 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
 	EOF
   ftest W18f "$out" "updates lifetimes"
   xread_value out <<-EOF
@@ -1000,14 +987,16 @@ xtest::group3::wan_start() {
   unset new_max_life new_life_starts new_preferred_life
   new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=64 new_iaid='a:b:c'
 
-  shtest::prefix "ipv6_addr_bind(<2nd ip>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<2nd ip>" ipv6_addr_bind
   xtest W19 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64,2001:db8:800::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:800::2/64,2001:db8:800::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64' 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
+	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
+ 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
 	EOF
   ftest W19f "$out" "updated NM, lifetimes"
   shtest::check_file W19s "$state1" "inet6:2001:db8:800::2/64" "creates abc state file"
@@ -1043,14 +1032,16 @@ xtest::group3::wan_depref() {
   local cur_ip6_address='2001:db8:800::2' cur_ip6_prefixlen=64 cur_iaid='1:2:3'
   local cur_max_life=1800 cur_life_starts=3000
 
-  shtest::prefix "ipv6_dhc_depref(<depref new>) - "
-  xwrap ipv6_dhc_depref
+  xwrap2 "<depref new>" ipv6_dhc_depref
   xtest E1 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
 	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64' 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
+	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
+ 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
 	EOF
   ftest E1f "$out" "updates lifetimes"
   xread_value out <<-EOF
@@ -1064,12 +1055,12 @@ xtest::group3::wan_depref() {
   unset NMCLI_MOCK_FORCE_ipv6_addresses
   xrm "$state1"
 
-  shtest::prefix "ipv6_addr_depref(<depref exist>) - "
-  xwrap ipv6_addr_depref
+  xwrap2 "<depref exist>" ipv6_addr_depref
   xtest E2 t "returns true"
   xread_value out <<-EOF
 	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64' 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
+	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
+ 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
 	EOF
   ftest E2f "$out" "updates lifetimes"
   xread_value out <<-EOF
@@ -1120,8 +1111,7 @@ xtest::group3::wan_ddns() {
   local -x NMCLI_MOCK_FORCE_ipv6_method="manual"
   local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64"
 
-  shtest::prefix "ipv6_addr_bind(<exiting addr>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<exiting addr>" ipv6_addr_bind
   xtest D1 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test AAAA to 2001:db8:871a:28c1::1
@@ -1138,14 +1128,16 @@ xtest::group3::wan_ddns() {
   shtest::check_file D1d "$dstate1" "2001:db8:871a:28c1::1" \
                      "creates dns state file"
 
-  local new_ip6_address='2001:db8:4860:4860::8888' new_ip6_prefixlen=64 new_iaid='2b:2b'
-  local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64, 2001:db8:4860:4860::8888/64"
+  local new_ip6_address='2001:db8:4860:4860::8888'
+  local new_ip6_prefixlen=64 new_iaid='2b:2b'
+  local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64,\
+ 2001:db8:4860:4860::8888/64"
 
-  shtest::prefix "ipv6_addr_bind(<2nd addr>) - "
-  xwrap ipv6_addr_bind
+  xwrap2 "<2nd addr>" ipv6_addr_bind
   xtest D2 t "returns true"
   xread_value out <<-EOF
-	Setting www.example.test AAAA to 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
+	Setting www.example.test AAAA to\
+ 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
@@ -1159,18 +1151,21 @@ xtest::group3::wan_ddns() {
                      "creates 1a1a state file"
   shtest::check_file D2z "$state2" "inet6:2001:db8:4860:4860::8888/64" \
                      "creates 2b2b state file"
-  shtest::check_file D2d "$dstate1" "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
+  shtest::check_file D2d "$dstate1" \
+		     "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
                      "creates dns state file"
 
   unset new_ip6_address new_ip6_prefixlen new_iaid
-  local old_ip6_address='2001:db8:871a:28c1::1' old_ip6_prefixlen=64 old_iaid='1a:1a'
+  local old_ip6_address='2001:db8:871a:28c1::1'
+  local old_ip6_prefixlen=64 old_iaid='1a:1a'
   local -x DIG_MOCK_OUTPUT="2001:db8:871a:28c1::1,2001:db8:4860:4860::8888"
 
-  shtest::prefix "ipv6_dhc_release(<1/2 removed>) - "
-  xwrap ipv6_dhc_release
+  xwrap2 "<1/2 removed>" ipv6_dhc_release
   xtest D11 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}' 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:4860:4860::8888/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:4860:4860::8888/64'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
 	Setting www.example.test AAAA to 2001:db8:4860:4860::8888
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
@@ -1188,15 +1183,17 @@ xtest::group3::wan_ddns() {
   shtest::check_file D11d "$dstate1" "2001:db8:4860:4860::8888" \
                      "updates dns state file"
 
-  old_ip6_address='2001:db8:4860:4860::8888' old_ip6_prefixlen=64 old_iaid='2b:2b'
+  old_ip6_address='2001:db8:4860:4860::8888'
+  old_ip6_prefixlen=64 old_iaid='2b:2b'
   NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:4860:4860::8888/64"
   DIG_MOCK_OUTPUT="2001:db8:4860:4860::8888"
 
-  shtest::prefix "ipv6_addr_release(<2nd removed>) - "
-  xwrap ipv6_addr_release
+  xwrap2 "<2nd removed>" ipv6_addr_release
   xtest D12 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
+ 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
+ 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
 	Removing www.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
@@ -1216,11 +1213,12 @@ xtest::group3::wan_ddns() {
   echo "inet6:2001:db8:4860:4860::8888/64" >"$state2"
   echo "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" >"$dstate1"
 
-  shtest::prefix "ipv6_addrs_flush() - "
-  xwrap ipv6_addrs_flush
+  xwrap2 "" ipv6_addrs_flush
   xtest D21 t "returns true"
   xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}' 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' '' 'ipv6.dns-search' ''
+	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
+ 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
+ 'ipv6.dns-search' ''
 	Removing www.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1

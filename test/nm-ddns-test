@@ -21,54 +21,50 @@ xtest::group2::support() {
 
   shtest::title "Support Function Tests (support group)"
 
-  shtest::prefix "ddns_addr4"
-
   var=bogus
-  xwrap ddns_addr4 var
-  xtest S1 t "(0) - returns true"
-  vtest S1v "" " - sets var empty"
+  xwrap2 "0" ddns_addr4 var
+  xtest S1 t "returns true"
+  vtest S1v "" "sets var empty"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0="192.168.55.3/24 192.168.55.1"
-  xwrap ddns_addr4 var
-  xtest S2 t "(1 priv) - returns true"
-  vtest S2v "" " - sets var empty"
+  xwrap2 "1 priv" ddns_addr4 var
+  xtest S2 t "returns true"
+  vtest S2v "" "sets var empty"
 
   DDNS_RREC_A_PRIVATE=1
-  xwrap ddns_addr4 var
-  xtest S3 t "(1 priv allowed) - returns true"
-  vtest S3v "192.168.55.3" " - sets address"
+  xwrap2 "1 priv allowed" ddns_addr4 var
+  xtest S3 t "returns true"
+  vtest S3v "192.168.55.3" "sets address"
   unset DDNS_RREC_A_PRIVATE
 
   IP4_NUM_ADDRESSES=2 IP4_ADDRESS_0="198.51.100.2/24 192.51.100.1"
   IP4_ADDRESS_1="203.0.113.55/24 203.0.113.1"
-  xwrap ddns_addr4 var
-  xtest S4 t "(2 pub) - returns true"
-  vtest S4v "198.51.100.2,203.0.113.55" " - sets addresses"
+  xwrap2 "2 pub" ddns_addr4 var
+  xtest S4 t "returns true"
+  vtest S4v "198.51.100.2,203.0.113.55" "sets addresses"
 
-  shtest::prefix "ddns_addr6"
-
-  xwrap ddns_addr6 var
-  xtest S11 t "(0) - returns true"
-  vtest S11v "" " - sets var empty"
+  xwrap2 "0" ddns_addr6 var
+  xtest S11 t "returns true"
+  vtest S11v "" "sets var empty"
 
   IP6_NUM_ADDRESSES=1 IP6_ADDRESS_0="fddd:500::200:1/64 fddd:500::1"
-  xwrap ddns_addr6 var
-  xtest S12 t "(1 priv) - returns true"
-  vtest S12v "" " - sets var empty"
+  xwrap2 "1 priv" ddns_addr6 var
+  xtest S12 t "returns true"
+  vtest S12v "" "sets var empty"
 
   DDNS_RREC_AAAA_PRIVATE=1
-  xwrap ddns_addr6 var
-  xtest S13 t "(1 priv allowed) - returns true"
-  vtest S13v "fddd:500::200:1" " - sets address"
+  xwrap2 "1 priv allowed" ddns_addr6 var
+  xtest S13 t "returns true"
+  vtest S13v "fddd:500::200:1" "sets address"
   unset DDNS_RREC_AAAA_PRIVATE
 
   IP6_NUM_ADDRESSES=2
   IP6_ADDRESS_0="2001:db8:871a:28c1::1/64 2001:db8:871a:28c1::100"
   IP6_ADDRESS_1="2001:db8:4860:4860::8888/64 2001:db8:4860:4860::1"
-  xwrap ddns_addr6 var
-  xtest S14 t "(2 pub) - returns true"
+  xwrap2 "2 pub" ddns_addr6 var
+  xtest S14 t "returns true"
   vtest S14v "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
-        " - sets addresses"
+        "sets addresses"
 }
 
 xtest::group3::action() {
@@ -82,12 +78,11 @@ xtest::group3::action() {
 
   shtest::title "Action Tests (action group)"
 
-  shtest::prefix "ddns_action"
-
-  xwrap ddns_action up
-  xtest A1 t "(up) - returns true"
+  xwrap2 "up" ddns_action up
+  xtest A1 t "returns true"
   xread_value out <<-EOF
-	Setting dns.example.test AAAA to 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
+	Setting dns.example.test AAAA to\
+ 2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
@@ -104,10 +99,10 @@ xtest::group3::action() {
 	update add dns.example.test 600 A 203.0.113.55
 	send
 	EOF
-  ftest A1f "$out" " - adds to dns"
+  ftest A1f "$out" "adds to dns"
 
-  xwrap ddns_action down
-  xtest A2 t "(down) - returns true"
+  xwrap2 "down" ddns_action down
+  xtest A2 t "returns true"
   xread_value out <<-EOF
 	Removing dns.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
@@ -122,7 +117,7 @@ xtest::group3::action() {
 	update delete dns.example.test A
 	send
 	EOF
-  ftest A2f "$out" " - removes from dns"
+  ftest A2f "$out" "removes from dns"
 
   nmddns_cleanup
 }
