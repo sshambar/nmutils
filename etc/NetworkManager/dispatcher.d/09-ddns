@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 09-ddns v1.2.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-ddns v1.2.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -49,9 +49,6 @@
 #
 # shellcheck disable=SC1090,SC2153
 
-interface=$1
-action=$2
-
 # for logging
 NMG_TAG=${NMG_TAG:-nmddns}
 
@@ -60,9 +57,6 @@ NMUTILS=${NMUTILS:-/etc/nmutils}
 NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## SCRIPT START
-
-# anything for us to do?
-[[ ${interface} && ${action} ]] || exit 0
 
 # shellcheck disable=SC2034
 NMDDNS_REQUIRED="1.4.4"
@@ -75,74 +69,95 @@ NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
 [[ ${NMDDNS_VERSION} ]] || {
   nmg_err "${0##*/} requires NMDDNS v${NMDDNS_REQUIRED}+"; exit 2; }
 
-# for convenience
-DDNS_CONFIG=${NMDDNS_CONFIG_PAT/@MATCH@/${interface}}
-DDNS_STATE_PAT=${NMDDNS_STATE_PAT/@MATCH@/${interface}}
-
-function ddns_addr4() {
+ddns_addr4() {
   # <retvar>
-  local _priv='' _n _vname _addr _alist=()
-  [[ ${DDNS_RREC_A_PRIVATE-} ]] && _priv=1
+  local priv='' addr alist=() rlist=()
+  [[ ${DDNS_RREC_A_PRIVATE-} ]] && priv=1
 
-  # choose first public address
-  for (( _n=0; _n < ${IP4_NUM_ADDRESSES:-0}; _n++ )); do
-    _vname="IP4_ADDRESS_${_n}"
-    # remove subnet/gateway
-    _addr=${!_vname%%/*}
-    nmg_check_ip4_addr "${_addr}" "${_priv}" && _alist+=("${_addr}")
+  printf -v "${1-}" '' || return
+
+  nmg::query_ips alist "" 4a "${interface}" || return
+
+  for addr in ${alist[*]+"${alist[@]}"}; do
+    addr=${addr%%/*}
+    nmg_check_ip4_addr "${addr}" "${priv}" && rlist+=("${addr}")
   done
-  local IFS=,; _addr="${_alist[*]-}"; unset IFS
-  printf -v "$1" %s "${_addr}"
+
+  local IFS=,
+  printf -v "$1" %s "${rlist[*]-}"
 }
 
-function ddns_addr6() {
+ddns_addr6() {
   # <retvar>
-  local _priv='' _n _vname _addr _alist=()
-  [[ ${DDNS_RREC_AAAA_PRIVATE-} ]] && _priv=1
+  local priv='' addr alist=() rlist=()
+  [[ ${DDNS_RREC_AAAA_PRIVATE-} ]] && priv=1
 
-  # choose first public address
-  for (( _n=0; _n < ${IP6_NUM_ADDRESSES:-0}; _n++ )); do
-    _vname="IP6_ADDRESS_${_n}"
-    # remove subnet/gateway
-    _addr=${!_vname%%/*}
-    nmg_check_ip6_addr "${_addr}" "${_priv}" && _alist+=("${_addr}")
+  printf -v "${1-}" '' || return
+
+  nmg::query_ips alist "" 6a "${interface}" || return
+
+  for addr in ${alist[*]+"${alist[@]}"}; do
+    addr=${addr%%/*}
+    nmg_check_ip6_addr "${addr}" "${priv}" &&
+      nmg::wait_dad6 "${interface}" "${addr}" && rlist+=("${addr}")
   done
-  local IFS=,; _addr="${_alist[*]-}"; unset IFS
-  printf -v "$1" %s "${_addr}"
+
+  local IFS=,
+  printf -v "$1" %s "${rlist[*]-}"
 }
 
-function ddns_action() {
+function ddns_nm_action() {
   # <action>
   local addr4='' addr6=''
-  [[ $1 == up ]] && {
-    ddns_addr4 addr4
-    ddns_addr6 addr6
+
+  # for convenience
+  local config=${NMDDNS_CONFIG_PAT/@MATCH@/${interface}}
+  local state_pat=${NMDDNS_STATE_PAT/@MATCH@/${interface}}
+
+  nmddns_read_config "${config}" || return 0
+
+  [[ -e ${DDNS_STATE_DIR} ]] || {
+    [[ ${NM_DISPATCHER_ACTION} ]] || {
+      nmg_err "STATE_DIR ${DDNS_STATE_DIR} missing; run from\
+ NetworkManager as dispatcher to create with correct permissions!"
+      return 1
+    }
+    nmg_cmd mkdir -p "${DDNS_STATE_DIR}" || return
   }
-  nmddns_spawn_update_all \
-    "$1" "${DDNS_CONFIG}" "${addr4}" "${addr6}" "${DDNS_STATE_PAT}"
+
+  case $1 in
+    up|down)
+      [[ $1 == up ]] && {
+        ddns_addr4 addr4 || return
+        ddns_addr6 addr6 || return
+      }
+      nmddns_spawn_update_all "$1" "${config}" \
+                              "${addr4}" "${addr6}" "${state_pat}"
+      ;;
+    dhcp4-change)
+      ddns_addr4 addr4 || return
+      nmddns_spawn_update "${config}" "A" "${addr4}" "${state_pat}"
+      ;;
+    dhcp6-change)
+      ddns_addr6 addr6 || return
+      nmddns_spawn_update "${config}" "AAAA" "${addr6}" "${state_pat}"
+      ;;
+  esac
+  return 0
 }
 
-nmg_debug "interface: $interface action: $action"
+if [[ ${1-} && ${2-} ]]; then
 
-case ${action} in
-  up|down|dhcp4-change|dhcp6-change)
-    nmddns_read_config "${DDNS_CONFIG}" || exit 0
-    ;;
-esac
+  # used in functions
+  interface=$1
 
-[[ -e ${DDNS_STATE_DIR} ]] || { nmg_cmd mkdir -p "${DDNS_STATE_DIR}" || exit; }
+  # run from NM
+  nmg_debug "interface: $interface action: $2"
 
-ADDRS=''
-case ${action} in
-  up|down)
-    ddns_action "${action}"
-    ;;
-  dhcp4-change)
-    ddns_addr4 ADDRS
-    nmddns_spawn_update "${DDNS_CONFIG}" "A" "${ADDRS}" "${DDNS_STATE_PAT}"
-    ;;
-  dhcp6-change)
-    ddns_addr6 ADDRS
-    nmddns_spawn_update "${DDNS_CONFIG}" "AAAA" "${ADDRS}" "${DDNS_STATE_PAT}"
-    ;;
-esac
+  case $2 in
+    up|down|dhcp4-change|dhcp6-change)
+      ddns_nm_action "$2" || exit
+      ;;
+  esac
+fi
+: # for loading in tests
