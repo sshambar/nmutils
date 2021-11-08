@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.4 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.5 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -1443,7 +1443,8 @@ ipv6_dhclient_start() {
   # already running?
   if nmg_is_running "${DHCLIENT}" "${pidfile}"; then
     nmg_debug "${DHCLIENT} already running"
-  elif nmg::query_ips link_addr "" 6a "${interface}" "" "scope" "link"; then
+  elif nmg::query_ips link_addr "" 6a "${interface}" "" "scope" "link" &&
+       [[ ${link_addr-} ]]; then
     # make sure address is active
     if nmg::wait_dad6 "${interface}" "${link_addr[0]}"; then
       # cleanup any stale state
@@ -1524,13 +1525,14 @@ if [[ ${1-} && ${2-} ]]; then
   # only create RUNDIR when run by NM (permissions)
   [[ -e ${RUNDIR} ]] || {
     [[ ${NM_DISPATCHER_ACTION} ]] || {
-      nmg_err "RUNDIR ${RUNDIR} missing; run from NetworkManager as dispatcher to create with correct permissions!"
+      nmg_err "RUNDIR ${RUNDIR} missing; run from NetworkManager\
+ as dispatcher to create with correct permissions!"
       exit 1
     }
     nmg_cmd mkdir -p "${RUNDIR}" || exit
   }
 
-  case "${NM_DISPATCHER_ACTION}" in
+  case "$2" in
     up)
       ipv6_lan_start
       ipv6_wan_start
