@@ -13,8 +13,11 @@
 #
 # Provided functions:
 #
-#   xwrap <cmd> [ <args> ]
+#   xwrap <cmd> [ <args>... ]
 #     Captures nmg logging to $XLOG, stderr to $XERR
+#
+#   xwrap2 <tag> <cmd> [ <args>...]
+#     Same as xwrap, but calls shtest::prefix "<cmd>(<tag>) - " first
 #
 #   xrm <file> ...
 #     Removes <file>s using command -p to avoid PATH
@@ -53,11 +56,19 @@ XLOG="$TEST_OUT/${NMG_XTEST_BASE}.log"
 XERR="$TEST_OUT/${NMG_XTEST_BASE}.err"
 unset NMG_XTEST_BASE
 
-xwrap() {
-  local cmd=${1-}
-  [[ ${cmd} ]] || xtest::fail "xwrap: missing <cmd>"
+xwrap() { # <cmd> [ <args>... ]
+  local _xcmd=${1-}
+  [[ ${_xcmd} ]] || xtest::fail "xwrap: missing <cmd>"
   shift
-  "${cmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+  "${_xcmd}" &>"${XERR}" 4>"${XLOG}" "$@"
+}
+
+xwrap2() { # <tag> <func> [ <args>... ]
+  local _xtag=${1-} _xcmd=${2-}
+  [[ ${_xcmd} ]] || xtest::fail "xwrap: missing <cmd>"
+  shtest::prefix "${_xcmd}(${_xtag}) - "
+  shift 2
+  "${_xcmd}" &>"${XERR}" 4>"${XLOG}" "$@"
 }
 
 xrm() {
