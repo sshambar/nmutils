@@ -51,7 +51,7 @@
 #
 # Supported, but optional:
 #
-#   nmddns-helper - asynchronous DDNS updater
+#   nmddns-helper - asynchronous DDNS updater ("HELPER")
 #   flock - used for locking
 #
 # Dynamic DNS functions:
@@ -79,31 +79,31 @@
 #     Set DNS resource record <rrec> to <value>, or if <value> empty,
 #     set to the fallback value if not empty (see below), or remove
 #     the record (DDNS_* values should be set).  If supplied,
-#     <state-pat> must contain the string "@RREC@" and is used to
-#     set state for nmddns-helper to update DDNS in late startup.
-#     <value> is expected to be in RDATA format appropriate for <rrec>.
-#     Returns any errors from nsupdate.
+#     <state-pat> must contain the string "@RREC@" and is used to save
+#     <value> for later use by nmddns_update_all.  <value> is expected
+#     to be in RDATA format appropriate for <rrec>.  Returns any
+#     errors from nsupdate.
 #
 #     SPECIAL CASE: for A/AAAA records, values containing "," are handled
 #     as multiple (comma-separated) address records (see _LISTSEP below for
-#     multiple records of other types)
+#     multiple records of other types).
 #
 #   nmddns_spawn_update <config-file> <rrec> [ <value> [ <state-pat> ] ]
 #
-#     Spawn helper to call nmddns_update asynchronously, or read
-#     <config-file> and call it directly if helper can't be used.
+#     Spawn HELPER to call nmddns_update asynchronously, or read
+#     <config-file> and call it directly if HELPER not found.
 #
-#   nmddns_update_all up | down [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
+#   nmddns_update_all <"up" | "down"> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
 #
 #     Updates for all configured DDNS names (DDNS_* values should be set),
 #     using <ip4-addr> for A and <ip6-addr> for AAAA (if respective
 #     DDNS_RREC_*_VALUEs don't override).  Returns any errors from nsupdate.
 #
-#   nmddns_spawn_update_all up | down <config-file>
+#   nmddns_spawn_update_all <"up" | "down"> <config-file>
 #                          [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
 #
-#     Spawn helper to call nmddns_update_all asynchronously, or read
-#     <config-file> and call it directly if helper can't be used.
+#     Spawn HELPER to call nmddns_update_all asynchronously, or read
+#     <config-file> and call it directly if HELPER not found.
 #
 # Configuration settings (set before including this file)
 #
@@ -114,15 +114,15 @@
 # Global overrides (put in NMCONF/general.conf)
 #
 #   NMDDNS_CONFIG_PAT (default: "NMCONF/ddns-@MATCH@.conf")
-#       @MATCH@ is replaced by the interface by the dispatcher/helper
-#       script, and loaded (see Config settings below)
+#       @MATCH@ is replaced by the interface by the dispatcher/HELPER
+#       script, and loaded (see Config settings below).
 #
 #   DDNS_STATE_DIR (default: "$RUNDIR", or "/run/nmutils" if unset)
-#       locationfor internal temporary state
+#       locationfor internal temporary state.
 #
 #   NMDDNS_STATE_PAT (default: "DDNS_STATE_DIR/ddns-@MATCH@-@RREC@.state")
 #       @MATCH@ is replaced by interface, @RREC@ by record type by
-#       dispater/helper, used to store internal state
+#       dispater/HELPER, used to store internal state.
 #
 #   DDNS_GLOBAL_LOCKFILE (optional) - flock lockfile used to prevent
 #       races between query and set of records.  Overrides use of config
@@ -190,7 +190,7 @@
 #       query and update.  Defaults to config file itself.  Set to empty
 #       in a config file to disable locking for just that file.
 #
-# NOTE: executable paths (see below) may be overriden if needed
+# NOTE: executable paths (see below) may be overriden if needed.
 #
 # Globals
 #
@@ -224,7 +224,7 @@ NMDDNS_NSUPDATE=${NMDDNS_NSUPDATE:-nsupdate}
 # set NMDDNS_FLOCK to empty to disable all locking
 NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 
-########## Config locations (defaults for helper)
+########## Config locations (defaults for HELPER)
 
 # NOTE: *_PAT variables must have a single @MATCH@ and @RREC@ keyword
 NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-${NMCONF}/ddns-@MATCH@.conf}
@@ -268,7 +268,7 @@ nmddns::_loaded() {
 
 # internal
 nmddns::_short_timeouts() {
-  # fast timeouts with no background helper is available
+  # fast timeouts with no background HELPER is available
   DDNS_DIG_TIMEOUT=1
   DDNS_DIG_RETRIES=0
   DDNS_NSUPDATE_TIMEOUT=2
@@ -498,14 +498,14 @@ nmddns_spawn_update() {
   name="DDNS_RREC_${rrec}_NAME"; ddns_name=${!name-}
   [[ ${ddns_name} ]] || return 0
 
-  # we have a valid config, spawn the helper
+  # we have a valid config, spawn the HELPER
   [[ ${NMDDNS_HELPER-} ]] &&
     nmg_daemon "${NMDDNS_HELPER}" "update" "$@" && return
 
   # make timeouts much faster, or NetworkManager will kill us
   nmddns::_short_timeouts
 
-  # helper not found, or can't be started, update directly.
+  # HELPER not found, or can't be started, update directly.
   shift 1
   nmddns_update "$@"
 }
@@ -576,14 +576,14 @@ nmddns_spawn_update_all() {
   done
   [[ ${name_found} ]] || return 0
 
-  # we have a valid config, spawn the helper
+  # we have a valid config, spawn the HELPER
   [[ ${NMDDNS_HELPER-} ]] &&
     nmg_daemon "${NMDDNS_HELPER}" "$@" && return
 
   # make timeouts much faster, or NetworkManager will kill us
   nmddns::_short_timeouts
 
-  # helper not found, or can't be started, update directly.
+  # HELPER not found, or can't be started, update directly.
   shift 2
   nmddns_update_all "${action}" "$@"
 }
