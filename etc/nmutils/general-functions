@@ -208,7 +208,8 @@
 #     or ipv6 (6). By default, <retvar> items are each
 #         "<addr/prefix> <valid-life> <pref-life>".
 #     <ip-args>... replace default "'scope' 'global'" ip args.
-#     See <err-modes> above for options.  Returns 2 if none found.
+#     See <err-modes> above for options.  Returns 2 if interface not found
+#     or <match> set and no matches found.
 #     Optional <flag> can be:
 #        'a' - return only address
 #        'p' - replace lifetimes with property-list, eg format:
@@ -397,7 +398,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.8"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.9"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -455,7 +456,7 @@ nmg_log() {
   # <log-level> <msg>
   local prio=${1-} pfx='' IFS; unset IFS
 
-  [[ -z ${prio} ]] && return
+  [[ -z ${prio} ]] && return 0
   [[ ${prio} != debug || ${nmg_show_debug-} ]] || return 0
   shift
 
@@ -509,7 +510,7 @@ nmg::_err() { # returns 0
     esac
   done
   [[ ${setvar} ]] && _nmgvar="${msg#*: }"
-  [[ -z ${log} ]] && return
+  [[ -z ${log} ]] && return 0
   # select debug > info > err
   if [[ ${debug} ]]; then
     nmg_debug "${msg}"
@@ -523,14 +524,14 @@ nmg::_err() { # returns 0
 
 nmg::_reqarg() {
   # <value> <arg-name>
-  [[ $1 ]] && return
+  [[ $1 ]] && return 0
   nmg::_p2err "missing <$2>"
   return 3
 }
 
 nmg::_vname() {
   # <var-name> <arg-name>
-  [[ $1 =~ ^[_[:alpha:]][_[:alnum:]]*$ ]] && return
+  [[ $1 =~ ^[_[:alpha:]][_[:alnum:]]*$ ]] && return 0
   nmg::_p2err "invalid <$2> '$1' "
   return 3
 }
@@ -566,7 +567,7 @@ nmg_read_config() {
       return 2
     }
   fi
-  . "${file}" &>/dev/null && return
+  . "${file}" &>/dev/null && return 0
 
   # capture error for logging
   [[ ${nolog} ]] || {
@@ -643,7 +644,7 @@ nmg::_clearvar() {
     return 0
   fi
   # if nmgret/retvar mode, <retvar> required
-  [[ ${2/ret} == "$2" ]] && return
+  [[ ${2/ret} == "$2" ]] && return 0
   # "nmgret" mode used internally for return vals
   if [[ ${2/nmgret} != "$2" ]]; then
     nmg::_err "missing <retvar>"
@@ -660,7 +661,7 @@ nmg::_wrap() { # returns 0
   local _nmgvar='' _nmgret=${1-} _nmglog=${2-}
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}} IFS
   unset IFS; shift 2 || set --
-  nmg::_clearvar "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return; }
+  nmg::_clearvar "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return 0; }
   # call _${CALLER} to avoid retvar name masking
   "nmg::_${FUNCNAME[1]##*::}" "$@"
   [[ ${_nmgret} ]] && printf -v "${_nmgret}" %s "${_nmgvar}"
@@ -691,7 +692,7 @@ nmg::_awrap() { # returns 0
   local _nmgvar='' _nmgret=${1-} _nmglog=${2-}
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}} IFS
   unset IFS; shift 2 || set --
-  nmg::_cleararr "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return; }
+  nmg::_cleararr "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return 0; }
   # call _${CALLER} to avoid retvar name masking
   "nmg::_${FUNCNAME[1]##*::}" "$@"
   IFS=$'\n'
@@ -704,7 +705,7 @@ nmg::_run() { # returns 0
   # <cmd> [<cmd-args>...]
   local cmd=${1-} out=''
 
-  [[ ${cmd} ]] || { nmg::_err "missing <cmd>"; _nmgrc=3; return; }
+  [[ ${cmd} ]] || { nmg::_err "missing <cmd>"; _nmgrc=3; return 0; }
   shift
 
   if [[ ${nmg_dryrun-} ]]; then
@@ -782,20 +783,20 @@ nmg::_read() { # returns 0
   # <filename>
   local file=${1-} out
 
-  [[ ${file} ]] || { nmg::_err "empty <filename>"; return; }
+  [[ ${file} ]] || { nmg::_err "empty <filename>"; return 0; }
   shift
 
   [[ -f ${file} ]] || {
     _nmglog+=" debug"; _nmgrc=2
-    nmg::_err "'${file}' not found"; return; }
+    nmg::_err "'${file}' not found"; return 0; }
   [[ -r ${file} ]] || {
-    nmg::_err "'${file}' Permission denied"; return; }
+    nmg::_err "'${file}' Permission denied"; return 0; }
 
   nmg_debug "read file ${file}"
   unset out # out will not be set if read fails
   local IFS='' # keep trailing newlines
   { read -r -d '' out || :; } 2>/dev/null < "${file}"
-  [[ ${out+x} ]] && { _nmgvar=${out}; _nmgrc=0; return; }
+  [[ ${out+x} ]] && { _nmgvar=${out}; _nmgrc=0; return 0; }
 
   # use subshell to collect stderr
   out=$(: 2>&1 >/dev/null < "${file}" || :)
@@ -858,9 +859,9 @@ nmg_is_running() {
   [[ ${prog} ]] || return 1
 
   if ! [[ ${pidfile} ]]; then
-    [[ $("${NMG_PGREP}" -x "${prog##*/}" || :) ]] && return
+    [[ $("${NMG_PGREP}" -x "${prog##*/}" || :) ]] && return 0
   elif [[ -f ${pidfile} ]] && [[ -r ${pidfile} ]]; then
-    [[ $("${NMG_PGREP}" -F "${pidfile}" -x "${prog##*/}" || :) ]] && return
+    [[ $("${NMG_PGREP}" -F "${pidfile}" -x "${prog##*/}" || :) ]] && return 0
     [[ ${no_remove} ]] || nmg_remove "${pidfile}"
   fi
 
@@ -886,7 +887,7 @@ nmg::_query_ips() { # returns 0
   local args=() flags=() flag=${1-} pat=${3-} vers=''
 
   [[ ${flag} =~ ^(4|6)?(a|p)?$ ]] || {
-    nmg::_err "invalid <version><flag> '${flag}'"; _nmgrc=3; return; }
+    nmg::_err "invalid <version><flag> '${flag}'"; _nmgrc=3; return 0; }
   [[ ${2-} ]] && args+=("dev" "$2")
   shift 3 || set --
   if [[ ${1+x} ]]; then
@@ -898,13 +899,18 @@ nmg::_query_ips() { # returns 0
   [[ ${pat} && ${pat} =~ : && ! ${pat} =~ [\*\[\^\$\?] ]] &&
     nmg::_mock epat ignore expand_ip6 "${pat}"
 
+  # ensure we have consistent order/error lang
+  local -x LC_LANG=C
   # convert ignore->nolog, so we can catch failure
   nmg::saferun out "${_nmglog//ignore/nolog}" "$NMG_IP" ${vers:+"-${vers}"} \
                addr show "${args[@]-}" || {
-    _nmgrc=$?; [[ ${_nmglog//ignore} != "${_nmglog}" ]] && _nmgrc=0
-    _nmgvar=${out}; return; }
+    _nmgrc=$? _nmgvar=${out}
+    [[ ${out} =~ "does not exist" ]] && _nmgrc=2
+    [[ ${_nmglog//ignore} != "${_nmglog}" ]] && _nmgrc=0
+    return 0
+  }
 
-  _nmgrc=2
+  _nmgrc=0
   for el in $out; do
     case ${state} in
       text)
@@ -958,9 +964,8 @@ nmg::_query_ips() { # returns 0
   done
 
   nmg::_query_ips_append
-  [[ ${_nmgvar} ]] && _nmgrc=0
-
-  [[ ${_nmgrc} != 0 ]] && { _nmglog+=" debug"; nmg::_err "none found"; }
+  [[ ${_nmgvar} || -z ${pat} ]] || {
+    _nmgrc=2; _nmglog+=" debug"; nmg::_err "none found"; }
   return 0
 }
 
@@ -1013,18 +1018,18 @@ nmg::__mod_ip() {
   shift 3 || set --
 
   [[ ${cmd} =~ ^(add|del|change)(4|6)$ ]] || {
-    nmg::_err "unknown <cmd> '${cmd}'"; return; }
+    nmg::_err "unknown <cmd> '${cmd}'"; return 0; }
 
-  [[ $intf ]] || { nmg::_err "missing <intf>"; return; }
+  [[ $intf ]] || { nmg::_err "missing <intf>"; return 0; }
 
-  [[ $addr ]] || { nmg::_err "missing <addr/plen>"; return; }
+  [[ $addr ]] || { nmg::_err "missing <addr/plen>"; return 0; }
 
   v=${cmd#"${cmd%?}"}; cmd=${cmd%?}
 
   # check if address looks legit
   "nmg_check_ip${v}_addr" "${addr%%/*}" || rc=$?
   [[ ${rc} == 1 ]] && { # rc 2/3 indicate link/private addrs, allowed
-    nmg::_err "invalid address '${addr}'"; _nmgrc=1; return; }
+    nmg::_err "invalid address '${addr}'"; _nmgrc=1; return 0; }
 
   # add any missing plen
   if [[ ${addr} == "${addr%%/*}" ]]; then
@@ -1044,7 +1049,7 @@ nmg::__mod_ip() {
   elif [[ ${cmd} == change ]]; then
     if [[ ${cur_addr-} ]]; then
       # any ip-args to change?
-      [[ $# == 0 ]] && { _nmgrc=0; return; }
+      [[ $# == 0 ]] && { _nmgrc=0; return 0; }
       nmg_info "Changing ${addr} on ${intf}"
     else
       cmd=replace
@@ -1052,7 +1057,7 @@ nmg::__mod_ip() {
     fi
   else
     # if not present, quietly return 2
-    [[ ${cur_addr-} ]] || { _nmgrc=2; return; }
+    [[ ${cur_addr-} ]] || { _nmgrc=2; return 0; }
     nmg_info "Removing ${addr} from ${intf}"
   fi
 
@@ -1068,7 +1073,7 @@ nmg::_mod_ip() {
   local _nmgargs _nmgret=${1-} _nmglog=${2-} _nmgvar=''
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}}
   shift 2 || set --
-  nmg::_clearvar "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return; }
+  nmg::_clearvar "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return 0; }
   # get ip args, convert ignore->nolog to catch errors
   nmg::_awrap _nmgargs "${_nmglog//ignore/nolog}" "$@"
   if [[ ${_nmgrc} != 0 ]]; then
@@ -1117,7 +1122,7 @@ nmg_check_ip4_addr() {
 
   # if we allow private networks, allow all
   [[ ${priv_ok} ]] && {
-    nmg_debug "IP4 private address ${ip4} allowed"; return; }
+    nmg_debug "IP4 private address ${ip4} allowed"; return 0; }
 
   # check if a private network address
   [[ ${ip4} =~ ^192\.168\. ]] && return 13
@@ -1139,7 +1144,7 @@ nmg_find_ip4_addrs() {
   local ips=() IFS; unset IFS
   # shellcheck disable=SC2086
   nmg::query_ips ips "" 4a "${1-}" "${2-}" ${3-} || return 0
-  printf %s "${ips[*]}" || :
+  printf %s "${ips[*]-}" || :
   return 0
 }
 
@@ -1221,7 +1226,7 @@ nmg::array_join() {
 nmg::array() {
   # <retarr> <sep> <sep-string>
   nmg::_cleararr "${1-}" nmgret || return
-  [[ -z ${3-} ]] && return
+  [[ -z ${3-} ]] && return 0
   local IFS=${2-}
   if [[ ${2-} == $'\n' ]]; then
     { read -r -a "$1" -d '' || :; } <<< "$3"
@@ -1235,8 +1240,8 @@ nmg::args_contains() {
   # <item> <arg1>...
   local item=${1-} var
   shift || return 0
-  [[ -z ${item} && -z $* ]] && return
-  for var in "$@"; do [[ ${item} == "${var}" ]] && return; done
+  [[ -z ${item} && -z $* ]] && return 0
+  for var in "$@"; do [[ ${item} == "${var}" ]] && return 0; done
   return 1
 }
 
@@ -1270,7 +1275,7 @@ nmg::array_match_values() {
   nmg::array_unique ax aa
   nmg::array_unique bx ba
   (( ${#ax[*]} == ${#bx[*]} )) || return
-  (( ${#ax[*]} == 0 )) && return
+  (( ${#ax[*]} == 0 )) && return 0
   for av in "${ax[@]}"; do
     nmg::args_contains "${av}" "${bx[@]}" || return
   done
@@ -1295,7 +1300,7 @@ nmg::_expand_ip6() { # returns 0
   [[ ${ip6} =~ / ]] && {
     plen=${ip6#*/} ip6=${ip6%/*}
     { [[ ${plen} =~ ^[1-9][0-9]{0,2}$ ]] && (( plen > 0 && plen <= 128 )); } ||
-      { nmg::_err "invalid ip6 format '${1-}'"; return; }
+      { nmg::_err "invalid ip6 format '${1-}'"; return 0; }
   }
   [[ ${ip6} =~ :: ]] && {
     [[ ${ip6} =~ ^:: ]] && ip6="0${ip6}"
@@ -1305,7 +1310,7 @@ nmg::_expand_ip6() { # returns 0
     [[ ${sub} ]] && ip6=${ip6/::/${sub//:/:0}:0}
   }
   [[ ${ip6} =~ ^(0?[0-9a-fA-F]{1,4}:){7}0?[0-9a-fA-F]{1,4}$ ]] ||
-    { nmg::_err "invalid ip6 format '${1-}'"; return; }
+    { nmg::_err "invalid ip6 format '${1-}'"; return 0; }
   local IFS=' '
   # shellcheck disable=SC2059,SC2086
   printf -v ip6 "${fmt}:" 0x${ip6//:/ 0x}
@@ -1331,17 +1336,17 @@ nmg::_create_ip6_prefix() { # returns 0
 
   # clear return value
   nmg::is_ip6_prefix "${pfx}" || {
-    nmg::_err "invalid ip6-prefix '${pfx}'"; return; }
+    nmg::_err "invalid ip6-prefix '${pfx}'"; return 0; }
   plen=${pfx#*/}; pfx=${pfx%/*}
 
-  [[ $asite ]] || { nmg::_err "missing <site>"; _nmgrc=3; return; }
+  [[ $asite ]] || { nmg::_err "missing <site>"; _nmgrc=3; return 0; }
 
   # hex2dec
   printf 2>/dev/null -v site %d "0x${asite//:/}" || {
-    nmg::_err "invalid <site> '${asite}'"; return; }
+    nmg::_err "invalid <site> '${asite}'"; return 0; }
 
   printf 2>/dev/null -v slen %d "${aslen:-64}" || {
-    nmg::_err "invalid <site-len> '${aslen}'"; return; }
+    nmg::_err "invalid <site-len> '${aslen}'"; return 0; }
   (( slen == 0 )) && slen=64
 
   # use aslen on result
@@ -1359,7 +1364,7 @@ nmg::_create_ip6_prefix() { # returns 0
   local IFS=':'; n=0
   for quad in ${pfx}; do
     printf 2>/dev/null -v quad %d "0x${quad:-0}" || {
-      nmg::_err "invalid ip6-prefix '${pfx}'"; return; }
+      nmg::_err "invalid ip6-prefix '${pfx}'"; return 0; }
     (( pquad[n] = quad, pquad[n] &= 0xffff, n++ )) || :
     (( n > 3 )) && break
   done
@@ -1382,7 +1387,7 @@ nmg::_create_ip6_prefix() { # returns 0
 
   for n in {0..3}; do (( pquad[n] |= squad[n] )) || :; done
   printf 2>/dev/null -v _nmgvar "%x:%x:%x:%x::/${aslen}" "${pquad[@]:0:4}" && {
-    _nmgrc=0; return; }
+    _nmgrc=0; return 0; }
   nmg::_err "failed to build prefix"
 }
 
@@ -1429,7 +1434,7 @@ nmg_find_ip6_addrs() {
   local ips=() IFS; unset IFS
   # shellcheck disable=SC2086
   nmg::query_ips ips "" 6a "${1-}" "${2-}" ${3-} || return 0
-  printf %s "${ips[*]}" || :
+  printf %s "${ips[*]-}" || :
   return 0
 }
 
@@ -1453,13 +1458,13 @@ nmg::_create_ip6_host() { # returns 0
   # <intf> [ <node> ]
   local intf=${1-} node=${2-} addr link_addrs
 
-  [[ ${intf} ]] || { nmg::_err "missing <intf>"; return; }
+  [[ ${intf} ]] || { nmg::_err "missing <intf>"; return 0; }
 
   if [[ -z ${node} || ${node} == auto ]]; then
 
     if nmg::query_ips link_addrs "nolog" 6a "${intf}" "" "scope" "link"; then
 
-      for addr in "${link_addrs[@]}"; do
+      for addr in ${link_addrs[*]+"${link_addrs[@]}"}; do
         addr=${addr#*::}; addr=${addr%/*}
         [[ ${addr} ]] && { node=${addr}; break; }
       done
@@ -1467,11 +1472,11 @@ nmg::_create_ip6_host() { # returns 0
   fi
 
   # if query failed in auto (interface down?), don't log
-  [[ ${node} == auto ]] && { _nmgrc=1; return; }
+  [[ ${node} == auto ]] && { _nmgrc=1; return 0; }
 
   [[ ${node} ]] || {
     nmg::_err "Unable to determine an auto host-part for interface ${intf}"
-    _nmgrc=1; return; }
+    _nmgrc=1; return 0; }
 
   _nmgrc=0
   _nmgvar=${node}
@@ -1493,8 +1498,8 @@ nmg::_create_ip6_addr() {
   local pfx=${1-} node=${2-} plen
 
   nmg::is_ip6_prefix "${pfx}" || {
-    nmg::_err "missing <prefix/plen>"; return; }
-  [[ ${node} ]] || { nmg::_err "missing <host-part>"; return; }
+    nmg::_err "missing <prefix/plen>"; return 0; }
+  [[ ${node} ]] || { nmg::_err "missing <host-part>"; return 0; }
 
   # strip subnet from prefix
   plen=${pfx#*/}
@@ -1527,7 +1532,7 @@ nmg_radvd_trigger() {
     local IFS; unset IFS
     # shellcheck disable=SC2086
     nmg_cmd "${NMG_RADVD_TRIGGER}" ${NMG_RADVD_TRIGGER_ARGS-}
-    return
+    return 0
   fi
 
   # signal radvd to advertise new prefix
@@ -1580,10 +1585,10 @@ nmg::prop_has_value() {
   nmg::prop_get_value fval "${1-}" "${2-}" || return 1
   if [[ ${4-} ]]; then
     for word in ${fval//"$4"/ }; do
-      [[ ${word} == "${3-}" ]] && return
+      [[ ${word} == "${3-}" ]] && return 0
     done
   else
-    [[ ${fval} == "${3-}" ]] && return
+    [[ ${fval} == "${3-}" ]] && return 0
   fi
   return 1
 }

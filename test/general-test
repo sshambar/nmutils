@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.5.8"
+NMG_REQUIRED="1.5.9"
 
 xtest::group1::log() {
   local nmg_show_debug=''
