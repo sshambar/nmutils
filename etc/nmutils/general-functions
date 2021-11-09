@@ -53,7 +53,7 @@
 #   logger - to log errors to syslog
 #   radvd - triggered when ipv6 LAN addresses change
 #
-# Logging functions (all clear error codes)
+# Logging Functions (all clear error codes)
 #
 #   <err-modes> values (default: err):
 #       err - log errors
@@ -113,7 +113,7 @@
 #
 #     Sets <retvar> to full path of <path> (default `pwd`)
 #
-# Execution functions (all functions return any error codes):
+# Execution Functions (all functions return any error codes):
 #
 #   nmg_daemon <cmd> [ <args>... ]
 #
@@ -140,7 +140,7 @@
 #     Checks if program <cmd> is running. If <pidfile> supplied, checks
 #     only pid in file. Removes <pidfile> unless <no-remove-pid> set.
 #
-# Number functions
+# Number Functions
 #
 #   nmg::2dec <retvar> <value>
 #
@@ -157,7 +157,7 @@
 #
 #     Returns 0 if <version> >= <min-required> ('.' format), 1 otherwise.
 #
-# String functions
+# String Functions
 #
 #   nmg::transpose <retvar> <string> <from> <to>
 #
@@ -176,7 +176,7 @@
 #     Compare all items in <alist> with <blist> (items separated by <sep>).
 #     Returns 0 if match, 1 otherwise.  Duplicates are ignored.
 #
-# Array functions
+# Array Functions
 #
 #   nmg::array <retarr> <sep> <sep-string>
 #
@@ -198,7 +198,7 @@
 #     if all values match (any order), else return 1.  Duplicates are
 #     ignored.
 #
-# IP functions
+# IP Functions
 #
 #   nmg::query_ips <retvar> <err-modes> <[4|6][<flag>]>
 #                                  [ <intf> [ <match> [ <ip-args>... ] ] ]
@@ -227,7 +227,7 @@
 #     Performs <cmd> on <addr/plen> on <intf>.
 #     See <err-modes> above for options.
 #
-# IPV4 functions
+# IPV4 Functions
 #
 #   nmg_check_ip4_addr <ip4-addr> [ <private-ok> ]
 #
@@ -257,7 +257,7 @@
 #     Remove <addr/plen> from <intf>. Return 2 if not present
 #     (or other error).
 #
-# IPV6 functions
+# IPV6 Functions
 #
 #   nmg::is_ip6_prefix <prefix>
 #
@@ -324,7 +324,7 @@
 #
 #     Echos result of nmg::create_ip6_addr (without /plen)
 #
-# Miscellaneous functions
+# Miscellaneous Functions
 #
 #   nmg::args_contains <item> <arg1>...
 #
@@ -334,7 +334,7 @@
 #
 #     Signal radvd if it's running (see config below)
 #
-# NetworkManager property functions
+# NetworkManager Property Functions
 #
 #   nmg::prop_get_value <retvar> <props> <name>
 #
@@ -362,7 +362,7 @@
 #     <list> ignoring duplicates and ordering.  Return 0 if values
 #     match, 1 otherwise
 #
-# Configuration settings (set before including this file)
+# Configuration Settings (set before including this file)
 #
 #   NMG_TAG (optional) - tag to use on syslog messages
 #
@@ -372,7 +372,7 @@
 #
 #   NMG_REQUIRED (optional) - minimum required NMG_VERSION
 #
-# Global overrides (put in NMCONF/general.conf):
+# Global Overrides (put in NMCONF/general.conf):
 #
 #   NMG_DAEMON_CGROUP (default NetworkManager's) - control group
 #      to add commands passed to nmg_daemon.  Unset to not set cgroup.
@@ -416,7 +416,7 @@ nmg_show_debug=${nmg_show_debug-}
 #       default (empty): use default logger
 nmg_log_stderr=${nmg_log_stderr-}
 
-########## Default paths
+########## Default Paths
 
 # by default, add daemons to NetworkManager
 NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.procs"
@@ -424,7 +424,7 @@ NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.pro
 # ip in /sbin, so add to PATH (and export it for daemons)
 export PATH="${PATH}:/usr/local/sbin:/usr/sbin:/sbin"
 
-########## Support programs
+########## Support Programs
 
 NMG_LOGGER=${NMG_LOGGER:-logger}
 NMG_PGREP=${NMG_PGREP:-pgrep}
