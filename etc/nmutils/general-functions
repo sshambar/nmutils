@@ -122,8 +122,8 @@
 #
 #   nmg::run <retvar> <err-modes> <cmd> [ <args>... ]
 #
-#     Run <cmd> with <args>, sets <retvar> to any output.
-#     See <err-modes> above for options.
+#     Run <cmd> with <args>, sets <retvar> to any output.  If <retvar>
+#     empty, any output is logged info.  See <err-modes> above for options.
 #
 #   nmg::saferun => nmg::run, ignoring nmg_dryrun
 #
@@ -186,11 +186,13 @@
 #
 #     Set <retvar> to string of <vars> joined by <sep>.
 #
-#    nmg::array_unique <retarr> <name>
+#   nmg::array_copy <retarr> <srcarr>
 #
-#     Set <retarr> array to unique values of array named <name>.
-#     NOTE: values of <name> cannot contain newlines, and
-#     <retarr> must differ from <name>
+#     Copy values from <srcarr> to <retarr> (names must differ)
+#
+#   nmg::array_unique <retarr> <name>
+#
+#     Set <retarr> array to unique values of indexed array <name>.
 #
 #   nmg::array_match_values <name1> <name2>
 #
@@ -269,7 +271,7 @@
 #     and <site>, <site> limited by bits <site-len> exceeds <plen>.
 #     eg: <ip6-prefix>::<site>/<site-len> but handles overlap, etc
 #
-#   nmg::expand_ip6 <retvar> <error-modes> <ip6-prefix[/plen]> [ <fmt> ]
+#   nmg::expand_ip6 <retvar> <err-modes> <ip6-prefix[/plen]> [ <fmt> ]
 #
 #     Assigns <retvar> to the fully expanded format of <ip6-prefix>
 #     (/plen is preserved).  <fmt> is printf pattern for quads ("%x")
@@ -398,7 +400,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.5.9"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.0"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -489,28 +491,18 @@ nmg::_perr() { nmg_err "${FUNCNAME[1]}:" "$@"; }
 nmg::_p2err() { nmg_err "${FUNCNAME[2]}:" "$@"; }
 nmg::_p3err() { nmg_err "${FUNCNAME[3]}:" "$@"; }
 
-# uses _nmglog, _nmgfunc, may set _nmgrc (if ignore), _nmgvar (if retvar)
-# <msg> format: "pkg::func(arg): err-text", _nmgvar="err-text"
-nmg::_err() { # returns 0
-  # <msg>
-  local msg="${1:-nmg::_err: missing <msg>}"
-  local err=1 info='' debug='' setvar='' mode log=1 IFS
-  [[ ${1-} && ${_nmgfunc-} ]] && msg="${_nmgfunc}: $msg"
-  unset IFS
-  for mode in ${_nmglog-}; do
+# uses <err-modes> to determine correct log level (or not to log)
+nmg::_logmsg() { # returns 0
+  # <err-modes> <msg>
+  local msg=${2-} mode err=1 info='' debug='' IFS; unset IFS
+  for mode in ${1-}; do
     case "${mode}" in
-      nmg*) ;; # internal modes
       err) err=1 ;;
       info) info=1 ;;
       debug) debug=1 ;;
-      nolog) log= ;;
-      ignore) [[ ${_nmgrc+x} ]] && _nmgrc=0; log= ;;
-      retvar) setvar=1 ;;
-      *) nmg_err "${msg%%: *}: unknown error mode '${mode}'" ;;
+      nolog|ignore) return 0 ;;
     esac
   done
-  [[ ${setvar} ]] && _nmgvar="${msg#*: }"
-  [[ -z ${log} ]] && return 0
   # select debug > info > err
   if [[ ${debug} ]]; then
     nmg_debug "${msg}"
@@ -522,6 +514,33 @@ nmg::_err() { # returns 0
   return 0
 }
 
+# may use _nmgfunc, may set _nmgrc=0 (if ignore)
+# may set _nmgvar="<msg>" (if retvar)
+nmg::_errmode() { # returns 0
+  # <err-modes> <msg>
+  local msg=${2-} mode IFS; unset IFS
+  for mode in ${1-}; do
+    case ${mode} in
+      nmg*) ;; # internal modes
+      err|info|debug|nolog) ;; # handled in _logmsg
+      ignore) [[ ${_nmgrc+x} ]] && _nmgrc=0 ;;
+      retvar) _nmgvar="${msg}" ;;
+      *) nmg_err "${_nmgfunc:+${_nmgfunc}: }unknown error mode '${mode}'" ;;
+    esac
+  done
+  return 0
+}
+
+# calls nmg::_errmode, then nmg::_logerr "<_nmgfunc>: <msg>"
+nmg::_err() { # returns 0
+  # <msg>
+  local msg=${1-}
+  [[ ${msg} ]] || msg="empty <msg> to nmg::_perr"
+  nmg::_errmode "${_nmglog-}" "${msg}"
+  [[ ${_nmgfunc-} ]] && msg="${_nmgfunc}: ${msg}"
+  nmg::_logmsg "${_nmglog-}" "${msg}"
+}
+
 nmg::_reqarg() {
   # <value> <arg-name>
   [[ $1 ]] && return 0
@@ -529,11 +548,10 @@ nmg::_reqarg() {
   return 3
 }
 
-nmg::_vname() {
-  # <var-name> <arg-name>
-  [[ $1 =~ ^[_[:alpha:]][_[:alnum:]]*$ ]] && return 0
-  nmg::_p2err "invalid <$2> '$1' "
-  return 3
+nmg::_varset() {
+  # <var-name>
+  declare &>/dev/null -p "$1" && eval "(( \${#$1[*]} > 0 ))" && return 0
+  return 1
 }
 
 nmg::require_version() { # <version> >= <min-required>
@@ -635,6 +653,7 @@ nmg_daemon() {
   return 0
 }
 
+# see nmg::_err for variable use
 nmg::_clearvar() {
   # <retvar> <err-modes> [ <call-depth>(1) ]
   local _nmglog=$2 _nmgfunc=${_nmgfunc:-${FUNCNAME[${3:-1}]}}
@@ -668,8 +687,9 @@ nmg::_wrap() { # returns 0
   return 0
 }
 
+# calls nmg::<func> <func-args> isolating _nmg* variables from caller
 nmg::_mock() { # internal callers for _wrap funcs
-  # <retvar> <err-modes> nmg::<func> <func-args>...
+  # <retvar> <err-modes> <func> <func-args>...
   local _nmgrc=1 _nmgvar='' _nmgret=$1 _nmglog=$2 _nmgwhat=$3
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}}
   shift 3
@@ -681,22 +701,31 @@ nmg::_mock() { # internal callers for _wrap funcs
 nmg::_cleararr() {
   # <retvar> <err-modes>
   nmg::_clearvar "$1" "$2" 2 || return
-  [[ $1 ]] && { read 2>/dev/null -r -a "$1" || :; } </dev/null
+  # clear array, but retain type; $1 cleared as varname in _clearvar
+  [[ $1 ]] && eval "$1=()"
   return 0
 }
 
 # generic array wrapper, calls "_{CALLER}", sets <retvar> as array
-# wrapped func: use _nmglog, may set _nmgrc/_nmgvar
+# wrapped func: use _nmglog, may set _nmgrc/_nmgarr (_nmgvar on error)
 nmg::_awrap() { # returns 0
   # <retvar> <err-modes> <func-args>...
-  local _nmgvar='' _nmgret=${1-} _nmglog=${2-}
+  local _nmgarr=() _nmgret=${1-} _nmglog=${2-} _nmgvar=''
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}} IFS
   unset IFS; shift 2 || set --
-  nmg::_cleararr "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return 0; }
-  # call _${CALLER} to avoid retvar name masking
-  "nmg::_${FUNCNAME[1]##*::}" "$@"
-  IFS=$'\n'
-  [[ ${_nmgret} ]] && { read -r -a "${_nmgret}" -d '' || :; } <<< "${_nmgvar}"
+  if nmg::_cleararr "${_nmgret}" "${_nmglog}"; then
+    # call _${CALLER} to avoid retvar name masking
+    "nmg::_${FUNCNAME[1]##*::}" "$@"
+  else
+    _nmgrc=$?
+    # if <retvar> invalid, clear it
+    (( _nmgrc == 3 )) && _nmgret=''
+  fi
+  [[ ${_nmgret} ]] && {
+    # return any error in _nmgvar if requested
+    [[ ${_nmgvar} && ${_nmglog} =~ retvar ]] && _nmgarr=("${_nmgvar}")
+    nmg::array_copy "${_nmgret}" _nmgarr || :
+  }
   return 0
 }
 
@@ -726,11 +755,8 @@ nmg::_run() { # returns 0
     _nmgfunc=''
     nmg::_err "FAIL(${_nmgrc}) ${cmd}${*:+ $*}${out:+ => ${out}}"
   elif [[ ${out} ]]; then
-    local lvl=info
-    if [[ ${_nmglog/nmgout} != "${_nmglog}" ]]; then
-      [[ ${_nmglog/debug} != "${_nmglog}" ]] && lvl=debug
-      nmg_log "${lvl}" "${cmd} => ${out}"
-    fi
+    # if no _nmgret, then log output (as would be lost)
+    [[ ${_nmgret} ]] || nmg::_logmsg "${_nmglog} info" "${cmd} => ${out}"
     _nmgvar=${out}
   fi
 
@@ -747,11 +773,11 @@ nmg::saferun() {
 }
 
 nmg_cmd() {
-  nmg::run "" nmgout "$@" || return
+  nmg::run "" "" "$@" || return
 }
 
 nmg_qcmd() {
-  nmg::run "" "nmgout debug" "$@" || return
+  nmg::run "" "debug" "$@" || return
 }
 
 nmg_write() {
@@ -871,13 +897,13 @@ nmg_is_running() {
 # called from nmg::_query_ips
 nmg::_query_ips_append() {
   [[ ${addr} && ${valid} && ${pref} ]] || return 0
-  _nmgvar+=${addr}
+  local val=${addr}
   if [[ ${flag} == p ]]; then
-    [[ ${#flags[*]} != 0 ]] && _nmgvar+=" ${flags[*]}"
+    [[ ${#flags[*]} != 0 ]] && val+=" ${flags[*]}"
   elif [[ ${flag} != a ]]; then
-    _nmgvar+=" ${valid} ${pref}"
+    val+=" ${valid} ${pref}"
   fi
-  _nmgvar+=$'\n'
+  _nmgarr+=("${val}")
 }
 
 # called from nmg::_awrap
@@ -902,11 +928,11 @@ nmg::_query_ips() { # returns 0
   # ensure we have consistent order/error lang
   local -x LC_LANG=C
   # convert ignore->nolog, so we can catch failure
-  nmg::saferun out "${_nmglog//ignore/nolog}" "$NMG_IP" ${vers:+"-${vers}"} \
-               addr show "${args[@]-}" || {
-    _nmgrc=$? _nmgvar=${out}
+  nmg::saferun out "${_nmglog//ignore/nolog} retvar" \
+               "$NMG_IP" ${vers:+"-${vers}"} addr show "${args[@]-}" || {
+    _nmgrc=$?
     [[ ${out} =~ "does not exist" ]] && _nmgrc=2
-    [[ ${_nmglog//ignore} != "${_nmglog}" ]] && _nmgrc=0
+    nmg::_errmode "${_nmglog}" "${out}"
     return 0
   }
 
@@ -964,7 +990,7 @@ nmg::_query_ips() { # returns 0
   done
 
   nmg::_query_ips_append
-  [[ ${_nmgvar} || -z ${pat} ]] || {
+  [[ ${#_nmgarr[*]} != 0 || -z ${pat} ]] || {
     _nmgrc=2; _nmglog+=" debug"; nmg::_err "none found"; }
   return 0
 }
@@ -1061,24 +1087,24 @@ nmg::__mod_ip() {
     nmg_info "Removing ${addr} from ${intf}"
   fi
 
-  _nmgvar+="-${v}"$'\n'"addr"$'\n'"${cmd}"$'\n'"${addr}"$'\n'
-  _nmgvar+="dev"$'\n'"${intf}"$'\n'
+  _nmgarr+=("-${v}" "addr" "${cmd}" "${addr}")
+  _nmgarr+=("dev" "${intf}")
   # handle both multi-word or multi-arg ip-args
   # shellcheck disable=SC2048
-  for arg in $*; do _nmgvar+="${arg}"$'\n'; done
+  for arg in $*; do _nmgarr+=("${arg}"); done
   _nmgrc=0
 }
 
 nmg::_mod_ip() {
-  local _nmgargs _nmgret=${1-} _nmglog=${2-} _nmgvar=''
+  local _nmgargs=() _nmgret=${1-} _nmglog=${2-} _nmgvar=''
   local _nmgfunc=${_nmgfunc:-${FUNCNAME[1]}}
   shift 2 || set --
   nmg::_clearvar "${_nmgret}" "${_nmglog}" || { _nmgrc=$?; return 0; }
   # get ip args, convert ignore->nolog to catch errors
-  nmg::_awrap _nmgargs "${_nmglog//ignore/nolog}" "$@"
+  nmg::_awrap _nmgargs "${_nmglog//ignore/nolog} retvar" "$@"
   if [[ ${_nmgrc} != 0 ]]; then
-    [[ ${_nmglog//ignore} != "${_nmglog}" && ${_nmgrc} != 3 ]] && _nmgrc=0
-    [[ ${_nmgret} ]] && printf -v "${_nmgret}" %s "${_nmgargs-}"
+    nmg::_errmode "${_nmglog}" "${_nmgargs-}"
+    [[ ${_nmgret} ]] && printf -v "${_nmgret}" %s "${_nmgvar}"
   else
     # now actually run the command
     nmg::run "${_nmgret}" "${_nmglog}" "$NMG_IP" "${_nmgargs[@]}" || _nmgrc=$?
@@ -1092,17 +1118,17 @@ nmg::mod_ip() {
 
 nmg_add_ip4_addr() {
   # <intf> <addr/plen> [ <ip-args>... ]
-  local _nmgrc=3; nmg::_mod_ip "" nmgout add4 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" add4 "$@"; return ${_nmgrc}
 }
 
 nmg_change_ip4_addr() {
   # <intf> <addr/plen> <ip-args>...
-  local _nmgrc=3; nmg::_mod_ip "" nmgout change4 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" change4 "$@"; return ${_nmgrc}
 }
 
 nmg_del_ip4_addr() {
   # <intf> <addr/plen>
-  local _nmgrc=3; nmg::_mod_ip "" nmgout del4 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" del4 "$@"; return ${_nmgrc}
 }
 
 nmg_check_ip4_addr() {
@@ -1223,6 +1249,23 @@ nmg::array_join() {
   printf -v "${_nmgret}" %s "$*" || return
 }
 
+nmg::array_copy() {
+  # <retarr> <srcarr>
+  # shellcheck disable=SC2034
+  local _i
+  nmg::_cleararr "${1-}" nmgret || return
+  nmg::_reqarg "${2-}" "srcarr" || return
+  [[ $1 == "$2" ]] && {
+    nmg::_perr "<retarr> and <srcarr> must differ"; return 3; }
+  declare &>/dev/null -p "$2" || {
+    nmg::_perr "<srcarr> '$2' is unset"; return 3; }
+  # this copies both indexed and assoc arrays
+  eval "for _i in \${$2[*]+\"\${!$2[@]}\"}; do
+    $1[\"\${_i}\"]=\"\${$2[\"\${_i}\"]}\"
+    done"
+  return 0
+}
+
 nmg::array() {
   # <retarr> <sep> <sep-string>
   nmg::_cleararr "${1-}" nmgret || return
@@ -1231,7 +1274,7 @@ nmg::array() {
   if [[ ${2-} == $'\n' ]]; then
     { read -r -a "$1" -d '' || :; } <<< "$3"
   else
-    read -r -a "$1" <<< "$3"
+    { read -r -a "$1" || :; } <<< "$3"
   fi
   return 0
 }
@@ -1247,18 +1290,19 @@ nmg::args_contains() {
 
 nmg::array_unique() {
   # <retarr> <name>
-  nmg::_cleararr "${1-}" nmgret || return
+  local _nmgb=()
+  nmg::_reqarg "${1-}" "retarr" || return
   nmg::_reqarg "${2-}" "name" || return
-  nmg::_vname "$2" "name" || return
-  local _nmgv="$2[@]"
-  [[ ${!_nmgv+x} ]] || return 0
-  local _nmga=(${!_nmgv+"${!_nmgv-}"}) _nmgb=()
-  for _nmgv in ${_nmga[@]+"${_nmga[@]}"}; do
-    nmg::args_contains "${_nmgv}" ${_nmgb[@]+"${_nmgb[@]}"} ||
-      _nmgb+=("${_nmgv}")
-  done
-  local IFS=$'\n'
-  { read -r -a "$1" -d '' || :; } <<< "${_nmgb[*]}"
+  if nmg::_varset "$2"; then
+    local _nmgv="$2[@]"
+    local _nmga=("${!_nmgv-}")
+    for _nmgv in "${_nmga[@]}"; do
+      nmg::args_contains "${_nmgv}" ${_nmgb[@]+"${_nmgb[@]}"} ||
+        _nmgb+=("${_nmgv}")
+    done
+  fi
+  nmg::_cleararr "$1" nmgret || return
+  nmg::array_copy "$1" _nmgb || return
   return 0
 }
 
@@ -1266,18 +1310,21 @@ nmg::array_match_values() {
   # <name_a> <name_b>
   nmg::_reqarg "${1-}" "name1" || return
   nmg::_reqarg "${2-}" "name2" || return
-  nmg::_vname "$1" "name1" || return
-  nmg::_vname "$2" "name2" || return
+  nmg::_varset "$1" || {
+    nmg::_varset "$2" && return 1
+    # both unset
+    return 0
+  }
+  nmg::_varset "$2" || return 1
   local _nmgx="$1[@]" _nmgy="$2[@]"
   # shellcheck disable=SC2034
-  local aa=(${!_nmgx+"${!_nmgx-}"}) ba=(${!_nmgy+"${!_nmgy-}"})
-  local ax=() bx=() av
-  nmg::array_unique ax aa
-  nmg::array_unique bx ba
-  (( ${#ax[*]} == ${#bx[*]} )) || return
-  (( ${#ax[*]} == 0 )) && return 0
-  for av in "${ax[@]}"; do
-    nmg::args_contains "${av}" "${bx[@]}" || return
+  local aa=("${!_nmgx-}") ba=("${!_nmgy-}") av
+  nmg::array_unique aa aa
+  nmg::array_unique ba ba
+  (( ${#aa[*]} == ${#ba[*]} )) || return
+  (( ${#aa[*]} == 0 )) && return 0
+  for av in "${aa[@]}"; do
+    nmg::args_contains "${av}" "${ba[@]}" || return
   done
   return 0
 }
@@ -1440,17 +1487,17 @@ nmg_find_ip6_addrs() {
 
 nmg_add_ip6_addr() {
   # <intf> <addr/plen> [<ip-arg>...]
-  local _nmgrc=3; nmg::_mod_ip "" nmgout add6 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" add6 "$@"; return ${_nmgrc}
 }
 
 nmg_change_ip6_addr() {
   # <intf> <addr/plen> <ip-arg>...
-  local _nmgrc=3; nmg::_mod_ip "" nmgout change6 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" change6 "$@"; return ${_nmgrc}
 }
 
 nmg_del_ip6_addr() {
   # <intf> <addr/plen>
-  local _nmgrc=3; nmg::_mod_ip "" nmgout del6 "$@"; return ${_nmgrc}
+  local _nmgrc=3; nmg::_mod_ip "" "" del6 "$@"; return ${_nmgrc}
 }
 
 # called from nmg::_wrap

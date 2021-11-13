@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.5.9"
+NMG_REQUIRED="1.6.0"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -100,7 +100,7 @@ xtest::group1::log() {
 }
 
 xtest::group2::err() {
-  local out _nmgrc=0 _nmglog='' _nmgvar=''
+  local out _nmgrc=0 _nmglog='' _nmgvar='' _nmgfunc=''
 
   shtest::title "nmg::_err Tests (err group)"
 
@@ -134,12 +134,12 @@ xtest::group2::err() {
 
   xwrap2 "<no args>" nmg::_err
   xtest E5 t "returns true"
-  ftest E5f "ERR: nmg::_err: missing <msg>" "logs error"
+  ftest E5f "ERR: empty <msg> to nmg::_perr" "logs error"
 
   # test calling with invalid err-mode
-  _nmgrc=1 _nmglog=xbad
+  _nmgrc=1 _nmglog=xbad _nmgfunc="test::func"
 
-  xwrap2 "<bad errmode>" nmg::_err "test::func: err msg"
+  xwrap2 "<bad errmode>" nmg::_err "err msg"
   xtest E6 t "returns true"
   xread_value out <<- EOF
 	ERR: test::func: unknown error mode 'xbad'
@@ -151,14 +151,14 @@ xtest::group2::err() {
   unset _nmgvar
   _nmglog=retvar
 
-  xwrap2 "retvar <_nmgvar unset>" nmg::_err "test::func: err msg"
+  xwrap2 "retvar <_nmgvar unset>" nmg::_err "err msg"
   xtest E7 t "returns true"
   ftest E7f "ERR: test::func: err msg" "logs error"
 
   # test calling with info log
   _nmglog=info
 
-  xwrap2 "<_nmglog=info>" nmg::_err "test::func: err msg"
+  xwrap2 "<_nmglog=info>" nmg::_err "err msg"
   xtest E8 t "returns true"
   ftest E8f "test::func: err msg" "should log info"
 
@@ -166,7 +166,7 @@ xtest::group2::err() {
   local nmg_show_debug=1
   _nmglog="err debug"
 
-  xwrap2 "debug" nmg::_err "test::func: err msg"
+  xwrap2 "debug" nmg::_err "err msg"
   xtest E9 t "returns true"
   ftest E9f "DBG: test::func: err msg" "logs debug msg"
   unset nmg_show_debug
@@ -174,8 +174,8 @@ xtest::group2::err() {
   # test retvar
   _nmgvar='' _nmglog="nolog retvar"
 
-  xwrap2 "nolog retvar" nmg::_err \
-	 "test::func: err msg"; echo >"${XLOG}" "_=${_nmgvar-unset}"
+  xwrap2 "nolog retvar" nmg::_err "err msg"
+  echo >"${XLOG}" "_=${_nmgvar-unset}"
   xtest E10 t "returns true"
   ftest E10f "_=err msg" "does not log, sets _nmgvar"
 }
@@ -457,7 +457,7 @@ xtest::group3::ip() {
   avar=("bogus")
 
   xwrap2 "4 ethx" nmg::query_ips avar "" 4 "ethx"
-  xtest I3 1 "returns 1"
+  xtest I3 2 "returns 2"
   atest I3a avar anull "clears avar"
   ftest I3f "ERR: FAIL(1) $NMG_IP -4 addr show dev ethx scope global\
  => Device \"ethx\" does not exist." \
@@ -1329,6 +1329,56 @@ xtest::group4::array() {
 
   shtest::title "Array Tests (array group)"
 
+  xwrap2 "<no args>" nmg::array_copy
+  xtest AC1 3 "returns 3"
+  ftest AC1f "ERR: nmg::array_copy: missing <retvar>" "logs error"
+
+  xwrap2 "<bad dest>" nmg::array_copy bad#name
+  xtest AC2 3 "returns 3"
+  ftest AC2f "ERR: nmg::array_copy: invalid <retvar> 'bad#name'"
+
+  xwrap2 "<no src>" nmg::array_copy avar
+  xtest AC3 3 "returns 3"
+  ftest AC3f "ERR: nmg::array_copy: missing <srcarr>" "logs error"
+
+  xwrap2 "<bad src>" nmg::array_copy avar bad#name
+  xtest AC4 3 "returns 3"
+  ftest AC4f "ERR: nmg::array_copy: <srcarr> 'bad#name' is unset" \
+	"logs error"
+
+  xwrap2 "<same names>" nmg::array_copy avar avar
+  xtest AC5 3 "returns 3"
+  ftest AC5f "ERR: nmg::array_copy: <retarr> and <srcarr> must differ" \
+	"logs error"
+
+  avar=("bogus") aref=()
+
+  xwrap2 "<empty>" nmg::array_copy avar aref
+  xtest AC6 t "returns true"
+  ftest AC6f "" "no log"
+  atest AC6a avar aref "sets avar empty"
+
+  avar=("bogus") aref=("a" "b"$'\n'"c" "e 'q';exit")
+
+  xwrap2 "<idx array>" nmg::array_copy avar aref
+  xtest AC7 t "returns true"
+  ftest AC7f "" "no log"
+  atest AC7a avar aref "sets avar to aref"
+
+  if (( BASH_VERSINFO[0] >= 4 )); then
+    # test assoc array
+    declare -A avar2=([a]=bogus)
+    # shellcheck disable=SC2016
+    declare -A aref2=([first]='multi word' ['2nd item']='"with"!;exit"' \
+			    ['special$aref']='"and $var("' )
+    xwrap2 "<assoc array>" nmg::array_copy avar2 aref2
+    xtest AC8 t "returns true"
+    ftest AC8f "" "no log"
+    atest AC8a avar2 aref2 "sets avar to aref"
+  fi
+
+  avar=() aref=()
+
   xwrap2 "<no retarr>" nmg::array
   xtest A1 3 "returns 3"
   ftest A1f "ERR: nmg::array: missing <retvar>" "logs error"
@@ -1339,7 +1389,8 @@ xtest::group4::array() {
   xtest A2 t "returns true"
   atest A2v avar aref "clears <retarr>"
 
-  avar=("bogus") aref=("first")
+  aref=("first")
+  unset avar
 
   xwrap2 "1 val" nmg::array avar "," "first"
   xtest A3 t "returns true"
@@ -1359,15 +1410,15 @@ xtest::group4::array() {
 
   xwrap2 "<no args>" nmg::array_unique
   xtest A11 3 "returns 3"
-  ftest A11f "ERR: nmg::array_unique: missing <retvar>" "logs error"
+  ftest A11f "ERR: nmg::array_unique: missing <retarr>" "logs error"
 
   xwrap2 "<no name>" nmg::array_unique avar
   xtest A12 3 "returns 3"
   ftest A12f "ERR: nmg::array_unique: missing <name>" "logs error"
 
   xwrap2 "<bad name>" nmg::array_unique avar "bad#name"
-  xtest A13 3 "returns 3"
-  ftest A13f "ERR: nmg::array_unique: invalid <name> 'bad#name'" "logs error"
+  xtest A13 t "returns true"
+  ftest A13f "" "does not log"
 
   avar=("bogus") aref=("first" "second" "first")
 
@@ -1382,12 +1433,28 @@ xtest::group4::array() {
   xtest A15 t "returns true"
   atest A15a avar aref "clears <retarr>"
 
-  avar=() aref=("a" "b" "c" "a" "b")
-
-  xwrap2 "<ret>=<src>" nmg::array_unique avar aref
+  avar=("a" "b" "c" "a" "b")
+  xwrap2 "<src>=<src>" nmg::array_unique avar avar
   xtest A16 t "returns true"
   aref=("a" "b" "c")
   atest A16a avar aref "removes dups to same name array"
+
+  avar=("a"$'\n'"b" "c" "d"$'\n' "a"$'\n'"b" "c")
+  xwrap2 "<newline in vals>" nmg::array_unique avar avar
+  xtest A17 t "returns true"
+  aref=("a"$'\n'"b" "c" "d"$'\n')
+  atest A17a avar aref "removes dups"
+
+  if (( BASH_VERSINFO[0] >= 4 )); then
+    # shellcheck disable=SC2016
+    declare -A avar2=([first]='multi word' ['2nd item']='multi word' \
+			     ['special$aref']='"and $var("' )
+    # shellcheck disable=SC2016
+    declare -A aref2=([1]='multi word' [0]='"and $var("' )
+    xwrap2 "<assoc array>" nmg::array_unique avar2 avar2
+    xtest A18 t "returns true"
+    atest A18a avar2 aref2 "removes dups"
+  fi
 
   xwrap2 "<no args>" nmg::array_join
   xtest A21 3 "returns 3"
@@ -1453,15 +1520,14 @@ xtest::group4::array() {
 
   xwrap2 "<bad name> <unset name>" nmg::array_match_values "bad#name" \
 	 "unset_name"
-  xtest A52 3 "returns 3"
-  ftest A52f "ERR: nmg::array_match_values: invalid <name1> 'bad#name'" \
-        "logs error"
+  xtest A52 t "returns true"
+  ftest A52f "" "does not log"
 
   xwrap2 "<unset name> <bad name>" nmg::array_match_values "unset_name" \
 	 "bad#name"
-  xtest A53 3 "returns 3"
-  ftest A53f "ERR: nmg::array_match_values: invalid <name2> 'bad#name'" \
-        "logs error"
+  xtest A53 t "returns true"
+  ftest A53f "" "does not log"
+
 }
 
 xtest::group4::config() {

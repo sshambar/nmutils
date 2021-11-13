@@ -1,7 +1,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.4.1 - Shell script testing functions
+# shtest v1.5.1 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021 Scott Shambarger
@@ -266,9 +266,9 @@ shtest::_init_globals() {
   # internal state
   # 0 - COUNT, 1 - FAILED, 2 - STRICT, 3 - VERBOSE, 4 - NEXT_EXITTRAP,
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK, 8 - MUTE, 9 - TOP_SUBSHELL
-  # 10 - LOGFD, 11 - MULTI_TEST, 12 - ONEXIT_SUBSHELL
+  # 10 - LOGFD, 11 - MULTI_TEST, 12 - ONEXIT_SUBSHELL, 13-DIFF
   _SHTEST_STATE=(0 0)
-  for (( i=2; i<=12; i++ )); do _SHTEST_STATE[${i}]=''; done
+  for (( i=2; i<=13; i++ )); do _SHTEST_STATE[${i}]=''; done
   _SHTEST_REG_FILES=() _SHTEST_FOCUS=() _SHTEST_FAILED=()
   _SHTEST_ONEXIT=() _SHTEST_TESTLIST=()
 
@@ -279,6 +279,8 @@ shtest::_init_globals() {
   _SHTEST_STATE[9]=${BASH_SUBSHELL}
   # save onexit subshell
   _SHTEST_STATE[12]=${BASH_SUBSHELL}
+  local PATH=/bin:/usr/bin:/usr/local/bin
+  _SHTEST_STATE[13]=$(command -p -v diff)
 }
 
 # returns 1 if strict mode failed
@@ -300,7 +302,7 @@ shtest::reset_state() {
 shtest::_log() { # <msg>
   # focus mutes _log too
   [[ ${_SHTEST_STATE[8]} == 1 ]] && return 0
-  printf >&"${_SHTEST_STATE[10]:-88}" "%s\n" "$*"
+  printf >&"${_SHTEST_STATE[10]:-88}" "%s\n" "${1-}"
 }
 
 shtest::_checkinit() { # [ <backtrace-level>(1) ]
@@ -318,7 +320,7 @@ shtest::_checkinit() { # [ <backtrace-level>(1) ]
 shtest::log() { # <msg>
   shtest::_checkinit 0
   [[ ${_SHTEST_STATE[8]} ]] && return 0
-  shtest::_log "$*"
+  shtest::_log "${1-}"
 }
 
 shtest::_fmtlog() { # <format> <args>
@@ -408,14 +410,24 @@ shtest::strict_failed() {
   return 1
 }
 
-shtest::_log_fail() { # <id> <description> [ <reason> | <expect> <found> ]
+shtest::_log_fail() {
+  # <id> <description> <reason>
+  # <id> <description> <expect> <found> [ <no-quote> ]
   local id=${1-} desc="${2:+ | ${_SHTEST_STATE[5]}}${2:-}"
   shtest::_fmtlog " %-4s FAIL%s" "${id}" "${desc}"
   if [[ ${3+set} && ${4+set} ]]; then
-    shtest::log "      expected: ${3-}"
-    shtest::log "         found: ${4-}"
+    if [[ ( $3 =~ $'\n' || $4 =~ $'\n' ) && ${_SHTEST_STATE[13]} ]]; then
+      shtest::log "diff: <expected> <found>"
+      shtest::log "$("${_SHTEST_STATE[13]}" <(echo "$3") <(echo "$4") || :)"
+    elif [[ ${5-} ]]; then
+      shtest::log "    expected: ${3-}"
+      shtest::log "       found: ${4-}"
+    else
+      shtest::log "    expected: '${3-}'"
+      shtest::log "       found: '${4-}'"
+    fi
   elif [[ ${3+set} ]]; then
-    shtest::log "        reason: ${3-}"
+    shtest::log "      reason: ${3-}"
   fi
   ((_SHTEST_STATE[1]++)) || :
   [[ ${_SHTEST_STATE[11]} ]] || {
@@ -429,7 +441,7 @@ shtest::title() { # <title>
   shtest::_checkinit
   _SHTEST_STATE[5]=''
   shtest::_reset_state || :
-  [[ $* ]] && shtest::log $'\n'"===== $* ====="$'\n'
+  [[ ${1-} ]] && shtest::log $'\n'"===== $1 ====="$'\n'
 }
 
 shtest::prefix() { # <description-prefix>
@@ -468,11 +480,11 @@ shtest::check_result() { # <id> <ref> [ <desc> ] - OK if <ref> == $?, else FAIL
   if [[ ${ref} == "${rc}" ]]; then
     shtest::_log_ok "${id}" "${desc}"
   elif [[ ${ref} == t ]]; then
-    shtest::_log_fail "${id}" "${desc}" "<true>" "<false>(${orc})"
+    shtest::_log_fail "${id}" "${desc}" "<true>" "<false>(${orc})" 1
   elif [[ ${ref} == f ]]; then
-    shtest::_log_fail "${id}" "${desc}" "<false>" "<true>"
+    shtest::_log_fail "${id}" "${desc}" "<false>" "<true>" 1
   else
-    shtest::_log_fail "${id}" "${desc}" "${ref}" "${rc}"
+    shtest::_log_fail "${id}" "${desc}" "${ref}" "${rc}" 1
   fi
   return 0
 }
@@ -489,14 +501,12 @@ shtest::check_value() { # <id> <varname> [ <ref> [ <desc> ] ]
 
   shtest::_check_entry "${id}" "${desc}" || return 0
 
-  if [[ ${varname//[a-zA-Z0-9_]/} ]]; then
-    shtest::_log_fail "${id}" "${desc}" "invalid <varname> '${varname}'"
-  elif [[ ${!varname+set} != set ]]; then
-    shtest::_log_fail "${id}" "${desc}" "<varname> '${varname}' is not set"
+  if ! declare &>/dev/null -p "${varname}" || [[ -z ${!varname+x} ]]; then
+    shtest::_log_fail "${id}" "${desc}" "<varname> '${varname}' is unset"
   elif [[ ${ref} == "${!varname}" ]]; then
     shtest::_log_ok "${id}" "${desc}"
   else
-    shtest::_log_fail "${id}" "${desc}" "\"${ref}\"" "\"${!varname}\""
+    shtest::_log_fail "${id}" "${desc}" "${ref}" "${!varname}"
   fi
   return 0
 }
@@ -508,46 +518,48 @@ shtest::check_var() { # <id> [ <ref> [ <desc> ] ]
 }
 
 shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
-  local id=${1-} an=${2-} rn=${3-} desc=${4-} alist rlist irn ian i IFS
-  unset IFS
-  if ! [[ ${id} && ${an} && ${rn} ]]; then
+  local _i _j _vn=() _rn=() _va=() _ra=() IFS=$'\n'
+  if ! [[ ${1-} && ${2-} && ${3-} ]]; then
     shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 1
   fi
-  # check valid variable names
-  if [[ ${an//[a-zA-Z0-9_]/} || ${rn//[a-zA-Z0-9_]/} ]]; then
-    shtest::fatal "shtest::check_array var-names must contain only 'a-zA-Z0-9_'" 1
-  fi
-  shtest::_check_entry "${id}" "${desc}" || return 0
+  shtest::_check_entry "$1" "${4-}" || return 0
 
-  # get list of set items (bash3+ compat)
-  eval rlist="\${!${rn}[*]}" alist="\${!${an}[*]}"
-  [[ ${rlist} == "${alist}" ]] || {
-    shtest::_log_fail "${id}" "${desc}" "set items in ${an} (${alist}) differ from ${rn} (${rlist})"
+  # fetch array indexes
+  declare &>/dev/null -p "$2" && eval "(( \${#$2[*]} > 0 ))" &&
+    eval "for _i in \${$2[*]+\"\${!$2[@]}\"}; do _vn+=(\"\${_i}\"); done"
+  declare &>/dev/null -p "$3" && eval "(( \${#$3[*]} > 0 ))" &&
+    eval "for _i in \${$3[*]+\"\${!$3[@]}\"}; do _rn+=(\"\${_i}\"); done"
+
+  for _i in ${_vn[*]+"${_vn[@]}"}; do
+    _j=${_i//$'\n'/\$\'\\n\'}
+    eval "_va+=(\"[\${_j}]='\${$2[\"\${_i}\"]}'\")"
+  done
+  for _i in ${_rn[*]+"${_rn[@]}"}; do
+    # shellcheck disable=SC2034
+    _j=${_i//$'\n'/\$\'\\n\'}
+    eval "_ra+=(\"[\${_j}]='\${$3[\"\${_i}\"]}'\")"
+  done
+  # quote lhs as _va values may have newlines (bash3 breaks)
+  [[ "${_va[*]-}" != "${_ra[*]-}" ]] && {
+    shtest::_log_fail "$1" "${4-}" "${_ra[*]-}" "${_va[*]-}"
     return 0
   }
-  for i in ${rlist}; do
-    irn=${rn}[${i}] ian=${an}[${i}]
-    [[ ${!irn} != "${!ian}" ]] && {
-      shtest::_log_fail "${id}" "${desc}" "${rn}[$i]=\"${!irn}\"" \
-                        "${an}[$i]=\"${!ian}\""
-      return 0
-    }
-  done
-  shtest::_log_ok "${id}" "${desc}"
+  shtest::_log_ok "$1" "${4-}"
   return 0
 }
 
 shtest::_check_file() { # <id> <filename> <contents> <desc>, sets $rc
-  local id=$1 file=$2 ref=$3 desc=$4 out IFS
+  local id=$1 file=$2 ref=$3 desc=$4 out IFS=''
   rc=1 # failure unless we match content
   if ! [[ -f ${file} ]]; then
     shtest::_log_fail "${id}" "${desc}" "File \"${file}\" not found"
   elif ! [[ -r "${file}" ]]; then
     shtest::_log_fail "${id}" "${desc}" "File \"${file}\" unreadable"
   else
-    unset out IFS
+    unset out
     { read -r -d '' out || :; } 2>/dev/null < "${file}"
     if [[ ${out+set} == set ]]; then
+      out=${out%$'\n'} # strip trailing newline
       if [[ ${out} == "${ref}" ]]; then
         rc=0
       else
