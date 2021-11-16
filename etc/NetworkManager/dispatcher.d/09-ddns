@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 09-ddns v1.2.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-ddns v1.3.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -136,7 +136,7 @@ ddns_helper_action() {
 
 function ddns_interface_rrec() {
   # <match> <rrec>
-  local match=$1 rrec=$2 ipver='' value='' rc=0
+  local match=$1 rrec=$2 value='' rc=0
 
   # get state file pattern (used for per-config overrides)
   local state=${NMDDNS_STATE_PAT/@MATCH@-@RREC@/${match}-${rrec}}
@@ -151,10 +151,6 @@ function ddns_interface_rrec() {
 
     if [[ ${value} ]]; then
       # if ip-addresses, verify on interface
-      case ${rrec} in
-        A) ipver=4 ;;
-        AAAA) ipver=6 ;;
-      esac
       if [[ ${rrec} =~ ^A|AAAA$ && ! ${value} =~ ^[!].+$ ]]; then
         # get values that are valid on <intf>, remove addrs if down
         local avail=() avals=() newvals=() tval
