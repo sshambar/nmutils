@@ -1081,15 +1081,11 @@ xtest::onexit::wan_ddns() {
   file=${file/@WAN@/eth0}
   xrm "${file/@ID@/1a1a}"
   xrm "${file/@ID@/2b2b}"
-
-  file="${WAN_DDNS_STATE_PAT%-dhc}-dhc"
-  file=${file/@WAN@/eth0}
-  xrm "${file/@RREC@/AAAA}"
 }
 
 xtest::group3::wan_ddns() {
 
-  local out state1 state2 dstate1 interface=eth0
+  local out state1 state2 interface=eth0
   local CONNECTION_UUID=''
 
   shtest::title "WAN Address DDNS Tests (wan_ddns group)"
@@ -1102,48 +1098,52 @@ xtest::group3::wan_ddns() {
   state1=${state1/@ID@/1a1a}
   xrm "$state1"
 
-  local WAN_DDNS_STATE_PAT="${WAN_DDNS_STATE_PAT}-dhc"
-  dstate1=${WAN_DDNS_STATE_PAT/@WAN@/${interface}}
-  dstate1=${dstate1/@RREC@/AAAA}
-  xrm "$dstate1"
-
   local new_ip6_address='2001:db8:871a:28c1::1' new_ip6_prefixlen=64 new_iaid='1a:1a'
   local -x NMCLI_MOCK_FORCE_ipv6_method="manual"
   local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64"
+  local -x IP_MOCK_OUTPUT
+  xread_value IP_MOCK_OUTPUT <<-EOF
+	inet6 2001:db8:871a:28c1::1/64 scope global
+	valid_lft forever preferred_lft forever
+	EOF
 
   xwrap2 "<exiting addr>" ipv6_addr_bind
   xtest D1 t "returns true"
   xread_value out <<-EOF
-	Setting www.example.test AAAA to 2001:db8:871a:28c1::1
+	Setting eth0.example.test AAAA to 2001:db8:871a:28c1::1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete www.example.test AAAA
-	update add www.example.test 600 AAAA 2001:db8:871a:28c1::1
+	update delete eth0.example.test AAAA
+	update add eth0.example.test 600 AAAA 2001:db8:871a:28c1::1
 	send
 	EOF
   ftest D1f "$out" "adds DNS"
   shtest::check_file D1y "$state1" "inet6:2001:db8:871a:28c1::1/64" \
                      "creates state file"
-  shtest::check_file D1d "$dstate1" "2001:db8:871a:28c1::1" \
-                     "creates dns state file"
 
   local new_ip6_address='2001:db8:4860:4860::8888'
   local new_ip6_prefixlen=64 new_iaid='2b:2b'
   local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64,\
  2001:db8:4860:4860::8888/64"
+  xread_value IP_MOCK_OUTPUT <<-EOF
+	inet6 2001:db8:871a:28c1::1/64 scope global
+	valid_lft forever preferred_lft forever
+	inet6 2001:db8:4860:4860::8888/64 scope global
+	valid_lft forever preferred_lft forever
+	EOF
 
   xwrap2 "<2nd addr>" ipv6_addr_bind
   xtest D2 t "returns true"
   xread_value out <<-EOF
-	Setting www.example.test AAAA to\
+	Setting eth0.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete www.example.test AAAA
-	update add www.example.test 600 AAAA 2001:db8:871a:28c1::1
-	update add www.example.test 600 AAAA 2001:db8:4860:4860::8888
+	update delete eth0.example.test AAAA
+	update add eth0.example.test 600 AAAA 2001:db8:871a:28c1::1
+	update add eth0.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	EOF
   ftest D2f "$out" "adds DNS"
@@ -1151,9 +1151,6 @@ xtest::group3::wan_ddns() {
                      "creates 1a1a state file"
   shtest::check_file D2z "$state2" "inet6:2001:db8:4860:4860::8888/64" \
                      "creates 2b2b state file"
-  shtest::check_file D2d "$dstate1" \
-		     "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" \
-                     "creates dns state file"
 
   unset new_ip6_address new_ip6_prefixlen new_iaid
   local old_ip6_address='2001:db8:871a:28c1::1'
@@ -1167,12 +1164,12 @@ xtest::group3::wan_ddns() {
  'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:4860:4860::8888/64'\
  'ipv6.dns' '' 'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
-	Setting www.example.test AAAA to 2001:db8:4860:4860::8888
+	Setting eth0.example.test AAAA to 2001:db8:4860:4860::8888
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete www.example.test AAAA
-	update add www.example.test 600 AAAA 2001:db8:4860:4860::8888
+	update delete eth0.example.test AAAA
+	update add eth0.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	EOF
   ftest D11f "$out" "removes 1a1a from NM/DNS"
@@ -1180,8 +1177,6 @@ xtest::group3::wan_ddns() {
   xtest D11y f "1a1a state file removed"
   [[ -e "$state2" ]]
   xtest D11z t "2b2b state file remains"
-  shtest::check_file D11d "$dstate1" "2001:db8:4860:4860::8888" \
-                     "updates dns state file"
 
   old_ip6_address='2001:db8:4860:4860::8888'
   old_ip6_prefixlen=64 old_iaid='2b:2b'
@@ -1195,23 +1190,20 @@ xtest::group3::wan_ddns() {
  'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
  'ipv6.dns-search' ''
 	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
-	Removing www.example.test AAAA
+	Removing eth0.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete www.example.test AAAA
+	update delete eth0.example.test AAAA
 	send
 	EOF
   ftest D12f "$out" "removes 2b2b from NM/DNS"
   [[ -e "$state2" ]]
   xtest D12z f "2b2b state file removed"
-  [[ -e "$dstate1" ]]
-  xtest D12d f "removes dns state file"
 
   # restore state files
   echo "inet6:2001:db8:871a:28c1::1/64" >"$state1"
   echo "inet6:2001:db8:4860:4860::8888/64" >"$state2"
-  echo "2001:db8:871a:28c1::1,2001:db8:4860:4860::8888" >"$dstate1"
 
   xwrap2 "" ipv6_addrs_flush
   xtest D21 t "returns true"
@@ -1219,11 +1211,11 @@ xtest::group3::wan_ddns() {
 	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
  'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
  'ipv6.dns-search' ''
-	Removing www.example.test AAAA
+	Removing eth0.example.test AAAA
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete www.example.test AAAA
+	update delete eth0.example.test AAAA
 	send
 	EOF
   ftest D21f "$out" "removes 1a1a/2b2b from NM/DNS (no apply)"
@@ -1231,8 +1223,6 @@ xtest::group3::wan_ddns() {
   xtest D21y f "1a1a state file removed"
   [[ -e "$state2" ]]
   xtest D21z f "2b2b state file removed"
-  [[ -e "$dstate1" ]]
-  xtest D21d f "removes dns state file"
 
   nmddns_reset_config
   xtest::onexit::wan_ddns

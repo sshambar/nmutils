@@ -23,8 +23,7 @@
 # Instructions for use:
 #
 #   Put this script in /etc/NetworkManager/dispatcher.d (or wherever
-#   your distro has these files), and nmddns-helper somewhere in
-#   PATH.
+#   your distro has these files)
 #
 #   The settings are discussed in NMUTILS/ddns-functions.
 #
@@ -59,7 +58,7 @@ NMCONF=${NMCONF:-${NMUTILS}/conf}
 ########## SCRIPT START
 
 # shellcheck disable=SC2034
-NMDDNS_REQUIRED="1.4.4"
+NMDDNS_REQUIRED="1.5.0"
 
 # load ddns-functions
 NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
@@ -69,52 +68,15 @@ NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
 [[ ${NMDDNS_VERSION} ]] || {
   nmg_err "${0##*/} requires NMDDNS v${NMDDNS_REQUIRED}+"; exit 2; }
 
-ddns_addr4() {
-  # <retvar>
-  local priv='' addr alist=() rlist=()
-  [[ ${DDNS_RREC_A_PRIVATE-} ]] && priv=1
-
-  printf -v "${1-}" '' || return
-
-  nmg::query_ips alist "" 4a "${interface}" || return
-
-  for addr in ${alist[*]+"${alist[@]}"}; do
-    addr=${addr%%/*}
-    nmg_check_ip4_addr "${addr}" "${priv}" && rlist+=("${addr}")
-  done
-
-  local IFS=,
-  printf -v "$1" %s "${rlist[*]-}"
-}
-
-ddns_addr6() {
-  # <retvar>
-  local priv='' addr alist=() rlist=()
-  [[ ${DDNS_RREC_AAAA_PRIVATE-} ]] && priv=1
-
-  printf -v "${1-}" '' || return
-
-  nmg::query_ips alist "" 6a "${interface}" || return
-
-  for addr in ${alist[*]+"${alist[@]}"}; do
-    addr=${addr%%/*}
-    nmg_check_ip6_addr "${addr}" "${priv}" &&
-      nmg::wait_dad6 "${interface}" "${addr}" && rlist+=("${addr}")
-  done
-
-  local IFS=,
-  printf -v "$1" %s "${rlist[*]-}"
-}
-
-function ddns_nm_action() {
-  # <action>
-  local addr4='' addr6=''
-
-  # for convenience
+ddns_nm_action() {
+  # <interface> <action>
+  local interface=$1 action=$2
   local config=${NMDDNS_CONFIG_PAT/@MATCH@/${interface}}
-  local state_pat=${NMDDNS_STATE_PAT/@MATCH@/${interface}}
 
   nmddns_read_config "${config}" || return 0
+
+  # run from NM
+  nmg_debug "interface: ${interface} action: ${action}"
 
   [[ -e ${DDNS_STATE_DIR} ]] || {
     [[ ${NM_DISPATCHER_ACTION} ]] || {
@@ -125,39 +87,153 @@ function ddns_nm_action() {
     nmg_cmd mkdir -p "${DDNS_STATE_DIR}" || return
   }
 
-  case $1 in
+  # use current ips on interface
+  local addr="!${interface}"
+  local state_pat=${NMDDNS_STATE_PAT/@MATCH@/${interface}}
+
+  case ${action} in
     up|down)
-      [[ $1 == up ]] && {
-        ddns_addr4 addr4 || return
-        ddns_addr6 addr6 || return
-      }
-      nmddns_spawn_update_all "$1" "${config}" \
-                              "${addr4}" "${addr6}" "${state_pat}"
+      [[ ${action} == up ]] || addr=''
+      nmddns_spawn_update_all "${action}" "${config}" "${addr}" "${addr}" \
+                              "${state_pat}"
       ;;
     dhcp4-change)
-      ddns_addr4 addr4 || return
-      nmddns_spawn_update "${config}" "A" "${addr4}" "${state_pat}"
+      nmddns_spawn_update "${config}" "A" "${addr}" "${state_pat}"
       ;;
     dhcp6-change)
-      ddns_addr6 addr6 || return
-      nmddns_spawn_update "${config}" "AAAA" "${addr6}" "${state_pat}"
+      nmddns_spawn_update "${config}" "AAAA" "${addr}" "${state_pat}"
       ;;
   esac
+
   return 0
+}
+
+ddns_helper_action() {
+  local rc=0
+
+  nmddns_required_config "${NMDDNSH_CONFIG-}"
+
+  case ${NMDDNSH_ACTION} in
+    update)
+      nmddns_update "${NMDDNSH_RREC-}" "${NMDDNSH_VALUE-}" \
+                    "${NMDDNSH_STATE-}" || rc=$?
+      ;;
+    up|down)
+      nmddns_update_all "${NMDDNSH_ACTION}" "${NMDDNSH_ADDR4-}" \
+                        "${NMDDNSH_ADDR6-}" "${NMDDNSH_STATE-}" || rc=$?
+      ;;
+    *)
+      nmg_err "${0##*/} Unknown helper action ${NMDDNSH_ACTION}"
+      rc=1
+      ;;
+  esac
+
+  # ignore server unreachable
+  (( rc == 25 )) && rc=0
+
+  return ${rc}
+}
+
+function ddns_interface_rrec() {
+  # <match> <rrec>
+  local match=$1 rrec=$2 ipver='' value='' rc=0
+
+  # get state file pattern (used for per-config overrides)
+  local state=${NMDDNS_STATE_PAT/@MATCH@-@RREC@/${match}-${rrec}}
+
+  # get interface from match
+  local intf=${match%-from-*}
+
+  if [[ -e ${state} ]] && nmg::read value "" "${state}"; then
+
+    # strip newline...
+    value=${value%%$'\n'*}
+
+    if [[ ${value} ]]; then
+      # if ip-addresses, verify on interface
+      case ${rrec} in
+        A) ipver=4 ;;
+        AAAA) ipver=6 ;;
+      esac
+      if [[ ${rrec} =~ ^A|AAAA$ && ! ${value} =~ ^[!].+$ ]]; then
+        # get values that are valid on <intf>, remove addrs if down
+        local avail=() avals=() newvals=() tval
+
+        # cleanup supplied values
+        nmg::lowercase value "${value}"
+        nmg::array avals "," "${value}"
+
+        if [[ ${rrec} == A ]]; then
+          nmddns::get_A_addrs avail "${intf}" \
+                              "${DDNS_RREC_A_PRIVATE-}" || :
+        else
+          nmddns::get_AAAA_addrs avail "${intf}" \
+                                 "${DDNS_RREC_AAAA_PRIVATE-}" || :
+        fi
+
+        # find intersection with available addrs
+        for value in ${avals[*]+"${avals[@]}"}; do
+          # strip any /prefix
+          value=${value%%/*}
+          for tval in ${avail[*]+"${avail[@]}"}; do
+            [[ ${tval} == "${value}" ]] && { newvals+=("${value}"); break; }
+          done
+        done
+        nmg::array_join value "," "${newvals[@]-}"
+      fi
+    fi
+  fi
+
+  nmddns_update "${rrec}" "${value}" || rc=$?
+
+  # ignore server unreachable
+  (( rc == 25 )) && rc=0
+
+  return ${rc}
+}
+
+ddns_direct_cb() {
+  # <file> <match> [ <interface> ]
+  local config=$1 match=$2 intf=${3-} name rrec
+
+  [[ ${match} ]] || return 0
+
+  # if we have an interface, make sure we filter for it
+  [[ ${intf} && ${intf} != "${match%-from-*}" ]] && return 0
+
+  # load DDNS config
+  nmddns_read_config "${config}" || return 0
+
+  for name in "${!DDNS_RREC_@}"; do
+    [[ ${name} =~ _NAME$ ]] || continue
+    name=${name#DDNS_RREC_}
+    rrec=${name%_NAME}
+    [[ ${rrec} ]] || continue
+    ddns_interface_rrec "${match}" "${rrec}"
+  done
+
+  return 0
+}
+
+ddns_direct() {
+  # [ <interface> ]
+  nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" ddns_direct_cb "$@"
 }
 
 if [[ ${1-} && ${2-} ]]; then
 
-  # used in functions
-  interface=$1
-
-  # run from NM
-  nmg_debug "interface: $interface action: $2"
-
   case $2 in
     up|down|dhcp4-change|dhcp6-change)
-      ddns_nm_action "$2" || exit
+      ddns_nm_action "$1" "$2" || exit
       ;;
   esac
+elif [[ ${NMDDNSH_ACTION-} ]]; then
+
+  # called from ddns-functions
+  ddns_helper_action || exit
+else
+
+  # called from boot script
+  ddns_direct "${1-}"
 fi
 : # for loading in tests

@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.5 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.6 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2014-2021 Scott Shambarger
@@ -58,11 +58,13 @@
 #   NMUTILS/ddns-functions - dynamic DNS functions (DDNS features
 #     are unavailable if absent)
 #
+#   WAN_DDNS_CONFIG_PAT - WAN allocated address DDNS, default:
+#     ${NMCONF}/ddns-@WAN@-from-@WAN@.conf
+#     NOTE: this is different from ddns-@WAN@.conf as it's only
+#     applied after dhclient has assigned the address (not on interface up)
+#
 #   LAN_DDNS_CONFIG_PAT - prefix LAN DDNS, default:
 #     ${NMCONF}/ddns-@LAN@-from-@WAN@.conf
-#
-#   WAN_DDNS_CONFIG_PAT - WAN address DDNS config, default:
-#     ${NMCONF}/ddns-@WAN@.conf
 #
 # WAN config location:
 #
@@ -136,6 +138,7 @@ if [[ ${1-} && ${2-} ]]; then
   # run from NM
   NMG_TAG="${NMG_TAG-ipv6-prefix}"
   # or if not, log to stderr
+  # shellcheck disable=SC2034
   [[ ${NM_DISPATCHER_ACTION} ]] || nmg_log_stderr=1
 elif [[ ${interface-} ]]; then
   # run from dhclient
@@ -175,7 +178,7 @@ NMDH6_DHCLIENT_ARGS=("-N")
 ########## SCRIPT START
 
 NMG_REQUIRED="1.5.8"
-NMDDNS_REQUIRED="1.4.5"
+NMDDNS_REQUIRED="1.5.0"
 
 # load ddns- or general-functions
 NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
@@ -211,10 +214,10 @@ WAN_STATE_PAT=${WAN_STATE_PAT:-${RUNDIR}/ipv6-addr-@ID@-@WAN@.state}
 # connection state (must contain "@WAN@")
 WAN_CONNSTATE_PAT=${WAN_CONNSTATE_PAT:-${RUNDIR}/ipv6-@WAN@.state}
 
-# DDNS config
-WAN_DDNS_CONFIG_PAT=${WAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@WAN@.conf}
-# DDNS state (must contain "@WAN@-@RREC@")
-WAN_DDNS_STATE_PAT=${WAN_DDNS_STATE_PAT:-${RUNDIR}/ddns-@WAN@-@RREC@.state}
+# DDNS config (must contain "@WAN@-from-@WAN@")
+WAN_DDNS_CONFIG_PAT=${WAN_DDNS_CONFIG_PAT:-${NMDDNS_CONFIG_PAT/@MATCH@/@WAN@-from-@WAN@}}
+# DDNS state (must contain "@WAN@-from-@WAN@-@RREC@")
+WAN_DDNS_STATE_PAT=${WAN_DDNS_STATE_PAT:-${NMDDNS_STATE_PAT/@MATCH@-@RREC@/@WAN@-from-@WAN@-@RREC@}}
 
 #### prefix LAN (LAN_*_PAT values must have a single @LAN@ keyword)
 
@@ -225,9 +228,9 @@ LAN_CONFIG_PAT=${LAN_CONFIG_PAT:-${NMCONF}/ipv6-prefix-@LAN@-from-@WAN@.conf}
 LAN_STATE_PAT=${LAN_STATE_PAT:-${RUNDIR}/ipv6-prefix-@LAN@-from-@ID@-@WAN@.state}
 
 # DDNS config (must contain "@LAN@-from-@WAN@")
-LAN_DDNS_CONFIG_PAT=${LAN_DDNS_CONFIG_PAT:-${NMCONF}/ddns-@LAN@-from-@WAN@.conf}
+LAN_DDNS_CONFIG_PAT=${LAN_DDNS_CONFIG_PAT:-${NMDDNS_CONFIG_PAT/@MATCH@/@LAN@-from-@WAN@}}
 # LAN DDNS state (must contain "@LAN@-from-@WAN@-@RREC@")
-LAN_DDNS_STATE_PAT=${LAN_DDNS_STATE_PAT:-${RUNDIR}/ddns-@LAN@-from-@WAN@-@RREC@.state}
+LAN_DDNS_STATE_PAT=${LAN_DDNS_STATE_PAT:-${NMDDNS_STATE_PAT/@MATCH@-@RREC@/@LAN@-from-@WAN@-@RREC@}}
 
 # internal state
 RADVD_TRIGGER='' CUR_TIME='' EXIT_CODE=''
@@ -308,8 +311,8 @@ ipv6_handle_ddns_cb() { # returns 0
 }
 
 ipv6_handle_ddns() { # returns 0
-  # <pat_with_@ID@> <interface> <ddns-config> <ddns-state-pat>
-  local ddns_addrs=() action=down IFS; unset IFS
+  # <pat_with_@ID@> <interface> <ddns-config> [ <ddns-state-pat> ]
+  local ddns_addrs=() addrs
 
   # DDNS available?
   [[ ${NMDDNS} ]] || return 0
@@ -320,12 +323,9 @@ ipv6_handle_ddns() { # returns 0
   # gather addresses in ddns_addrs
   [[ $1 ]] && nmg::foreach_filematch "$1" "@ID@" ipv6_handle_ddns_cb "$2"
 
-  IFS=,; local addrs="${ddns_addrs[*]-}"; unset IFS
+  nmg::array_join addrs "," "${ddns_addrs[@]-}"
 
-  # address present determines "up" or "down", not interface state
-  [[ ${addrs} ]] && action=up
-
-  nmddns_spawn_update_all "${action}" "$3" "" "${addrs}" "$4" || :
+  nmddns_spawn_update "$3" AAAA "${addrs}" "${4-}" || :
 }
 
 ipv6_lan_from_wan_ddns() { # returns 0
@@ -1227,8 +1227,8 @@ ipv6_addr_write_state() {
 ipv6_addr_ddns() { # returns 0
   ipv6_handle_ddns \
     "${WAN_STATE_PAT/@WAN@/${interface}}" "${interface}" \
-    "${WAN_DDNS_CONFIG_PAT/@WAN@/${interface}}" \
-    "${WAN_DDNS_STATE_PAT/@WAN@/${interface}}"
+    "${WAN_DDNS_CONFIG_PAT//@WAN@/${interface}}" \
+    "${WAN_DDNS_STATE_PAT//@WAN@/${interface}}"
 }
 
 # sets NMCLI='' if nmcli not available

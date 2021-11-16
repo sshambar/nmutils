@@ -17,6 +17,11 @@ mail    TXT "v=spf1 mx ~all"
 home    AAAA 2001:db8:100:2:32fb:93c5:555:1
 dns     A 198.51.100.2
         AAAA 2001:db8:871a:28c1::1
+dns2    AAAA 2001:db8:100:2:32fb:93c5:555:1
+	AAAA 2001:db8:200:2:32fb:93c5:555:1
+web     A 198.51.100.2
+        AAAA 2001:db8:871a:28c1::1
+        TXT "v=spf1 mx ~all"
 $ORIGIN .
 example.test MX 10 mail.example.test.
 

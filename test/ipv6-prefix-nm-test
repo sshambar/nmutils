@@ -52,8 +52,8 @@ xtest::group3::wan() {
   xtest W1s f "conn-state file not created"
 
   IP4_NUM_ADDRESSES=1 IP4_ADDRESS_0=192.168.55.1/24
-  printf "" >"${DHCLIENT_PID}"
-  printf '%s' "conn-uuid:${connid}" >"$state1"
+  printf "" >>"${DHCLIENT_PID}"
+  printf '%s\n' "conn-uuid:${connid}" >"$state1"
 
   xwrap2 "<priv ip>" ipv6_wan_start
   xtest W2 t "returns true"
@@ -104,6 +104,7 @@ xtest::group3::wan() {
   [[ -e $state1 ]]
   xtest W11s f "removes state file"
 
+  nmddns_reset_config
   ipv6_wan_reset_config
 }
 
@@ -143,12 +144,12 @@ xtest::group3::lan() {
 	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
 	${NMG_IP} => ip '-6' 'addr' 'replace'\
  '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
+	Setting br1-w1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete wan1.example.test AAAA
-	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	update delete br1-w1.example.test AAAA
+	update add br1-w1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
 	send
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
@@ -178,12 +179,12 @@ xtest::group3::lan() {
  'preferred_lft' '0'
 	Adding 2001:db8:600::1/64 to br1
 	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:600::1/64' 'dev' 'br1'
-	Setting wan1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
+	Setting br1-w1.example.test AAAA to 2001:db8:100:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete wan1.example.test AAAA
-	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	update delete br1-w1.example.test AAAA
+	update add br1-w1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
 	send
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF
@@ -203,14 +204,14 @@ xtest::group3::lan() {
 	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
 	${NMG_IP} => ip '-6' 'addr' 'replace'\
  '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Setting wan1.example.test AAAA to\
+	Setting br1-w1.example.test AAAA to\
  2001:db8:100:2:32fb:93c5:555:1,2001:db8:200:2:32fb:93c5:555:1
 	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
-	update delete wan1.example.test AAAA
-	update add wan1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
-	update add wan1.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
+	update delete br1-w1.example.test AAAA
+	update add br1-w1.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
+	update add br1-w1.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
 	send
 	${NMG_RADVD_TRIGGER} => radvd triggered
 	EOF

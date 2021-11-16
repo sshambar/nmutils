@@ -51,10 +51,12 @@
 #
 # Supported, but optional:
 #
-#   nmddns-helper - asynchronous DDNS updater ("HELPER")
+#   09-ddns - asynchronous DDNS helper- place "HELPER" in
+#             /etc/NetworkManager/dispatcher.d (or set NMDDNS_DHELPER
+#             in NMG's general.conf)
 #   flock - used for locking
 #
-# Dynamic DNS functions:
+# Dynamic DNS Functions:
 #
 #   nmddns_read_config <config-file>
 #
@@ -74,30 +76,45 @@
 #
 #     Unset all loaded environment
 #
+#   nmddns::get_A_addrs <retarr> <interface> [ <private-ok> ]
+#
+#     Sets <retarr> to all global ipv4 addresses on <interface> that
+#     pass <private-ok> (see nmg_check_ip4_addr).  Fails if
+#     nmg::query_ips does.
+#
+#   nmddns::get_AAAA_addrs <retvar> <interface> [ <private-ok> ]
+#
+#     As get_A_addrs above, but for ipv6 addresses that also pass DAD.
+#
 #   nmddns_update <rrec> [ <value> [ <state-pat> ] ]
 #
 #     Set DNS resource record <rrec> to <value>, or if <value> empty,
 #     set to the fallback value if not empty (see below), or remove
 #     the record (DDNS_* values should be set).  If supplied,
-#     <state-pat> must contain the string "@RREC@" and is used to save
-#     <value> for later use by nmddns_update_all.  <value> is expected
-#     to be in RDATA format appropriate for <rrec>.  Returns any
-#     errors from nsupdate.
+#     <value> is expected to be in RDATA format appropriate for <rrec>.
+#     If provided, <state-pat> must contain the string "@RREC@" and
+#     is used to save <value> and override value assigned later by 09-ddns.
+#     Returns any errors from nsupdate.
 #
 #     SPECIAL CASE: for A/AAAA records, values containing "," are handled
 #     as multiple (comma-separated) address records (see _LISTSEP below for
 #     multiple records of other types).
 #
+#     SPECIAL CASE: for A/AAAA records, values of "!<interface>" will
+#     use nmddns::get_<A|AAAA>_addrs to query current ips on <interface>.
+#
 #   nmddns_spawn_update <config-file> <rrec> [ <value> [ <state-pat> ] ]
 #
-#     Spawn HELPER to call nmddns_update asynchronously, or read
-#     <config-file> and call it directly if HELPER not found.
+#     Checks if <rrec> defined in <config-file>, and if so spawns HELPER
+#     to call nmddns_update asynchronously.  If HELPER not found, calls
+#     nmddns_update directly with reduced timeouts.
 #
 #   nmddns_update_all <"up" | "down"> [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
 #
 #     Updates for all configured DDNS names (DDNS_* values should be set),
 #     using <ip4-addr> for A and <ip6-addr> for AAAA (if respective
 #     DDNS_RREC_*_VALUEs don't override).  Returns any errors from nsupdate.
+#     See nmddns_update for special A/AAAA values and use of <state-pat>.
 #
 #   nmddns_spawn_update_all <"up" | "down"> <config-file>
 #                          [ <ip4-addr> <ip6-addr> [ <state-pat> ] ]
@@ -105,24 +122,26 @@
 #     Spawn HELPER to call nmddns_update_all asynchronously, or read
 #     <config-file> and call it directly if HELPER not found.
 #
-# Configuration settings (set before including this file)
+# Configuration Settings (set before including this file)
 #
 #   Any general-functions configuration, eg. NMUTILS/NMCONF
 #
 #   NMDDNS_REQUIRED (optional) - minimum required NMDDNS_VERSION
 #
-# Global overrides (put in NMCONF/general.conf)
+# Global Overrides (put in NMCONF/general.conf)
+#
+#  "@MATCH@" can be <interface>, or <interface>-from-<something>
 #
 #   NMDDNS_CONFIG_PAT (default: "NMCONF/ddns-@MATCH@.conf")
-#       @MATCH@ is replaced by the interface by the dispatcher/HELPER
-#       script, and loaded (see Config settings below).
+#       Value must contain a single "@MATCH@"
+#       See "Config Settings" below for file contents.
 #
 #   DDNS_STATE_DIR (default: "$RUNDIR", or "/run/nmutils" if unset)
-#       locationfor internal temporary state.
 #
 #   NMDDNS_STATE_PAT (default: "DDNS_STATE_DIR/ddns-@MATCH@-@RREC@.state")
-#       @MATCH@ is replaced by interface, @RREC@ by record type by
-#       dispater/HELPER, used to store internal state.
+#       Value must contain a single "@MATCH@-@RREC@" and is used by
+#       09-ddns for per-@RREC@ overrides for @MATCH@ config.
+#       (use with nmddns_update)
 #
 #   DDNS_GLOBAL_LOCKFILE (optional) - flock lockfile used to prevent
 #       races between query and set of records.  Overrides use of config
@@ -145,7 +164,7 @@
 #       it use TCP ("-v") or a keyfile
 #       (eg "-k /etc/Kexample.net.+157+12345.private")
 #
-# Config settings (put in <config-file>, see nmddns_read_config() above):
+# Config Settings (put in <config-file>, see nmddns_read_config() above):
 #
 #   DDNS_ZONE (required) - zone to update
 #
@@ -198,13 +217,13 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.4.5"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.0"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
 NMCONF=${NMCONF:-${NMUTILS}/conf}
 
-########## Global defaults (customize in $NMCONF/general.conf)
+########## Global Defaults (customize in $NMCONF/general.conf)
 
 DDNS_STATE_DIR=${RUNDIR:-/run/nmutils}
 DDNS_GLOBAL_LOCKFILE=${DDNS_GLOBAL_LOCKFILE-}
@@ -215,18 +234,17 @@ DDNS_GLOBAL_DIG_OPTIONS=${DDNS_GLOBAL_DIG_OPTIONS-}
 DDNS_GLOBAL_NSUPDATE_TIMEOUT=${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}
 DDNS_GLOBAL_NSUPDATE_OPTIONS=${DDNS_GLOBAL_NSUPDATE_OPTIONS-}
 
-########## Support programs
+########## Support Programs
 
-NMDDNS_HELPER=${NMDDNS_HELPER:-nmddns-helper}
+NMDDNS_DHELPER=${NMDDNS_DHELPER:-/etc/NetworkManager/dispatcher.d/09-ddns}
 NMDDNS_DIG=${NMDDNS_DIG:-dig}
 NMDDNS_NSUPDATE=${NMDDNS_NSUPDATE:-nsupdate}
 
 # set NMDDNS_FLOCK to empty to disable all locking
 NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 
-########## Config locations (defaults for HELPER)
+########## Config Locations (defaults for HELPER)
 
-# NOTE: *_PAT variables must have a single @MATCH@ and @RREC@ keyword
 NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-${NMCONF}/ddns-@MATCH@.conf}
 NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-${DDNS_STATE_DIR}/ddns-@MATCH@-@RREC@.state}
 
@@ -236,7 +254,7 @@ NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-${DDNS_STATE_DIR}/ddns-@MATCH@-@RREC@.state
 NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.5.6"
+NMG_REQUIRED="1.6.0"
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
 
@@ -302,7 +320,7 @@ nmddns::_update() {
 
   name="DDNS_RREC_${ddns_rrec}_LISTSEP"; sep=${!name:-}
 
-  [[ ${ddns_rrec} =~ ^(A|AAAA)$ ]] && sep=","
+  [[ ${ddns_rrec} =~ ^A|AAAA$ ]] && sep=","
 
   if [[ ${sep} ]]; then
     # shellcheck disable=SC2034
@@ -389,17 +407,64 @@ nmddns_required_config() {
   nmddns_read_config "${1-}" || rc=$?
 
   # 1 means no file, just exit 0
-  [[ ${rc} == 1 ]] && exit 0
+  (( rc == 1 )) && exit 0
   # any other error, exit with it
-  [[ ${rc} != 0 ]] && exit ${rc}
+  (( rc != 0 )) && exit ${rc}
   # no errors, continue...
   return 0
+}
+
+# Sets _rlist arrays to all active <ip-ver> addresses on <intf>
+# If <priv> not empty, allow private addresses
+nmddns::_query_addrs() { # fails if <intf> empty or query_ips fails
+  # <ip-ver> <intf> <priv>
+  local ver=$1 intf=$2 priv=$3 addr addrp alist=()
+
+  [[ ${intf} ]] || return
+
+  # query addresses with properties
+  nmg::query_ips alist "" "${ver}p" "${intf}" || return
+
+  for addrp in ${alist[*]+"${alist[@]}"}; do
+    # strip /<subnet>
+    addr=${addrp%%/*}
+    if [[ ${ver} == 4 ]]; then
+      nmg_check_ip4_addr "${addr}" "${priv}" || continue
+    else
+      nmg_check_ip6_addr "${addr}" "${priv}" || continue
+      [[ ${addrp} =~ (^| )dadfailed($| ) ]] && continue
+      [[ ${addrp} =~ (^| )tentative($| ) ]] && {
+        nmg::wait_dad6 "${intf}" "${addrp%% *}" || continue
+      }
+    fi
+    _rlist+=("${addr}")
+  done
+
+  return 0
+}
+
+# sets <retarr> with all valid dns ip4 address on <intf>
+nmddns::get_A_addrs() { # returns err if query_ips fails
+  # <retarr> <intf> [ <priv> ]
+  local _rlist=() _rc=0
+  nmddns::_query_addrs 4 "${2-}" "${3-}" || _rc=$?
+  [[ ${1-} ]] && nmg::array_copy "$1" "_rlist"
+  return ${_rc}
+}
+
+# sets <retarr> with all valid dns ip4 address on <intf>
+nmddns::get_AAAA_addrs() { # returns err if query_ips fails
+  # <retarr> <intf> [ <priv> ]
+  local _rlist=() _rc=0
+  nmddns::_query_addrs 6 "${2-}" "${3-}" || _rc=$?
+  [[ ${1-} ]] && nmg::array_copy "$1" "_rlist"
+  return ${_rc}
 }
 
 nmddns_update() {
   # <rrec> [<value> [<state-pat>]]
   local rrec=${1-} value=${2-} state_pat=${3-} name ddns_name state
-  local new_value priv_ok timeout
+  local new_value priv_ok timeout avalue=() anew=() addr
 
   [[ ${rrec} ]] || {
     nmg_err "nmddns_update: missing <rrec>"; return 1; }
@@ -412,48 +477,62 @@ nmddns_update() {
   [[ ${DDNS_ZONE-} ]] || {
     nmg_err "Missing required DDNS_ZONE config"; return 5; }
 
-  [[ ${state_pat} && ${state_pat//@RREC@} == "${state_pat}" ]] && {
-    nmg_err "nmddns_update: <state-pat> must include string '@RREC@'"
+  [[ ${state_pat} && ! ${state_pat} =~ @RREC@ ]] && {
+    nmg_err "nmddns_update: <state-pat> must contain '@RREC@'"
     state_pat=''
   }
 
-  state=${state_pat//@RREC@/${rrec}}
+  state=${state_pat/@RREC@/${rrec}}
+
   if [[ ${value} ]]; then
 
-    # strip "/<prefix>" on A/AAAA values
-    [[ ${rrec} =~ ^(A|AAAA)$ ]] && value=${value%%/*}
-
     # set state if requested
-    [[ ${state} ]] && { nmg_write "${state}" "${value}" || :; }
+    [[ ${state} ]] && { nmg_write "${state}" "${value}"$'\n' || :; }
+
+    if [[ ${rrec} =~ ^A|AAAA$ ]]; then
+
+      # check for !<interface> value
+      if [[ ${value} =~ ^[!].+$ ]]; then
+        # if interface down, remove addrs
+        if [[ ${rrec} == A ]]; then
+          nmddns::get_A_addrs anew "${value#!}" \
+                              "${DDNS_RREC_A_PRIVATE-}" || :
+        else
+          nmddns::get_AAAA_addrs anew "${value#!}" \
+                                 "${DDNS_RREC_AAAA_PRIVATE-}"|| :
+        fi
+      else
+        nmg::lowercase value "${value}"
+        nmg::array anew "," "${value}"
+      fi
+      # strip any "/<prefix>"
+      for addr in ${anew[*]+"${anew[@]}"}; do avalue+=("${addr%%/*}"); done
+      nmg::array_join value "," "${avalue[@]-}"
+    fi
 
     # use DDNS_RREC_*_VALUE, or $value if not set/empty
     name="DDNS_RREC_${rrec}_VALUE"; new_value=${!name:-${value}}
 
-    case ${rrec} in
-      A|AAAA)
-        # SPECIAL CASE: if A or AAAA (and not changed by _VALUE), make
-        # sure new value is valid
-        local avalue=() anew=()
-        nmg::lowercase value "${value}"
-        nmg::lowercase new_value "${new_value}"
-        nmg::array avalue "," "${value}"
-        nmg::array anew "," "${new_value}"
-        if nmg::array_match_values avalue anew; then
-          anew=()
-          name="DDNS_RREC_${rrec}_PRIVATE"; priv_ok=${!name-}
-          local addr
-          for addr in "${avalue[@]}"; do
-            if [[ ${rrec} == A ]]; then
-	      nmg_check_ip4_addr "${addr}" "${priv_ok}" && anew+=("${addr}")
-            else
-	      nmg_check_ip6_addr "${addr}" "${priv_ok}" && anew+=("${addr}")
-            fi
-          done
-          # update new_value with only checked values
-          nmg::array_join new_value "," ${anew[@]+"${anew[@]}"}
-        fi
-        ;;
-    esac
+    if [[ ${rrec} =~ ^A|AAAA$ ]]; then
+      # SPECIAL CASE: if A or AAAA (without _VALUE override), make
+      # sure new value is valid
+      nmg::lowercase new_value "${new_value}"
+      nmg::array anew "," "${new_value}"
+      # if list new_value == value (no override), check values are valid
+      if nmg::array_match_values avalue anew; then
+        name="DDNS_RREC_${rrec}_PRIVATE"; priv_ok=${!name-}
+        anew=()
+        for addr in ${avalue[*]+"${avalue[@]}"}; do
+          if [[ ${rrec} == A ]]; then
+	    nmg_check_ip4_addr "${addr}" "${priv_ok}" && anew+=("${addr}")
+          else
+	    nmg_check_ip6_addr "${addr}" "${priv_ok}" && anew+=("${addr}")
+          fi
+        done
+        # update new_value with only checked values
+        nmg::array_join new_value "," "${anew[@]-}"
+      fi
+    fi
 
     # use fallback (if any) if <new_value> empty
     [[ ${new_value} ]] || {
@@ -467,8 +546,7 @@ nmddns_update() {
     [[ ${state} ]] && nmg_remove "${state}"
 
     # clearing value, use fallback (if any)
-    [[ ${value} ]] || {
-      name="DDNS_RREC_${rrec}_FALLBACK"; value=${!name-}; }
+    name="DDNS_RREC_${rrec}_FALLBACK"; value=${!name-}
   fi
 
   if [[ ${DDNS_LOCKFILE-} ]] && command &>/dev/null -v "${NMDDNS_FLOCK}"; then
@@ -485,11 +563,31 @@ nmddns_update() {
   return 0
 }
 
+nmddns::_daemon_helper() { # return 1 if helper unavail or daemonize fails
+  # <action> <config> [ <state> ]
+  [[ ${NMDDNS_DHELPER-} ]] || return 1
+
+  # export helper action
+  local -x NMDDNSH_ACTION=$1 NMDDNSH_CONFIG=$2 NMDDNSH_STATE=${3-}
+  # keep log tag
+  export NMG_TAG
+
+  nmg_daemon "${NMDDNS_DHELPER}" || return
+}
+
 nmddns_spawn_update() {
   # <ddns-file> <rrec> [<value> [<state-pat>]]
   local config=${1-} rrec=${2-} name ddns_name
 
-  [[ ${rrec} ]] || return 0
+  [[ ${config} ]] || {
+    nmg_err "nmddns_spawn_update: <config> requires a value"
+    return 1
+  }
+
+  [[ ${rrec} ]] || {
+    nmg_err "nmddns_spawn_update: <rrec> must be a RREC name"
+    return 1
+  }
 
   # check if config exists
   nmddns_read_config "${config}" || return 0
@@ -499,8 +597,9 @@ nmddns_spawn_update() {
   [[ ${ddns_name} ]] || return 0
 
   # we have a valid config, spawn the HELPER
-  [[ ${NMDDNS_HELPER-} ]] &&
-    nmg_daemon "${NMDDNS_HELPER}" "update" "$@" && return
+  local -x NMDDNSH_RREC=${rrec} NMDDNSH_VALUE=${3-}
+
+  nmddns::_daemon_helper update "${config}" "${4-}" && return 0
 
   # make timeouts much faster, or NetworkManager will kill us
   nmddns::_short_timeouts
@@ -529,20 +628,12 @@ nmddns_update_all() {
       up)
 	# special case values for A and AAAA
 	case ${rrec} in
-	  A)
-	    value=${addr4}
-	    ;;
-	  AAAA)
-	    value=${addr6}
-	    ;;
-	  *)
-            name="DDNS_RREC_${rrec}_VALUE"; value=${!name-}
-	    ;;
+	  A) value=${addr4} ;;
+	  AAAA) value=${addr6} ;;
+	  *) name="DDNS_RREC_${rrec}_VALUE"; value=${!name-} ;;
 	esac
 	;;
-      down)
-	value=''
-	;;
+      down) value='' ;;
       *)
 	nmg_err "nmddns_update_all: <action> must be 'up' or 'down'"
 	return 1
@@ -565,6 +656,11 @@ nmddns_spawn_update_all() {
     return 1
   }
 
+  [[ ${config} ]] || {
+    nmg_err "nmddns_spawn_update_all: <config> requires a value"
+    return 1
+  }
+
   # check if config exists
   nmddns_read_config "${config}" || return 0
 
@@ -577,8 +673,9 @@ nmddns_spawn_update_all() {
   [[ ${name_found} ]] || return 0
 
   # we have a valid config, spawn the HELPER
-  [[ ${NMDDNS_HELPER-} ]] &&
-    nmg_daemon "${NMDDNS_HELPER}" "$@" && return
+  local -x NMDDNSH_ADDR4=${3-} NMDDNSH_ADDR6=${4-}
+
+  nmddns::_daemon_helper "${action}" "${config}" "${5-}" && return 0
 
   # make timeouts much faster, or NetworkManager will kill us
   nmddns::_short_timeouts

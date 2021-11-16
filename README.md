@@ -56,7 +56,6 @@ general-functions' PATH (eg. `/usr/local/sbin`)
 - `/etc/NetworkManager/dispatcher.d/09-ddns`
 - `/etc/nmutils/general-functions`
 - `/etc/nmutils/ddns-functions`
-- `/usr/local/sbin/nmddns-helper`
 
 ### Configuration
 
@@ -213,9 +212,6 @@ are are just drivers for the functions provided by the above:
 
 - Dynamic DNS trigger script
 `/etc/NetworkManager/dispatcher.d/09-ddns`
-
-- Asynchronous DNS update script
-`/usr/local/sbin/nmddns-helper`
 
 Support
 -------

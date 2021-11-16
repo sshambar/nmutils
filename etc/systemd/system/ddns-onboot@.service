@@ -9,7 +9,7 @@ After=nss-lookup.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/nmddns-helper %i
+ExecStart=/etc/NetworkManager/dispatcher.d/09-ddns %i
 
 [Install]
 WantedBy=multi-user.target

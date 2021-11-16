@@ -610,7 +610,8 @@ xtest::group3::ip() {
   xwrap2 "eth2 2001:db8:1::1/64 1" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
   xtest I37 2 "returns 2 after sleeping"
   ftest2 I37f "" "sleep 0.5"$'\n'"sleep 0.5" "performs sleep"
-  unset sleep
+
+  unset -f sleep
 
   xwrap2 "eth1 2001:db8:a0b:12f0::1/64" nmg::wait_dad6 eth1 \
 	 "2001:db8:a0b:12f0::1/64"
