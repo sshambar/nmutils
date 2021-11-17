@@ -400,7 +400,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.0"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.1"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -922,8 +922,12 @@ nmg::_query_ips() { # returns 0
     args+=("scope" "global")
   fi
   [[ ${flag} =~ ^(4|6) ]] && { vers=${flag:0:1}; flag=${flag#?}; }
-  [[ ${pat} && ${pat} =~ : && ! ${pat} =~ [\*\[\^\$\?] ]] &&
-    nmg::_mock epat ignore expand_ip6 "${pat}"
+  if [[ ${pat} && ${pat} =~ : &&
+          ${pat} =~ ^(\^?)([^\*\[\^\$\?]+)(\$?)$ ]]; then
+    local pre=${BASH_REMATCH[1]} post=${BASH_REMATCH[3]}
+    nmg::_mock epat ignore expand_ip6 "${BASH_REMATCH[2]}" &&
+      epat="${pre}${epat}${post}"
+  fi
 
   # ensure we have consistent order/error lang
   local -x LC_LANG=C
@@ -964,7 +968,7 @@ nmg::_query_ips() { # returns 0
             addr=${el}
           elif [[ ${state} == inet6 ]] &&
                  nmg::_mock eel nolog expand_ip6 "${el}"; then
-            [[ ${eel} =~ ${pat} || ${eel} == "${epat}" ]] && addr=${el}
+            [[ ${eel} =~ ${pat} || ${eel} =~ ${epat} ]] && addr=${el}
           fi
         elif [[ ${vers} == 4 ]]; then
           [[ ${state} == inet ]] && addr=${el}

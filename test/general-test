@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.6.0"
+NMG_REQUIRED="1.6.1"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -548,75 +548,83 @@ xtest::group3::ip() {
   xtest I17 t "returns true"
   aref=("2001:db8:871a:28c1::1/64")
   atest I17a avar aref "returns ipv6 addresses"
+  ftest I17f "" "does not log"
 
   xwrap2 "<ip6-prefix>" nmg::query_ips avar "" 6a "eth0" "2001:db8:871a:28c1::"
   xtest I18 t "returns true"
   atest I18a avar aref "returns ipv6 addresses"
+  ftest I18f "" "does not log"
 
   xwrap2 "<bad-search>" nmg::query_ips avar "" 6a "eth0" \
 	 "2001:db8:871a:28c1:x:"
   xtest I19 2 "returns 2"
   ftest I19f "" "does not log"
 
+  xwrap2 "<pattern with 0-s>" nmg::query_ips avar "" 6a "eth0" \
+	 "^2001:db8:871a:28c1:0::1"
+  xtest I20 t "returns true"
+  atest I20a avar aref "returns ipv6 addresses"
+  ftest I20f "" "does not log"
+
   xwrap2 "<no args>" nmg::mod_ip
-  xtest I21 3 "returns 3"
-  ftest I21f "ERR: nmg::mod_ip: unknown <cmd> ''" "logs error"
+  xtest I31 3 "returns 3"
+  ftest I31f "ERR: nmg::mod_ip: unknown <cmd> ''" "logs error"
 
   var='bogus'
 
   xwrap2 "add existing" nmg::mod_ip var "" "add6" "eth1" \
 	 "fdac:3741:50f8:f623::1/48" "preferred_lft" 0
-  xtest I22 t "returns true"
-  vtest I22v "ip '-6' 'addr' 'replace' 'fdac:3741:50f8:f623::1/48'\
+  xtest I32 t "returns true"
+  vtest I32v "ip '-6' 'addr' 'replace' 'fdac:3741:50f8:f623::1/48'\
  'dev' 'eth1' 'preferred_lft' '0'" \
         "sets var to output"
-  ftest I22f "Replacing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
+  ftest I32f "Replacing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
 
   xwrap2 "change existing" nmg::mod_ip var "" "change6" "eth1" \
 	 "fdac:3741:50f8:f623::1/48" "valid_lft" 0 "preferred_lft" 0
-  xtest I23 t "returns true"
-  vtest I23v "ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48'\
+  xtest I33 t "returns true"
+  vtest I33v "ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48'\
  'dev' 'eth1' 'valid_lft' '0' 'preferred_lft' '0'" \
         "sets var to output"
-  ftest I23f "Changing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
+  ftest I33f "Changing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
 
   xwrap2 "<no args>" nmg::wait_dad6
-  xtest I31 3 "returns 3"
-  ftest I31f "ERR: nmg::wait_dad6: missing <intf>" "logs error"
+  xtest I41 3 "returns 3"
+  ftest I41f "ERR: nmg::wait_dad6: missing <intf>" "logs error"
 
   xwrap2 "eth3" nmg::wait_dad6 eth3
-  xtest I32 3 "returns 3"
-  ftest I32f "ERR: nmg::wait_dad6: missing <addr>" "logs error"
+  xtest I42 3 "returns 3"
+  ftest I42f "ERR: nmg::wait_dad6: missing <addr>" "logs error"
 
   xwrap2 "eth3 ::1 x" nmg::wait_dad6 eth3 "::1" x
-  xtest I33 3 "returns 3"
-  ftest I33f "ERR: nmg::wait_dad6: invalid <timeout> 'x'" "logs error"
+  xtest I43 3 "returns 3"
+  ftest I43f "ERR: nmg::wait_dad6: invalid <timeout> 'x'" "logs error"
 
   xwrap2 "eth3 ::1" nmg::wait_dad6 eth3 "::1"
-  xtest I34 2 "returns 2"
-  ftest I34f "" "does not log"
+  xtest I44 2 "returns 2"
+  ftest I44f "" "does not log"
 
   xwrap2 "eth3 2001:db8:5::1/64" nmg::wait_dad6 eth3 "2001:db8:5::1/64"
-  xtest I35 1 "returns 1"
-  ftest I35f "" "does not log"
+  xtest I45 1 "returns 1"
+  ftest I45f "" "does not log"
 
   xwrap2 "eth2 2001:db8:1::1/64 0" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 0
-  xtest I36 2 "returns 2"
-  ftest I36f "" "does not log"
+  xtest I46 2 "returns 2"
+  ftest I46f "" "does not log"
 
   # this sleeps
   sleep() { echo "sleep" "$@"; }
 
   xwrap2 "eth2 2001:db8:1::1/64 1" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
-  xtest I37 2 "returns 2 after sleeping"
-  ftest2 I37f "" "sleep 0.5"$'\n'"sleep 0.5" "performs sleep"
+  xtest I47 2 "returns 2 after sleeping"
+  ftest2 I47f "" "sleep 0.5"$'\n'"sleep 0.5" "performs sleep"
 
   unset -f sleep
 
   xwrap2 "eth1 2001:db8:a0b:12f0::1/64" nmg::wait_dad6 eth1 \
 	 "2001:db8:a0b:12f0::1/64"
-  xtest I38 t "returns true"
-  ftest I38f "" "does not log"
+  xtest I48 t "returns true"
+  ftest I48f "" "does not log"
 }
 
 xtest::group3::ip4() {
