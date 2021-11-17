@@ -968,7 +968,8 @@ nmg::_query_ips() { # returns 0
             addr=${el}
           elif [[ ${state} == inet6 ]] &&
                  nmg::_mock eel nolog expand_ip6 "${el}"; then
-            [[ ${eel} =~ ${pat} || ${eel} =~ ${epat} ]] && addr=${el}
+            [[ ${eel} =~ ${pat} || ( ${epat} && ${eel} =~ ${epat} ) ]] &&
+              addr=${el}
           fi
         elif [[ ${vers} == 4 ]]; then
           [[ ${state} == inet ]] && addr=${el}
