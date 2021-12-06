@@ -1,3 +1,4 @@
+
 Network Manager Utility Scripts
 ================================
 
@@ -26,12 +27,15 @@ Included Dispatch Scripts
  assignment of other records (such as CNAME or TXT) individually
  configurable for each interface.
 - **IPv6 Prefix Delegation** The dispatch script will spawn a new
- `dhclient` instance to request an IPv6 prefix, and then assign
- sub-prefixes or addresses from the prefix to the WAN and/or LAN
- interfaces.  Simple configuration allows fully automatic behavior,
+ `dhclient` instance to request an IPv6 prefix (as well as WAN address),
+ and then assign sub-prefixes from the delegated prefix to the LAN interfaces.
+ Simple configuration allows fully automatic behavior,
  but can be configured to fully control sub-prefix and address
  creation by interface.  Also supports Dynamic DNS based on prefix
  assignment similar to the interface state DNS script above.
+- **radvd.conf Generation** The dispatch script will create
+ `/etc/radvd.conf` based on the prefixes assigned to interfaces defined
+ in the template `/etc/NetworkManager/radvd.conf.templ`
 
 Setup
 -----
@@ -41,16 +45,14 @@ Setup
 - [NetworkManager](https://wiki.gnome.org/Projects/NetworkManager)
 - [Bash](http://www.gnu.org/software/bash/)
 - Basic Command Line Tools: `pgrep rm ip`
-- Optional Tools: `logger radvd dig nsupdate flock dhclient sleep`
+- Optional Tools: `logger radvd dig nsupdate flock dhclient nmcli`
 
 ### Installation
 
 To use the included scripts, just install them someplace they can be
 executed by NetworkManager's dispatcher scripts (generally
 `/etc/NetworkManager/dispatcher.d`) and copy the support files to
-locations they can be included (default: `/etc/nmutils`).  Also,
-copy the support programs should be installed someplace in the default
-general-functions' PATH (eg. `/usr/local/sbin`)
+locations they can be included (default: `/etc/nmutils`).
 
 - `/etc/NetworkManager/dispatcher.d/08-ipv6-prefix`
 - `/etc/NetworkManager/dispatcher.d/09-ddns`
@@ -61,30 +63,42 @@ general-functions' PATH (eg. `/usr/local/sbin`)
 
 #### IPv6 Prefix Delegation Configuration
 
-All configuration for prefix delegation is in the file `08-ipv6-prefix`.
-Basic prefix delegation is enabled as simply as creating a
+The prefix delegation feature supports multiple address/prefix delegations,
+from multiple upstream DHCP servers, to multiple LAN interfaces,
+with full address aging, DAD checks, and radvd/DNS hooks.
+
+All configuration for prefix delegation is documented in the file
+`08-ipv6-prefix`.  Basic prefix delegation is enabled as simply as creating a
 configuration file for the WAN interface the prefix will be queried
 on:
 
 - `/etc/nmutils/conf/ipv6-prefix-<WAN>.conf`
-
-containing:
 ~~~~
 WAN_LAN_INTFS="<LAN1> <LAN2>..."
 ~~~~
 
 Where `<WAN>` and `<LAN#>` should be replaced by the interface names (eth0
-etc)
+etc).
+
+NetworkManager should have WAN interface configured with
+"ipv6.method=link-local" (or "manual"), and the `08-ipv6-prefix`
+script should be installed in the `dispatcher.d` directory,
+and {general,ddns}-functions installed in `/etc/nmutils`.
 
 There are many more configuration options in the documentation, 
-and per-LAN configuration can be performed in:
+and per-LAN configuration can be set in the optional files, example:
 
 - `/etc/nmutils/conf/ipv6-prefix-<LAN>-from-<WAN>.conf`
+~~~~
+# trigger the radvd.conf generation script
+NMG_RADVD_TRIGGER="/etc/NetworkManager/dispatcher.d/95-radvd-gen"
+~~~~
 
 #### Dynamic DNS Configuration
 
-DNS configuration is documented in `ddns-functions`.  A very simple
-example configuration is:
+DNS configuration is documented in `ddns-functions`.  Install that
+file in `/etc/nmutils`, and optionally the `09-ddns` file in the 
+`dispatcher.d` directory. A very simple example configuration is:
 
 - `/etc/nbmutils/conf/ddns-<WAN>.conf`
 
@@ -93,18 +107,18 @@ DDNS_ZONE=example.net.
 DDNS_RREC_A_NAME=wan.example.net.
 ~~~~
 
-which would set the `A` record for wan.example.net to the first public
-IPv4 address on `<WAN>` when it's up, and remove the record when the
+which would set the `A` record for wan.example.net to the public
+IPv4 addresses on `<WAN>` when it's up, and remove the record when the
 interface is down.
 
 Again, there are many more configuration options in the documentation,
 including fallback addresses, setting TXT, CNAME, AAAA values,
 assignment of IPv6 prefix addresses assigned by `08-ipv6-prefix`, and
-configuration for locks and `nsupdate` keys.  Prefix DDNS is
-configured in:
+configuration for locks and `nsupdate` keys.  Configuration for
+DDNS addresses assigned by `08-ipv6-prefix` are in:
 
-- `/etc/nbmutils/conf/ddns-prefix-<WAN>.conf`
-- `/etc/nbmutils/conf/ddns-prefix-<LAN>-from-<WAN>.conf`
+- `/etc/nmutils/conf/ddns-<WAN>-from-<WAN>.conf`
+- `/etc/nmutils/conf/ddns-<LAN>-from-<WAN>.conf`
 
 Optionally, the file:
 
@@ -198,20 +212,33 @@ Each script fully documents all the functions it provides at the
 beginning of the script.  To see the list of supported functions and
 configuration settings, please refer to the following files:
 
-- IPv6 Prefix Delegation trigger script
-`/etc/NetworkManager/dispatcher.d/08-ipv6-prefix`
+- General utility functions
+`/etc/nmutils/general-functions`
 
 - Dynamic DNS utility functions
 `/etc/nmutils/ddns-functions`
 
-- General utility functions
-`/etc/nmutils/general-functions`
+The following utility scripts only document configuration, as they
+are are just executed by NetworkManager:
 
-The following utility scripts have limited documentation as they
-are are just drivers for the functions provided by the above:
+- IPv6 Prefix Delegation trigger script
+`/etc/NetworkManager/dispatcher.d/08-ipv6-prefix`
 
 - Dynamic DNS trigger script
 `/etc/NetworkManager/dispatcher.d/09-ddns`
+
+- radvd.conf generation script
+`/etc/NetworkManager/dispatcher.d/95-radvd-gen`
+
+- Transmission config generation script
+`/etc/NetworkManager/dispatcher.d/90-transmission`
+
+Test Suite
+----------
+
+A complete test suite for all documented functions, and most of the utility
+scripts can be found in the "test" directory.  To run all tests (with
+detailed reporting), simply run "make" in that directory.
 
 Support
 -------
