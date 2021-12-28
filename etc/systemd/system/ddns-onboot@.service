@@ -9,7 +9,7 @@ After=nss-lookup.target
 
 [Service]
 Type=oneshot
-ExecStart=/etc/NetworkManager/dispatcher.d/09-ddns %i
+ExecStart=/etc/NetworkManager/dispatcher.d/09-ddns %I
 
 [Install]
 WantedBy=multi-user.target
