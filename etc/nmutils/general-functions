@@ -404,7 +404,7 @@
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
-NMCONF=${NMCONF:-$NMUTILS/conf}
+NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## Defaults (customize in $NMCONF/general.conf)
 

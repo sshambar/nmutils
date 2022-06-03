@@ -3,3 +3,7 @@
 *.bak
 /test/run/
 /test/results/
+/selinux/nmutils.fc
+/selinux/nmutils.if
+/selinux/nmutils.pp*
+/selinux/tmp/

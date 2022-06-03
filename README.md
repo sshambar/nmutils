@@ -233,6 +233,13 @@ are are just executed by NetworkManager:
 - Transmission config generation script
 `/etc/NetworkManager/dispatcher.d/90-transmission`
 
+SELinux
+-------
+
+A source module for SELinux is provided in the selinux directory.
+The module provides rules allowing 08-ipv6-prefix to spawn dhclient,
+and when a child of dhclient to manage radvd and perform DDNS functions.
+
 Test Suite
 ----------
 
