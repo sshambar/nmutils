@@ -2,10 +2,10 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 09-ddns v1.3.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-ddns v1.3.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2021 Scott Shambarger
+# Copyright (C) 2014-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -51,9 +51,8 @@
 # for logging
 NMG_TAG=${NMG_TAG:-nmddns}
 
-# set NMUTILS/NMCONF early, and allow environment to override
+# set NMUTILS early, and allow environment to override
 NMUTILS=${NMUTILS:-/etc/nmutils}
-NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## SCRIPT START
 

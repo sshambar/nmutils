@@ -57,9 +57,13 @@ manage radvd and perform DDNS operations.
 
 %prep
 %autosetup
-find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i "s|/etc/nmutils|%{_datadir}/nmutils|g" "$0"; touch -d "$t" "$0"' {} \;
-find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i "s|NMCONF=\${NMCONF:-\${NMUTILS}/conf}|NMCONF=\${NMCONF:-%{_sysconfdir}/nmutils/conf}|g" "$0"; touch -d "$t" "$0"' {} \;
-find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i "s|/etc/NetworkManager|%{_prefix}/lib/NetworkManager|g" "$0"; touch -d "$t" "$0"' {} \;
+# /etc/nmutils -> /usr/share/nmutils
+# /usr/share/nmutils/conf -> <sysconf>/nmutils/conf
+# /etc/NM/dispatcher.d -> /usr/lib/NM/dispatcher.d
+# /etc/NetworkManager - > <sysconf>/NetworkManager
+find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|/etc/nmutils|%{_datadir}/nmutils|g" -e "s|%{_datadir}/nmutils/conf|%{_sysconfdir}/nmutils/conf|g" -e "s|/etc/NetworkManager/dispatcher.d|%{_prefix}/lib/NetworkManager/dispatcher.d|g" -e "s|/etc/NetworkManager|%{_sysconfdir}/NetworkManager|g" "$0"; touch -d "$t" "$0"' {} \;
+# interface-dispatcher doc is copy to <sysconf>/NetworkManager/dispatcher.d
+find . -type f -name interface-dispatcher -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|%{_prefix}/lib/NetworkManager/dispatcher.d|%{_sysconfdir}/NetworkManager/dispatcher.d|g" "$0"; touch -d "$t" "$0"' {} \;
 
 %if 0%{?with_selinux}
 %build selinux

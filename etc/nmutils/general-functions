@@ -4,7 +4,7 @@
 # NMG - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2021 Scott Shambarger
+# Copyright (C) 2014-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,9 +27,8 @@
 #       # optional, for logging
 #       NMG_TAG="nmg"
 #
-#       # set NMUTILS/NMCONF early, and allow environment to override
+#       # set NMUTILS early, and allow environment to override
 #       NMUTILS=${NMUTILS:-/etc/nmutils}
-#       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
 #       # optional min-version requirement
 #       NMG_REQUIRED="1.4.1"
@@ -370,7 +369,7 @@
 #
 #   NMUTILS (default: /etc/nmutils) - location of this file
 #
-#   NMCONF (default: NMUTILS/conf) - location of general.conf
+#   NMCONF (default: /etc/nmutils/conf) - location of general.conf
 #
 #   NMG_REQUIRED (optional) - minimum required NMG_VERSION
 #
@@ -400,11 +399,11 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.1"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.2"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
-NMCONF=${NMCONF:-${NMUTILS}/conf}
+NMCONF=${NMCONF:-/etc/nmutils/conf}
 
 ########## Defaults (customize in $NMCONF/general.conf)
 

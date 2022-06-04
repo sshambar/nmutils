@@ -2,10 +2,10 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# interface-dispatcher v1.2 - service restart on interface change
+# interface-dispatcher v1.2.1 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2015-2019 Scott Shambarger
+# Copyright (C) 2015-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -44,29 +44,27 @@
 #     if STOP_UP/DOWN/CHANGE is set (may be used for conditional service
 #     starts on boot)
 #
-interface="$1"
-action="$2"
+interface=$1
+action=$2
 
-# set NMUTILS/NMCONF early, and allow environment to override
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-$NMUTILS/conf}"
+# set NMUTILS early, and allow environment to override
+NMUTILS=${NMUTILS:-/etc/nmutils}
 
 ########## SCRIPT START
 
 # anything for us to do?
-[ -n "$interface" -a -n "$action" ] || exit 0
+[[ ${interface} && ${action} ]] || exit 0
 
 # load general-functions
-NMG="${NMG:-$NMUTILS/general-functions}"
-[ -f "$NMG" -a -r "$NMG" ] && . "$NMG" || {
-    echo 1>&2 "Unable to load $NMG" && exit 2
-  }
+NMG=${NMG:-${NMUTILS}/general-functions}
+{ [[ -r ${NMG} ]] && . "${NMG}"; } || {
+  echo 1>&2 "Unable to load $NMG" && exit 2; }
 
 # check dispatcher name format for ##-service
-echo $0 | /bin/grep -q '^.*[0-9][0-9]-'
+echo "$0" | /bin/grep -q '^.*[0-9][0-9]-'
 [ $? -ne 0 ] && nmg_err "Invalid command name: $0" && exit 3
 
-SVC_UNIT=$(echo $0 | sed 's/^.*[0-9][0-9]-//')
+SVC_UNIT=$(echo "$0" | sed 's/^.*[0-9][0-9]-//')
 [ -z "$SVC_UNIT" ] && nmg_err "Missing service name on $0" && exit 4
 
 SVC_CONFIG="$NMCONF/ifd-${SVC_UNIT}-${interface}.conf"

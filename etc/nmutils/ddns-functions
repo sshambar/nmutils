@@ -4,7 +4,7 @@
 # NMDDNS - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2021 Scott Shambarger
+# Copyright (C) 2014-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,9 +27,8 @@
 #       # optional, for logging
 #       NMG_TAG="ddns"
 #
-#       # set NMUTILS/NMCONF early, and allow environment to override
+#       # set NMUTILS early, and allow environment to override
 #       NMUTILS=${NMUTILS:-/etc/nmutils}
-#       NMCONF=${NMCONF:-${NMUTILS}/conf}
 #
 #       # optional min-version required
 #       NMDDNS_REQUIRED="1.3.7"
@@ -217,11 +216,10 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.0"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.1"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
-NMCONF=${NMCONF:-${NMUTILS}/conf}
 
 ########## Global Defaults (customize in $NMCONF/general.conf)
 
@@ -243,11 +241,6 @@ NMDDNS_NSUPDATE=${NMDDNS_NSUPDATE:-nsupdate}
 # set NMDDNS_FLOCK to empty to disable all locking
 NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 
-########## Config Locations (defaults for HELPER)
-
-NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-${NMCONF}/ddns-@MATCH@.conf}
-NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-${DDNS_STATE_DIR}/ddns-@MATCH@-@RREC@.state}
-
 ########## SCRIPT START
 
 # load general-functions
@@ -257,6 +250,11 @@ NMDDNS_NMG_REQ=${NMG_REQUIRED-}
 NMG_REQUIRED="1.6.0"
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
+
+########## Config Locations (defaults for HELPER)
+
+NMDDNS_CONFIG_PAT=${NMDDNS_CONFIG_PAT:-${NMCONF}/ddns-@MATCH@.conf}
+NMDDNS_STATE_PAT=${NMDDNS_STATE_PAT:-${DDNS_STATE_DIR}/ddns-@MATCH@-@RREC@.state}
 
 # private
 nmddns::_loaded() {

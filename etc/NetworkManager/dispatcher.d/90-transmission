@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 90-transmission v1.1.1 - Transmission dispatcher script
+# 90-transmission v1.1.2 - Transmission dispatcher script
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # This script sets transmissions bind address to the public IP
@@ -11,7 +11,7 @@
 # configuration and then start transmission on interface up,
 # and stop transmission on interface down.
 #
-# Copyright (C) 2015-2021 Scott Shambarger
+# Copyright (C) 2015-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@
 #
 # Global overrides (put in NMCONF/general.conf)
 #
-#   TR_CONFIG (default: transmission-${interface}.conf}) - existance
+#   TR_CONFIG (default: NMCONF/transmission-${interface}.conf}) - existance
 #     of this file identifies the interface transmission should bind to.
 #
 # Config settings (put in TR_CONFIG)
@@ -62,30 +62,24 @@
 #
 #   TR_PRIVATE_V6 (default: empty) - non-empty, allow private ipv6 addrs
 #
-# Config location:
-#
-#   NMCONF/transmission-<interface>.conf
-#
 # State file:
 #
 #   /run/transmission-configured
 #
 # shellcheck disable=SC1090
 
-interface="$1"
-action="$2"
+interface=$1
+action=$2
 
 # for logging
 # shellcheck disable=SC2034
 NMG_TAG="trans-cfg"
 
-# set NMUTILS/NMCONF early, and allow environment to override
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-$NMUTILS/conf}"
+# set NMUTILS early, and allow environment to override
+NMUTILS=${NMUTILS:-/etc/nmutils}
 
-########## Config/state locations
+########## State location
 
-TR_CONFIG="${TR_CONFIG:-$NMCONF/transmission-${interface}.conf}"
 TR_STATE="/run/transmission-configured"
 
 ########## Default paths
@@ -93,7 +87,7 @@ TR_STATE="/run/transmission-configured"
 # Default transmission user's home dir
 TR_HOME=~transmission
 # Default transmission settings file
-TR_SETTINGS="$TR_HOME/.config/transmission-daemon/settings.json"
+TR_SETTINGS="${TR_HOME}/.config/transmission-daemon/settings.json"
 # Default transmission service name
 TR_UNIT="transmission-daemon"
 # default: no private ip
@@ -109,9 +103,12 @@ TR_IGNORE_V6=''
 [[ ${interface} && ${action} ]] || exit 0
 
 # load general-functions
-NMG="${NMG:-${NMUTILS}/general-functions}"
+NMG=${NMG:-${NMUTILS}/general-functions}
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load $NMG" && exit 2; }
+
+########## Config location default (if unset)
+TR_CONFIG=${TR_CONFIG:-${NMCONF}/transmission-${interface}.conf}
 
 # see if we're configured for this interface
 nmg_read_config "${TR_CONFIG}" || exit 0

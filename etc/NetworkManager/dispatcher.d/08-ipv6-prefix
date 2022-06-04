@@ -2,10 +2,10 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# 08-ipv6-prefix v1.99.7 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v1.99.8 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2014-2021 Scott Shambarger
+# Copyright (C) 2014-2022 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -136,28 +136,27 @@
 # for logging
 if [[ ${1-} && ${2-} ]]; then
   # run from NM
-  NMG_TAG="${NMG_TAG-ipv6-prefix}"
+  NMG_TAG=${NMG_TAG-ipv6-prefix}
   # or if not, log to stderr
   # shellcheck disable=SC2034
   [[ ${NM_DISPATCHER_ACTION} ]] || nmg_log_stderr=1
 elif [[ ${interface-} ]]; then
   # run from dhclient
-  NMG_TAG="${NMG_TAG-ipv6-prefix-dhc}"
+  NMG_TAG=${NMG_TAG-ipv6-prefix-dhc}
 fi
 
-# set NMUTILS/NMCONF early, and allow environment to override
-NMUTILS="${NMUTILS:-/etc/nmutils}"
-NMCONF="${NMCONF:-${NMUTILS}/conf}"
+# set NMUTILS early, and allow environment to override
+NMUTILS=${NMUTILS:-/etc/nmutils}
 
 ########## Global defaults (customize in $NMCONF/general.conf)
 
 ########## Default paths
 
-RUNDIR="${RUNDIR:-/run/nmutils}"
-LEASEDIR="${LEASEDIR:-/var/lib/dhclient}"
-ACCEPT_RA="${ACCEPT_RA:-/proc/sys/net/ipv6/conf/@WAN@/accept_ra}"
+RUNDIR=${RUNDIR:-/run/nmutils}
+LEASEDIR=${LEASEDIR:-/var/lib/dhclient}
+ACCEPT_RA=${ACCEPT_RA:-/proc/sys/net/ipv6/conf/@WAN@/accept_ra}
 # sysctl forwarding state (must contain "@NODE@")
-FORWARDING_PAT="${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}"
+FORWARDING_PAT=${FORWARDING_PAT:-/proc/sys/net/ipv6/conf/@NODE@/forwarding}
 
 ########## Support programs
 
