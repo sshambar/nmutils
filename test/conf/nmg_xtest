@@ -195,7 +195,7 @@ xstart() {
 
     local IFS=-
 
-    shtest::global_whitelist "xwrap"
+    shtest::global_whitelist "xwrap" "xwrap2"
 
     xtest::parse_options "$@"
 

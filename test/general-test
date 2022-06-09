@@ -11,7 +11,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.6.1"
+NMG_REQUIRED="1.6.3"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -1384,6 +1384,15 @@ xtest::group4::array() {
     xtest AC8 t "returns true"
     ftest AC8f "" "no log"
     atest AC8a avar2 aref2 "sets avar to aref"
+
+    unset avar2
+    declare -a avar2=(test)
+    xwrap2 "<assoc array mistach>" nmg::array_copy avar2 aref2
+    xtest AC9 3 "returns 3"
+    ftest AC9f "ERR: nmg::array_copy: <retarr> type must match <srcarr>" \
+	  "logs error"
+    atest AC9a avar2 anull "clears avar"
+    unset avar2
   fi
 
   avar=() aref=()
@@ -1455,11 +1464,12 @@ xtest::group4::array() {
   atest A17a avar aref "removes dups"
 
   if (( BASH_VERSINFO[0] >= 4 )); then
+    # for test, ordering or result is random, so just use one unique value
     # shellcheck disable=SC2016
-    declare -A avar2=([first]='multi word' ['2nd item']='multi word' \
-			     ['special$aref']='"and $var("' )
+    declare -A avar2=([1]='multi word' [2]='multi word' \
+			 [0]='multi word' )
     # shellcheck disable=SC2016
-    declare -A aref2=([1]='multi word' [0]='"and $var("' )
+    declare -A aref2=([0]='multi word')
     xwrap2 "<assoc array>" nmg::array_unique avar2 avar2
     xtest A18 t "returns true"
     atest A18a avar2 aref2 "removes dups"

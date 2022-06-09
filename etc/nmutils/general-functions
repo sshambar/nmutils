@@ -399,7 +399,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.2"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.6.3"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -1256,17 +1256,24 @@ nmg::array_join() {
 nmg::array_copy() {
   # <retarr> <srcarr>
   # shellcheck disable=SC2034
-  local _i
+  local _i _t
   nmg::_cleararr "${1-}" nmgret || return
   nmg::_reqarg "${2-}" "srcarr" || return
   [[ $1 == "$2" ]] && {
     nmg::_perr "<retarr> and <srcarr> must differ"; return 3; }
-  declare &>/dev/null -p "$2" || {
+  _i=$(declare 2>/dev/null -p -a "$2" || :)
+  [[ ${_i} ]] || {
     nmg::_perr "<srcarr> '$2' is unset"; return 3; }
-  # this copies both indexed and assoc arrays
-  eval "for _i in \${$2[*]+\"\${!$2[@]}\"}; do
-    $1[\"\${_i}\"]=\"\${$2[\"\${_i}\"]}\"
-    done"
+  [[ ${_i} =~ ^"declare -"[a-zB-Z]*A ]] && {
+    # assoc array, dest must be declared
+    _t=$(declare 2>/dev/null -p -a "$1" || :)
+    [[ ${_t} =~ ^"declare -"[a-zB-Z]*A ]] || {
+      nmg::_perr "<retarr> type must match <srcarr>"; return 3; }
+  }
+  _i=${_i#* $2}; _i=${_i#=}
+  [[ ${_i} =~ ^\' ]] && { _i=${_i#\'}; _i=${_i%\'}; }
+  [[ ${_i} =~ ^\( ]] && { _i=${_i#\(}; _i=${_i%\)}; }
+  eval "$1=(${_i//\\\'\'/})"
   return 0
 }
 

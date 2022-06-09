@@ -1,10 +1,10 @@
-# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
+# -*- mode: sh; sh-shell: bash; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.5.1 - Shell script testing functions
+# shtest v1.6.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2021 Scott Shambarger
+# Copyright (C) 2021-22 Scott Shambarger
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -281,6 +281,7 @@ shtest::_init_globals() {
   _SHTEST_STATE[12]=${BASH_SUBSHELL}
   local PATH=/bin:/usr/bin:/usr/local/bin
   _SHTEST_STATE[13]=$(command -p -v diff)
+  return 0
 }
 
 # returns 1 if strict mode failed
@@ -517,31 +518,52 @@ shtest::check_var() { # <id> [ <ref> [ <desc> ] ]
   shtest::check_value "${id}" var "$@"
 }
 
+shtest::_array_to_string() { # <dest-var> <arr-name>
+  local _i _t LANG=C
+  _i=$(declare 2>/dev/null -p -a "$2" || :)
+  _t=a; [[ ${_i} =~ ^"declare -"[a-zB-Z]*A ]] && _t=A
+  _i=${_i#* $2}; _i=${_i#=}; eval "local -${_t} _ta=${_i:-()}"
+  local _sa=("${!_ta[@]}") _s=''
+  if [[ ${_t} == A ]]; then
+    local _max _v1 _v2 _tmp
+    # need to sort indexes for consistent ordering
+    for (( _max=$(( ${#_sa[@]} - 1 )); _max > 0; _max-- )); do
+      for (( _i=0; _i<_max; _i++ )); do
+        _v1=${_sa[${_i}]}
+        _v2=${_sa[$((_i + 1))]}
+
+        # switch if necessary
+        if [[ ${_v1} > ${_v2} ]]; then
+          _tmp=${_v1}
+          _sa[${_i}]=${_v2}
+          _sa[$((${_i} + 1))]=${_tmp}
+        fi
+      done
+    done
+  fi
+  # convert array to a normalized string, one item per line
+  if [[ ${#_sa[*]} != 0 ]]; then
+    for _i in "${_sa[@]}"; do
+      _s+=$'\n'"[${_i//$'\n'/\$\'\\n\'}]='${_ta[${_i}]//$'\n'/\$\'\\n\'}'"
+    done
+  fi
+  printf -v "$1" %s "${_s#$'\n'}"
+  return 0
+}
+
 shtest::check_array() { # <id> <varname> <refname> [ <desc> ]
-  local _i _j _vn=() _rn=() _va=() _ra=() IFS=$'\n'
+  local _i _vs _rs IFS=''
   if ! [[ ${1-} && ${2-} && ${3-} ]]; then
     shtest::fatal "Usage: shtest::check_array <id> <varname> <refname> [ <desc> ]" 1
   fi
   shtest::_check_entry "$1" "${4-}" || return 0
 
-  # fetch array indexes
-  declare &>/dev/null -p "$2" && eval "(( \${#$2[*]} > 0 ))" &&
-    eval "for _i in \${$2[*]+\"\${!$2[@]}\"}; do _vn+=(\"\${_i}\"); done"
-  declare &>/dev/null -p "$3" && eval "(( \${#$3[*]} > 0 ))" &&
-    eval "for _i in \${$3[*]+\"\${!$3[@]}\"}; do _rn+=(\"\${_i}\"); done"
+  shtest::_array_to_string "_vs" "$2"
+  shtest::_array_to_string "_rs" "$3"
 
-  for _i in ${_vn[*]+"${_vn[@]}"}; do
-    _j=${_i//$'\n'/\$\'\\n\'}
-    eval "_va+=(\"[\${_j}]='\${$2[\"\${_i}\"]}'\")"
-  done
-  for _i in ${_rn[*]+"${_rn[@]}"}; do
-    # shellcheck disable=SC2034
-    _j=${_i//$'\n'/\$\'\\n\'}
-    eval "_ra+=(\"[\${_j}]='\${$3[\"\${_i}\"]}'\")"
-  done
-  # quote lhs as _va values may have newlines (bash3 breaks)
-  [[ "${_va[*]-}" != "${_ra[*]-}" ]] && {
-    shtest::_log_fail "$1" "${4-}" "${_ra[*]-}" "${_va[*]-}"
+  # quote lhs as _vs values has newlines (bash3 breaks)
+  [[ "${_vs}" != "${_rs}" ]] && {
+    shtest::_log_fail "$1" "${4-}" "${_rs}" "${_vs}"
     return 0
   }
   shtest::_log_ok "$1" "${4-}"
@@ -753,11 +775,16 @@ shtest::quiet() { # [ 0 ]
 shtest::_handle_err() {
   # allow code to continue (leave unbound set)
   set +e
-  local IFS='|'
-  [[ ${#_SHTEST_WHITELIST[*]} != 0 &&
-       ${FUNCNAME[1]} =~ ^${_SHTEST_WHITELIST[*]}$ ]] && return 0
-  [[ ${#_SHTEST_GLOBAL_WHITELIST[*]} != 0 &&
-       ${FUNCNAME[1]} =~ ^${_SHTEST_GLOBAL_WHITELIST[*]}$ ]] && return 0
+  local cmp IFS
+  [[ ${#_SHTEST_WHITELIST[*]} != 0 ]] && {
+    # workaround bash4 bug with IFS and =~ expansion
+    cmp=${_SHTEST_WHITELIST[*]}
+    [[ ${FUNCNAME[1]} =~ ^(${cmp// /|})$ ]] && return 0
+  }
+  [[ ${#_SHTEST_GLOBAL_WHITELIST[*]} != 0 ]] && {
+    cmp=${_SHTEST_GLOBAL_WHITELIST[*]}
+    [[ ${FUNCNAME[1]} =~ ^(${cmp// /|})$ ]] && return 0
+  }
   # may be in subshell, so touch file to communicate strict failure
   printf '%s' "" >> "${_SHTEST_STATE[2]}"
   # show backtrace if requested
