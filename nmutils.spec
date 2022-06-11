@@ -33,6 +33,7 @@ Requires:       (selinux-policy >= %{_selinux_policy_version} if selinux-policy-
 Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
 Suggests:       %{name}-selinux
 BuildRequires:  make
+BuildRequires:  systemd-rpm-macros
 %{?systemd_ordering}
 
 %description
