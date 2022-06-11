@@ -1094,6 +1094,8 @@ xtest::group3::file() {
   [[ -f "$XFILE" ]]
   xtest F32r f "file should be removed"
 
+  # normalize ordering
+  local LC_ALL=C
   xwrap2 "<no args>" nmg::foreach_filematch
   xtest F41 3 "returns 3"
   ftest F41f "ERR: nmg::foreach_filematch: missing <pattern>" "logs error"

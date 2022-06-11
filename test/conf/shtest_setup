@@ -1,7 +1,7 @@
 # -*- mode: sh; sh-shell: bash; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# shtest v1.6.0 - Shell script testing functions
+# shtest v1.6.1 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2021-22 Scott Shambarger
@@ -519,7 +519,7 @@ shtest::check_var() { # <id> [ <ref> [ <desc> ] ]
 }
 
 shtest::_array_to_string() { # <dest-var> <arr-name>
-  local _i _t LANG=C
+  local _i _t LC_ALL=C
   _i=$(declare 2>/dev/null -p -a "$2" || :)
   _t=a; [[ ${_i} =~ ^"declare -"[a-zB-Z]*A ]] && _t=A
   _i=${_i#* $2}; _i=${_i#=}; eval "local -${_t} _ta=${_i:-()}"
