@@ -15,12 +15,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-%global with_selinux 1
+%bcond_without selinux
+
 %global selinuxtype       targeted
 %global selinuxmodulename nmutils
 
 Name:           nmutils
-Version:        20220603
+Version:        20220612
 Release:        1%{?dist}
 Summary:        Network Manager Utility Scripts
 BuildArch:      noarch
@@ -29,24 +30,35 @@ License:        GPLv3+
 URL:            https://github.com/sshambar/nmutils
 Source0:        https://github.com/sshambar/nmutils/archive/%{version}/%{name}-%{version}.tar.gz
 Requires:       NetworkManager
-Requires:       (selinux-policy >= %{_selinux_policy_version} if selinux-policy-%{selinuxtype})
-Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
-Suggests:       %{name}-selinux
 BuildRequires:  make
+%if %{with selinux}
+%if 0%{?el7}
+Requires:       %{name}-selinux
+%else
+# boolean dependencies require rpm-4.13
+Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
+%endif
+%endif
+%if 0%{?el7}
+# epel7 has rpm macros in systemd
+BuildRequires:  systemd
+%else
 BuildRequires:  systemd-rpm-macros
+%endif
 %{?systemd_ordering}
 
 %description
 A collection of BASH based utility scripts and support functions for
 use with Gnome's NetworkManager dispatcher.
 
-%if 0%{?with_selinux}
+%if %{with selinux}
 %package selinux
 Summary:        Selinux policy module
 BuildArch:      noarch
 License:        GPLv3+
 Requires:       selinux-policy-%{selinuxtype}
 Requires(post): selinux-policy-%{selinuxtype}
+Requires:       selinux-policy >= %{_selinux_policy_version}
 BuildRequires:  selinux-policy-devel
 %{?selinux_requires}
 
@@ -66,7 +78,7 @@ find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|/etc/nmuti
 # interface-dispatcher doc is copy to <sysconf>/NetworkManager/dispatcher.d
 find . -type f -name interface-dispatcher -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|%{_prefix}/lib/NetworkManager/dispatcher.d|%{_sysconfdir}/NetworkManager/dispatcher.d|g" "$0"; touch -d "$t" "$0"' {} \;
 
-%if 0%{?with_selinux}
+%if %{with selinux}
 %build selinux
 pushd selinux
 %{__make} -f %{_datadir}/selinux/devel/Makefile %{selinuxmodulename}.pp
@@ -89,7 +101,7 @@ popd
 %{__chmod} +x %{buildroot}%{_datadir}/nmutils/interface-dispatcher
 %{__install} -p -m 0644 etc/systemd/system/* %{buildroot}%{_unitdir}
 
-%if 0%{?with_selinux}
+%if %{with selinux}
 # install policy modules
 %{__install} -dp %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 %{__install} -p -m 0644 selinux/%{selinuxmodulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
@@ -104,7 +116,7 @@ if [[ $1 -eq 0 ]] && command -v systemctl >/dev/null; then
   fi
 fi
 
-%if 0%{?with_selinux}
+%if %{with selinux}
 %post selinux
 %selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2 &> /dev/null
 
@@ -123,7 +135,7 @@ fi
 %config %{_sysconfdir}/nmutils
 %{_unitdir}/*
 
-%if 0%{?with_selinux}
+%if %{with selinux}
 %files selinux
 %license LICENSE.md
 %attr(0644,root,root) %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2 
@@ -131,7 +143,7 @@ fi
 %endif
 
 %changelog
-* Fri Jun 3 2022 Scott Shambarger <devel at shambarger.net> 20220603-1
+* Sun Jun 12 2022 Scott Shambarger <devel at shambarger.net> 20220612-1
 - Moved script libraries to datadir, handle instanced systemd files
 - Added SELinux subpackage
 

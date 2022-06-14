@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# radvd-gen v1.5.2 - Generate radvd.conf from template based on ip state
+# radvd-gen v1.5.3 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2018-21 Scott Shambarger
@@ -898,7 +898,7 @@ gen_file() { # <template> <config>
       elif is_prefix_key "$iface" "$save_prefix" wired; then
         # add brackets if none in orig
         if [[ ! $line =~ \}\; ]]; then
-          gen_line "%s" "${orig/;/ \{}"
+          gen_line "%s" "${orig/;/ {}"
           add_close=1
         fi
         gen_missing_lifetimes "$iface" "$save_prefix" "$save_prefix"
