@@ -2,7 +2,7 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
 #
-# interface-dispatcher v1.2.1 - service restart on interface change
+# dispatcher_action v1.3.0 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Copyright (C) 2015-2022 Scott Shambarger
@@ -20,11 +20,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-# Copy this file to /etc/NetworkManager/dispatcher.d/<##>-<service>
+# Create a file named /etc/NetworkManager/dispatcher.d/<##>-ifd-<service>
 # (or wherever your distro has these files) where <##> is a 2-digit
-# number, and <service> is a systemd service name.  This dispatcher
-# will then restart or stop <service> based on interface availability
-# (ie, if daemon has a UDP listener)
+# number, and <service> is a systemd service name.  The file should be
+# executable and contain the following:
+#
+# --- start
+# #!/bin/bash
+# . /etc/nmutils/dispatcher_action
+# --- end
+#
+# This dispatcher will then restart or stop <service> based on interface
+# availability (ie, if daemon has a UDP listener)
 #
 # Config file required for operation:
 #   /etc/nmutils/conf/ifd-<service>-<interface>.conf (config)
@@ -60,43 +67,43 @@ NMG=${NMG:-${NMUTILS}/general-functions}
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load $NMG" && exit 2; }
 
-# check dispatcher name format for ##-service
-echo "$0" | /bin/grep -q '^.*[0-9][0-9]-'
-[ $? -ne 0 ] && nmg_err "Invalid command name: $0" && exit 3
+# check dispatcher name format for ##-ifd-service
+SVC_UNIT=$0
+[[ ${SVC_UNIT} =~ ^.*[0-9][0-9]-ifd-([^/]+)$ ]] || {
+  nmg_err "Invalid command name: ${SVC_UNIT}" && exit 3
+}
+SVC_UNIT=${BASH_REMATCH[1]}
 
-SVC_UNIT=$(echo "$0" | sed 's/^.*[0-9][0-9]-//')
-[ -z "$SVC_UNIT" ] && nmg_err "Missing service name on $0" && exit 4
-
-SVC_CONFIG="$NMCONF/ifd-${SVC_UNIT}-${interface}.conf"
+SVC_CONFIG="${NMCONF}/ifd-${SVC_UNIT}-${interface}.conf"
 
 # see if we're configured for this interface
-nmg_read_config "$SVC_CONFIG" || exit 0
+nmg_read_config "${SVC_CONFIG}" || exit 0
 
 function svc_action() {
   # <restart-value> <stop-value>
-  local restart="$1" stop="$2"
-  if [ -n "$restart" ]; then
-    [ -n "$STATE_FILE" ] && nmg_write "$STATE_FILE" "$restart"
-    /usr/bin/systemctl 2>/dev/null -q is-enabled "$SVC_UNIT" || return 0
-    /usr/bin/systemctl reload-or-restart "$SVC_UNIT"
-  elif [ -n "$stop" ]; then
-    [ -n "$STATE_FILE" ] && nmg_remove "$STATE_FILE"
-    /usr/bin/systemctl stop "$SVC_UNIT"
+  local restart=$1 stop=$2
+  if [[ ${restart} ]]; then
+    [[ ${STATE_FILE} ]] && nmg_write "${STATE_FILE}" "${restart}"
+    /usr/bin/systemctl 2>/dev/null -q is-enabled "${SVC_UNIT}" || return 0
+    /usr/bin/systemctl reload-or-restart "${SVC_UNIT}"
+  elif [[ ${stop} ]]; then
+    [[ ${STATE_FILE} ]] && nmg_remove "${STATE_FILE}"
+    /usr/bin/systemctl stop "${SVC_UNIT}"
   fi
 }
 
-case "$action" in
+case "${action}" in
   up)
-    svc_action "$RESTART_UP" "$STOP_UP"
+    svc_action "${RESTART_UP}" "${STOP_UP}"
     ;;
   down)
-    svc_action "$RESTART_DOWN" "$STOP_DOWN"
+    svc_action "${RESTART_DOWN}" "${STOP_DOWN}"
     ;;
   dhcp4-change)
-    svc_action "$RESTART_CHANGE" "$STOP_CHANGE"
+    svc_action "${RESTART_CHANGE}" "${STOP_CHANGE}"
     ;;
   dhcp6-change)
-    svc_action "$RESTART_CHANGE6" "$STOP_CHANGE6"
+    svc_action "${RESTART_CHANGE6}" "${STOP_CHANGE6}"
     ;;
 esac
 

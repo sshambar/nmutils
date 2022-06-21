@@ -1,28 +1,29 @@
-policy_module(nmutils, 0.1.0)
+policy_module(nmutils, 0.2.0)
 
+#
+# Policy labels nmutils files in dispatcher.d as nmutils_exec_t (see .fc file)
+# and then defines domain transition so scripts are run in the initrc_t domain
+#
 require {
-	class chr_file { read getattr open };
-	class capability2 { block_suspend };
-	type random_device_t;
 	type dhcpc_t;
 	type NetworkManager_etc_t;
 	type NetworkManager_initrc_exec_t;
-};
+}
 
-# Required for 08-ipv6-prefix to spawn dhclient as a child of NetworkManager
-networkmanager_initrc_domtrans(dhcpc_t);
-networkmanager_read_conf(dhcpc_t);
+# define entry point, useable by NetworkManager and init scripts
+type nmutils_exec_t;
+init_script_file(nmutils_exec_t)
+
+# Required for dhclient to execute 08-ipv6-prefix
 search_dirs_pattern(dhcpc_t, NetworkManager_etc_t, NetworkManager_initrc_exec_t);
+domtrans_pattern(dhcpc_t, nmutils_exec_t, initrc_t)
 
-# Required for 08-ipv6-prefix to use ddns-functions and manage radvd
-# is a child of dhclient.
-
-# manage radvd
-radvd_admin(dhcpc_t, system_r);
-
-# for nsupdate
-allow dhcpc_t random_device_t:chr_file { read getattr open };
-
-# for dig
-allow dhcpc_t self:capability2 block_suspend;
-
+# required for newer NetworkManager
+optional {
+	require {
+		type NetworkManager_dispatcher_t;
+		type NetworkManager_dispatcher_script_t;
+	}
+	domtrans_pattern(NetworkManager_dispatcher_t, nmutils_exec_t, initrc_t)
+	search_dirs_pattern(dhcpc_t, NetworkManager_etc_t, NetworkManager_dispatcher_script_t);
+}

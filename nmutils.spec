@@ -21,7 +21,7 @@
 %global selinuxmodulename nmutils
 
 Name:           nmutils
-Version:        20220612
+Version:        20220621
 Release:        1%{?dist}
 Summary:        Network Manager Utility Scripts
 BuildArch:      noarch
@@ -56,10 +56,10 @@ use with Gnome's NetworkManager dispatcher.
 Summary:        Selinux policy module
 BuildArch:      noarch
 License:        GPLv3+
-Requires:       selinux-policy-%{selinuxtype}
-Requires(post): selinux-policy-%{selinuxtype}
-Requires:       selinux-policy >= %{_selinux_policy_version}
+BuildRequires:  make
+BuildRequires:  bzip2
 BuildRequires:  selinux-policy-devel
+Requires(post): policycoreutils
 %{?selinux_requires}
 
 %description selinux
@@ -70,22 +70,13 @@ manage radvd and perform DDNS operations.
 
 %prep
 %autosetup
-# /etc/nmutils -> /usr/share/nmutils
+# /etc/nmutils -> <datadir>/nmutils
 # /usr/share/nmutils/conf -> <sysconf>/nmutils/conf
-# /etc/NM/dispatcher.d -> /usr/lib/NM/dispatcher.d
+# /etc/NM/dispatcher.d -> <prefix>/lib/NM/dispatcher.d
 # /etc/NetworkManager - > <sysconf>/NetworkManager
 find . -type f -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|/etc/nmutils|%{_datadir}/nmutils|g" -e "s|%{_datadir}/nmutils/conf|%{_sysconfdir}/nmutils/conf|g" -e "s|/etc/NetworkManager/dispatcher.d|%{_prefix}/lib/NetworkManager/dispatcher.d|g" -e "s|/etc/NetworkManager|%{_sysconfdir}/NetworkManager|g" "$0"; touch -d "$t" "$0"' {} \;
-# interface-dispatcher doc is copy to <sysconf>/NetworkManager/dispatcher.d
-find . -type f -name interface-dispatcher -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|%{_prefix}/lib/NetworkManager/dispatcher.d|%{_sysconfdir}/NetworkManager/dispatcher.d|g" "$0"; touch -d "$t" "$0"' {} \;
-
-%if %{with selinux}
-%build selinux
-pushd selinux
-%{__make} -f %{_datadir}/selinux/devel/Makefile %{selinuxmodulename}.pp
-%{__rm} -f %{selinuxmodulename}.pp.bz2
-bzip2 -9 %{selinuxmodulename}.pp
-popd
-%endif
+# Fix dispatcher_action doc to ref <sysconf>/NetworkManager/dispatcher.d
+find . -type f -name dispatcher_action -exec bash -c 't=$(stat -c %y "$0"); %{__sed} -i -e "s|%{_prefix}/lib/NetworkManager/dispatcher.d|%{_sysconfdir}/NetworkManager/dispatcher.d|g" "$0"; touch -d "$t" "$0"' {} \;
 
 %check
 %{__make} SRC_ROOT=%{buildroot} -C test
@@ -98,7 +89,6 @@ popd
 
 %{__install} -p etc/NetworkManager/dispatcher.d/* %{buildroot}%{_prefix}/lib/NetworkManager/dispatcher.d
 %{__install} -p -m 0644 etc/nmutils/* %{buildroot}%{_datadir}/nmutils
-%{__chmod} +x %{buildroot}%{_datadir}/nmutils/interface-dispatcher
 %{__install} -p -m 0644 etc/systemd/system/* %{buildroot}%{_unitdir}
 
 %if %{with selinux}
@@ -116,17 +106,6 @@ if [[ $1 -eq 0 ]] && command -v systemctl >/dev/null; then
   fi
 fi
 
-%if %{with selinux}
-%post selinux
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2 &> /dev/null
-
-%postun selinux
-if [ $1 -eq 0 ]; then
-  # Package removal, not upgrade
-  %selinux_modules_uninstall -s %{selinuxtype} %{selinuxmodulename}
-fi
-%endif
-
 %files
 %license LICENSE.md
 %doc README.md examples
@@ -136,14 +115,37 @@ fi
 %{_unitdir}/*
 
 %if %{with selinux}
+
+%build selinux
+pushd selinux
+%{__make} %{selinuxmodulename}.pp
+%{__rm} -f %{selinuxmodulename}.pp.bz2
+bzip2 -9 %{selinuxmodulename}.pp
+popd
+
+%pre selinux
+%selinux_relabel_pre -s %{selinuxtype}
+
+%post selinux
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2 || :
+
+%postun selinux
+if [ $1 -eq 0 ]; then
+  # Package removal, not upgrade
+  %selinux_modules_uninstall -s %{selinuxtype} %{selinuxmodulename} || :
+fi
+
+%posttrans selinux
+%selinux_relabel_post -s %{selinuxtype} || :
+
 %files selinux
 %license LICENSE.md
-%attr(0644,root,root) %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2 
+%attr(0644,root,root) %{_datadir}/selinux/packages/%{selinuxtype}/%{selinuxmodulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{selinuxmodulename}
 %endif
 
 %changelog
-* Sun Jun 12 2022 Scott Shambarger <devel at shambarger.net> 20220612-1
+* Tue Jun 21 2022 Scott Shambarger <devel at shambarger.net> 20220621-1
 - Moved script libraries to datadir, handle instanced systemd files
 - Added SELinux subpackage
 
