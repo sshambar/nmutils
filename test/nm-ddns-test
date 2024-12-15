@@ -1,6 +1,7 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t; -*-
 # vim:set ft=sh sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Test suite for 09-ddns
 #
@@ -18,9 +19,9 @@ xtest::onexit::action() {
 
 xtest::group3::action() {
 
-  local out state1 state2
+  shtest::title "ddns_nm_action tests (action group)"
 
-  shtest::title "Action Tests (action group)"
+  local out state1 state2
 
   # Test NM up/down/dhcp*-change dispatcher actions
 
@@ -33,11 +34,11 @@ xtest::group3::action() {
   xrm "$state1" "$state2"
 
   xwrap2 "up" ddns_nm_action eth0 up
-  xtest A1 t "returns true"
+  xret A1 t "returns true"
   xread_value out <<-EOF
 	Setting dns.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
@@ -45,7 +46,7 @@ xtest::group3::action() {
 	update add dns.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	Setting dns.example.test A to 192.168.66.4
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -57,16 +58,16 @@ xtest::group3::action() {
   shtest::check_file A1j "$state2" "!eth0" "creates AAAA dns state"
 
   xwrap2 "down" ddns_nm_action eth0 down
-  xtest A2 t "returns true"
+  xret A2 t "returns true"
   xread_value out <<-EOF
 	Removing dns.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
 	send
 	Removing dns.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -79,10 +80,10 @@ xtest::group3::action() {
   xtest A2j f "removes AAAA dns state"
 
   xwrap2 "dhcp4-change" ddns_nm_action eth0 dhcp4-change
-  xtest A3 t "returns true"
+  xret A3 t "returns true"
   xread_value out <<-EOF
 	Setting dns.example.test A to 192.168.66.4
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -95,11 +96,11 @@ xtest::group3::action() {
   xtest A3j f "does not create AAAA dns state"
 
   xwrap2 "dhcp6-change" ddns_nm_action eth0 dhcp6-change
-  xtest A4 t "returns true"
+  xret A4 t "returns true"
   xread_value out <<-EOF
 	Setting dns.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
@@ -127,7 +128,7 @@ xtest::group5::direct() {
 
   local out state0 state1 state2
 
-  shtest::title "09-ddns direct tests"
+  shtest::title "ddns_direct tests (direct group)"
 
   # Test running 09-ddns directly (as from boot script), and test
   # deferred dns updates using state files created by NM actions.
@@ -145,10 +146,10 @@ xtest::group5::direct() {
   echo "2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1" > "$state2"
 
   xwrap2 "<new ip4, 2 curr ip6>" ddns_direct
-  xtest D1 t "returns true"
+  xret D1 t "returns true"
   xread_value out <<-EOF
 	Setting dns.example.test A to 192.168.66.4
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -162,10 +163,10 @@ xtest::group5::direct() {
   echo "2001:db8:200:2:32fb:93c5:555:1" > "$state2"
 
   xwrap2 "<stale ip4, selected ip6>" ddns_direct
-  xtest D2 t "returns true"
+  xret D2 t "returns true"
   xread_value out <<-EOF
 	Setting dns2.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns2.example.test AAAA
@@ -173,7 +174,7 @@ xtest::group5::direct() {
 	send
 	Setting dns.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
@@ -181,7 +182,7 @@ xtest::group5::direct() {
 	update add dns.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	Removing dns.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -192,17 +193,17 @@ xtest::group5::direct() {
   xrm "$state0" "$state2"
 
   xwrap2 "<eth0 only state>" ddns_direct
-  xtest D3 t "returns true"
+  xret D3 t "returns true"
   xread_value out <<-EOF
 	Removing dns2.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns2.example.test AAAA
 	send
 	Setting dns.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test AAAA
@@ -210,7 +211,7 @@ xtest::group5::direct() {
 	update add dns.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
 	Removing dns.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns.example.test A
@@ -223,10 +224,10 @@ xtest::group5::direct() {
   # Test direct for only a single interface
 
   xwrap2 "br1" ddns_direct br1
-  xtest D11 t "returns true"
+  xret D11 t "returns true"
   xread_value out <<-EOF
 	Setting dns2.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete dns2.example.test AAAA
@@ -250,7 +251,10 @@ xmain() {
   local NMDDNS_CONFIG_PAT="$NMCONF/nm-ddns-@MATCH@.conf"
   local NMDDNS_STATE_PAT="$RUNDIR/nm-ddns-@MATCH@-@RREC@.state"
 
-  xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/09-ddns"
+  # don't mimic cmdline
+  unset LOGNAME
+
+  xload_script "${TEST_NMDIR}/09-ddns"
 
   xtest::run_tests "09-ddns Test Summary" "$@"
 }

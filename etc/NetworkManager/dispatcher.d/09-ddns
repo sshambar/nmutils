@@ -1,24 +1,12 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# 09-ddns v1.3.1 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# Copyright (C) 2014-2024 Scott Shambarger
+#
+# 09-ddns v1.4.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2014-2022 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Instructions for use:
 #
@@ -50,6 +38,11 @@
 
 # for logging
 NMG_TAG=${NMG_TAG:-nmddns}
+[[ -z ${NM_DISPATCHER_ACTION-} && -z ${NMDDNSH_ACTION-} ]] && {
+  # run from shell, log to stderr
+  # shellcheck disable=SC2034
+  [[ ${LOGNAME-} ]] && nmg_log_stderr=1
+}
 
 # set NMUTILS early, and allow environment to override
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -57,7 +50,7 @@ NMUTILS=${NMUTILS:-/etc/nmutils}
 ########## SCRIPT START
 
 # shellcheck disable=SC2034
-NMDDNS_REQUIRED="1.5.0"
+NMDDNS_REQUIRED="1.5.3"
 
 # load ddns-functions
 NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
@@ -110,6 +103,8 @@ ddns_nm_action() {
 ddns_helper_action() {
   local rc=0
 
+  nmg_debug "ACTION: ${NMDDNSH_ACTION}"
+
   nmddns_required_config "${NMDDNSH_CONFIG-}"
 
   case ${NMDDNSH_ACTION} in
@@ -150,7 +145,7 @@ function ddns_interface_rrec() {
 
     if [[ ${value} ]]; then
       # if ip-addresses, verify on interface
-      if [[ ${rrec} =~ ^A|AAAA$ && ! ${value} =~ ^[!].+$ ]]; then
+      if [[ ${rrec} =~ ^(A|AAAA)$ && ! ${value} =~ ^[!].+$ ]]; then
         # get values that are valid on <intf>, remove addrs if down
         local avail=() avals=() newvals=() tval
 
@@ -167,10 +162,10 @@ function ddns_interface_rrec() {
         fi
 
         # find intersection with available addrs
-        for value in ${avals[*]+"${avals[@]}"}; do
+        for value in ${avals[@]+"${avals[@]}"}; do
           # strip any /prefix
           value=${value%%/*}
-          for tval in ${avail[*]+"${avail[@]}"}; do
+          for tval in ${avail[@]+"${avail[@]}"}; do
             [[ ${tval} == "${value}" ]] && { newvals+=("${value}"); break; }
           done
         done
@@ -212,6 +207,8 @@ ddns_direct_cb() {
 
 ddns_direct() {
   # [ <interface> ]
+  nmg_debug "DIRECT: ${1-}"
+
   nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" ddns_direct_cb "$@"
 }
 
@@ -226,7 +223,8 @@ elif [[ ${NMDDNSH_ACTION-} ]]; then
 
   # called from ddns-functions
   ddns_helper_action || exit
-else
+
+elif [[ -z ${NM_DISPATCHER_ACTION-} ]]; then
 
   # called from boot script
   ddns_direct "${1-}"
