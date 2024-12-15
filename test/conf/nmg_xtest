@@ -19,6 +19,9 @@
 #   xwrap2 <tag> <cmd> [ <args>...]
 #     Same as xwrap, but calls shtest::prefix "<cmd>(<tag>) - " first
 #
+#   xret <tag> <ref> [ <desc> ]
+#     Same as shtest::check_result, but calls shtest::prefix " - " after
+#
 #   xrm <file> ...
 #     Removes <file>s using command -p to avoid PATH
 #
@@ -37,7 +40,13 @@
 #
 # shellcheck shell=bash disable=SC1090,SC2123
 
-# load common.conf
+TEST_CONF=${TEST_CONF-${TEST_ROOT-.}/conf}
+. "${TEST_CONF}/shtest_setup" ||
+  { echo >&2 "Unable to source shtest_setup"; exit 1; }
+
+shtest::clean_env -strict TEST*
+
+# reload common.conf
 TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 { [[ -r ${TEST_COMMON} ]] && . "${TEST_COMMON}"; } ||
   { echo >&2 "Unable to load ${TEST_COMMON}"; exit 2; }
@@ -49,7 +58,6 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 
 # need output directory
 [[ $TEST_OUT && -d $TEST_OUT ]] || xtest::fail "\$TEST_OUT is unset/missing!"
-[[ $TEST_OUT =~ ^/ ]] && xtest::fail "\$TEST_OUT must be relative!"
 
 NMG_XTEST_BASE=${0##*/}
 XLOG="$TEST_OUT/${NMG_XTEST_BASE}.log"
@@ -71,28 +79,33 @@ xwrap2() { # <tag> <func> [ <args>... ]
   "${_xcmd}" &>"${XERR}" 4>"${XLOG}" "$@"
 }
 
+xret() {
+  shtest::check_result "$@"
+  shtest::prefix " - "
+}
+
 xrm() {
   local f
   for f in "$@"; do [[ $f ]] && command -p rm -f "$f"; done
   return 0
 }
 
+# read stdin, strips trailing newline
 xread_value() {
-  # <retvar> <stdin
-  local IFS; unset IFS
+  # <retvar> < stdin
+  local IFS
   read -r -d '' "$1" || :
 }
 
 xread_value2() {
-  # <retvar> <stdin
-  local REPLY IFS; unset IFS
-  read -r -d '' || :
-  printf -v "$1" '%s' "${REPLY}"
+  # <retvar> < stdin
+  local IFS=-
+  read -r -d '' "$1" || :
 }
 
 xcat() {
-  # <stdin
-  local REPLY IFS; unset IFS
+  # < stdin
+  local REPLY
   read -r -d '' || printf '%s' "${REPLY}"
 }
 
@@ -111,7 +124,7 @@ xnmg::_onexit() { # <rc>
     }
     [[ -s ${XLOG} ]] && {
       shtest::alert "==== nmg log ===="
-      shtest::alert "$(< "${XLOG}" >&2)"
+      shtest::alert "$(< "${XLOG}")"
     }
   }
 
@@ -121,7 +134,7 @@ xnmg::_onexit() { # <rc>
 }
 
 xnmg::_xload_check() {
-  local xrc="exit 0" IFS; unset IFS
+  local xrc="exit 0" IFS
 
   [[ -s ${XERR}-flag ]] &&
     { read -r -d '' xrc || :; } 2>/dev/null < "${XERR}-flag"
@@ -180,12 +193,12 @@ xstart() {
   # less noise
   local -x NMG_TAG=''
 
-  # these tests require MOCK_ECHO=1 to check command actions
-  local -x MOCK_ECHO=1
-
   # fd 4 used for logger
   local -x nmg_log_stderr=4
   exec 4>&2
+
+  # redirect MOCK_ECHO to log
+  local -x MOCK_ECHO_FD=${nmg_log_stderr}
 
   (
     shtest::add_onexit xnmg::_onexit

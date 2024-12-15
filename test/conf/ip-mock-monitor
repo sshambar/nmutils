@@ -1,0 +1,5 @@
+ADDR6: 13: eth1    2001:db8:a0b:12f0::1/64 scope global tentative
+ADDR6:       valid_lft forever preferred_lft forever
+ROUTE6: local 2001:db8:a0b:12f0::1 dev eth1 table local proto kernel metric 0 pref medium
+ROUTE6: fd66:7777:7777::1 dev eth1 proto kernel metric 256 pref medium
+SLEEP: 5

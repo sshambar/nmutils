@@ -1,6 +1,7 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t; -*-
 # vim:set ft=sh sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Test suite for general-functions
 #
@@ -11,7 +12,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.6.3"
+NMG_REQUIRED="1.7.0"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -22,17 +23,17 @@ xtest::group1::log() {
 
   # test unset prio
   xwrap2 "<no args>" nmg_log
-  xtest L1 t "returns true"
+  xret L1 t "returns true"
   ftest L1f "" "should not log"
 
   # test empty prio
   xwrap2 "<empty prio>" nmg_log "" "text"
-  xtest L2 t "returns true"
+  xret L2 t "returns true"
   ftest L2f "" "should not log"
 
   # test debug with debug off
   xwrap2 "debug" nmg_log debug "debug text"
-  xtest L3 t "when disabled, returns true"
+  xret L3 t "when disabled, returns true"
   ftest L3f "" "when disabled, should not log"
 
   # now log debug
@@ -40,12 +41,12 @@ xtest::group1::log() {
 
   # test debug
   xwrap2 "debug" nmg_log debug "debug text"
-  xtest L4 t "when enabled, returns true"
+  xret L4 t "when enabled, returns true"
   ftest L4f "DBG: debug text" "when enabled, should log debug"
 
   # test error
   xwrap2 "err" nmg_log err "helper-test text"
-  xtest L5 t "returns true"
+  xret L5 t "returns true"
   ftest L5f "ERR: helper-test text" "should log err"
 
   # closed log fd
@@ -53,19 +54,19 @@ xtest::group1::log() {
 
   shtest::prefix "nmg_log(err <log closed>) - "
   nmg_log &>"${XERR}" 4>&- err "no log"
-  xtest L6 t "returns true"
+  xret L6 t "returns true"
   ftest L6f "" "should not generate output"
 
   # test info, multi-word
   xwrap2 "info" nmg_log info "info" "text"
-  xtest L7 t "returns true"
+  xret L7 t "returns true"
   ftest L7f "info text" "should log info"
 
   # test tag
   local NMG_TAG="test prefix"
 
   xwrap2 "err" nmg_log err "text with prefix"
-  xtest L8 t "with tag, returns true"
+  xret L8 t "with tag, returns true"
   ftest L8f "test prefix: ERR: text with prefix" "should log with tag"
 
   # test with logger
@@ -73,7 +74,7 @@ xtest::group1::log() {
   unset nmg_log_stderr
 
   xwrap2 "err" nmg_log err "text with tag"
-  xtest L9 t "with default logger with tag, returns true"
+  xret L9 t "with default logger with tag, returns true"
   ftest2 L9f "" "-p daemon.err -t test prefix text with tag" \
 	 "should log with prio/tag"
 
@@ -81,22 +82,25 @@ xtest::group1::log() {
   unset NMG_TAG
 
   xwrap2 "info" nmg_log info "text without tag"
-  xtest L10 t "with default logger no tag, returns true"
+  xret L10 t "with default logger no tag, returns true"
   ftest2 L10f "" "-p daemon.info text without tag" \
          "no tag, should log with prio only"
 
   nmg_log_stderr=1
 
   xwrap2 "<stderr>" nmg_log err "to stderr"
-  xtest L11 t "to stderr with tag, returns true"
+  xret L11 t "to stderr with tag, returns true"
   ftest2 L11f "" "ERR: to stderr" "should log with prio to stderr"
 
   echo -n >"${XLOG}"
 
-  shtest::prefix "nmg_log(err <stderr closed>) - "
-  nmg_log >"${XERR}" 2>&- err "stderr closed"
-  xtest L12 t "returns true"
-  ftest L12f "" "should not generate output"
+  # apple bash has bug that closed stderr in call stays closed, skip
+  [[ ${BASH_VERSINFO[5]-} =~ apple ]] || {
+    shtest::prefix "nmg_log(err <stderr closed>) - "
+    nmg_log >"${XERR}" 2>&- err "stderr closed"
+    xret L12 t "returns true"
+    ftest L12f "" "should not generate output"
+  }
 }
 
 xtest::group2::err() {
@@ -109,7 +113,7 @@ xtest::group2::err() {
   _nmglog=ignore
 
   xwrap2 "ignore <_nmgrc unset>" nmg::_err "test::func: err msg"
-  xtest E1 t "returns true"
+  xret E1 t "returns true"
   ftest E1f "" "should not log"
   [[ ${_nmgrc-unset} == "unset" ]]
   xtest E1v t "should not set _nmgrc"
@@ -118,7 +122,7 @@ xtest::group2::err() {
   _nmgrc=1 _nmglog=ignore
 
   xwrap2 "ignore <_nmgrc=1>" nmg::_err "test::func: err msg"
-  xtest E2 t "returns true"
+  xret E2 t "returns true"
   ltest E2v _nmgrc "0" "sets _nmgrc=0"
   ftest E2f "" "should not log"
 
@@ -126,21 +130,21 @@ xtest::group2::err() {
   _nmgrc=1 _nmglog="err ignore"
 
   xwrap2 "err ignore" nmg::_err "test::func: err msg"
-  xtest E4 t "returns true"
+  xret E4 t "returns true"
   ftest E4f "" "should not log"
 
   # without message or _nmglog
   unset _nmglog _nmgrc
 
   xwrap2 "<no args>" nmg::_err
-  xtest E5 t "returns true"
+  xret E5 t "returns true"
   ftest E5f "ERR: empty <msg> to nmg::_perr" "logs error"
 
   # test calling with invalid err-mode
   _nmgrc=1 _nmglog=xbad _nmgfunc="test::func"
 
   xwrap2 "<bad errmode>" nmg::_err "err msg"
-  xtest E6 t "returns true"
+  xret E6 t "returns true"
   xread_value out <<- EOF
 	ERR: test::func: unknown error mode 'xbad'
 	ERR: test::func: err msg
@@ -152,14 +156,14 @@ xtest::group2::err() {
   _nmglog=retvar
 
   xwrap2 "retvar <_nmgvar unset>" nmg::_err "err msg"
-  xtest E7 t "returns true"
+  xret E7 t "returns true"
   ftest E7f "ERR: test::func: err msg" "logs error"
 
   # test calling with info log
   _nmglog=info
 
   xwrap2 "<_nmglog=info>" nmg::_err "err msg"
-  xtest E8 t "returns true"
+  xret E8 t "returns true"
   ftest E8f "test::func: err msg" "should log info"
 
   # test calling with err-mode debug
@@ -167,7 +171,7 @@ xtest::group2::err() {
   _nmglog="err debug"
 
   xwrap2 "debug" nmg::_err "err msg"
-  xtest E9 t "returns true"
+  xret E9 t "returns true"
   ftest E9f "DBG: test::func: err msg" "logs debug msg"
   unset nmg_show_debug
 
@@ -175,8 +179,8 @@ xtest::group2::err() {
   _nmgvar='' _nmglog="nolog retvar"
 
   xwrap2 "nolog retvar" nmg::_err "err msg"
+  xret E10 t "returns true"
   echo >"${XLOG}" "_=${_nmgvar-unset}"
-  xtest E10 t "returns true"
   ftest E10f "_=err msg" "does not log, sets _nmgvar"
 }
 
@@ -194,116 +198,116 @@ xtest::group3::prop() {
   shtest::title "Property Tests (prop group)"
 
   xwrap2 "<no args>" nmg::prop_get_value
-  xtest N1 1 "returns 1"
+  xret N1 1 "returns 1"
   ftest N1f "" "does not log"
 
   xwrap2 "<bad#name>" nmg::prop_get_value "bad#name" "$dict" "item"
-  xtest N2 3 "returns 3"
+  xret N2 3 "returns 3"
   ftest N2f "ERR: nmg::prop_get_value: invalid <retvar> 'bad#name'" \
 	"logs error"
 
   xwrap2 "<no retvar> <match>" nmg::prop_get_value "" "$dict" "item"
-  xtest N3 t "returns true"
+  xret N3 t "returns true"
   ftest N3f "" "does not log"
 
   var="bogus"
 
   xwrap2 "<no match>" nmg::prop_get_value var "$dict" "itemx"
-  xtest N4 1 "returns 1"
+  xret N4 1 "returns 1"
   vtest N4v "" "clears retvar"
   ftest N4f "" "does not log"
 
   xwrap2 "<match>" nmg::prop_get_value var "$dict" "item"
-  xtest N5 t "returns true"
+  xret N5 t "returns true"
   vtest N5v "value" "sets retvar"
 
   var="bogus"
 
   xwrap2 "<empty val>" nmg::prop_get_value var "$dict" "empty"
-  xtest N6 t "returns true"
+  xret N6 t "returns true"
   vtest N6v "" "clears retvar"
 
   xwrap2 "<no args>" nmg::prop_has_value
-  xtest N11 1 "returns 1"
+  xret N11 1 "returns 1"
   ftest N11f "" "does not log"
 
   xwrap2 "<mismatch val>" nmg::prop_has_value "$dict" "item" "xvalue"
-  xtest N12 1 "returns 1"
+  xret N12 1 "returns 1"
 
   xwrap2 "<mismatch case>" nmg::prop_has_value "$dict" "item" "VALUE"
-  xtest N13 1 "returns 1"
+  xret N13 1 "returns 1"
 
   xwrap2 "<match>" nmg::prop_has_value "$dict" "item" "value"
-  xtest N14 t "returns true"
+  xret N14 t "returns true"
 
   xwrap2 "<match> <sep>" nmg::prop_has_value "$dict" "item" "value" ","
-  xtest N15 t "returns true"
+  xret N15 t "returns true"
 
   xwrap2 "<list-match> <sep>" nmg::prop_has_value "$dict" "mitem" "yy" ","
-  xtest N16 t "returns true"
+  xret N16 t "returns true"
 
   xwrap2 "<list-mismatch> <sep>" nmg::prop_has_value "$dict" "mitem" "test" ","
-  xtest N17 1 "returns 1"
+  xret N17 1 "returns 1"
 
   xwrap2 "<case-diff-match>" nmg::prop_has_ivalue "$dict" "mitem" "XX" ","
-  xtest N21 t "returns true"
+  xret N21 t "returns true"
 
   xwrap2 "<mis-match>" nmg::prop_has_ivalue "$dict" "mitem" "test" ","
-  xtest N22 1 "returns 1"
+  xret N22 1 "returns 1"
 
   xwrap2 "<no args>" nmg::prop_match_values
-  xtest N31 3 "returns 3"
+  xret N31 3 "returns 3"
   ftest N31f "ERR: nmg::prop_match_values: missing <sep>" "logs error"
 
   xwrap2 "<mismatch>" nmg::prop_match_values "$dict" "mitem" "," "xx,zz"
-  xtest N32 1 "returns 1"
+  xret N32 1 "returns 1"
   ftest N32f "" "does not log"
 
   xwrap2 "<diff order>" nmg::prop_match_values "$dict" "mitem" "," "yy,xx"
-  xtest N33 t "returns true"
+  xret N33 t "returns true"
 
   xwrap2 "<with dups>" nmg::prop_match_values "$dict" "mitem" "," "yy,xx,yy"
-  xtest N34 t "returns true"
+  xret N34 t "returns true"
 
   xwrap2 "<empty>" nmg::prop_match_values "$dict" "mitem" "," ""
-  xtest N35 f "returns false"
+  xret N35 f "returns false"
 
   xwrap2 "<empty>" nmg::prop_match_values "$dict" "item" "," ""
-  xtest N36 f "returns false"
+  xret N36 f "returns false"
 
   xwrap2 "<no args>" nmg::prop_set_value
-  xtest N41 1 "returns 1"
+  xret N41 1 "returns 1"
   ftest N41f "" "does not log"
 
   xwrap2 "<bad#name>" nmg::prop_set_value "bad#name" "$dict" "item"
-  xtest N42 3 "returns 3"
+  xret N42 3 "returns 3"
   ftest N42f "ERR: nmg::prop_set_value: invalid <retvar> 'bad#name'" \
         "logs error"
 
   var="bogus"
 
   xwrap2 "<no props>" nmg::prop_set_value var
-  xtest N43 1 "returns 1"
+  xret N43 1 "returns 1"
   vtest N43v "" "clears retvar"
   ftest N43f "" "does not log"
 
   var="bogus"
 
   xwrap2 "<no name>" nmg::prop_set_value var "" ""
-  xtest N44 1 "returns 1"
+  xret N44 1 "returns 1"
   vtest N44v "" "clears retvar"
   ftest N44f "" "does not log"
 
   xwrap2 "<new remove>" nmg::prop_set_value var "$dict" "itemx"
-  xtest N45 t "returns true"
+  xret N45 t "returns true"
   vtest N45v "$dict" "returns original"
 
   xwrap2 "<new empty>" nmg::prop_set_value var "$dict" "itemx" ""
-  xtest N46 t "returns true"
+  xret N46 t "returns true"
   vtest N46v "${dict}itemx:"$'\n' "returns updated props"
 
   xwrap2 "<new add>" nmg::prop_set_value var "$dict" "itemx" "val"
-  xtest N47 t "returns true"
+  xret N47 t "returns true"
   vtest N47v "${dict}itemx:val"$'\n' "returns updated props"
 
   xread_value2 dict <<- EOF
@@ -314,7 +318,7 @@ xtest::group3::prop() {
 	last:test
 	EOF
   xwrap2 "<replace empty>" nmg::prop_set_value var "$dict" "item" ""
-  xtest N48 t "returns true"
+  xret N48 t "returns true"
   vtest N48v "$dict" "returns updated props"
 
   xread_value2 dict <<- EOF
@@ -325,7 +329,7 @@ xtest::group3::prop() {
 	last:test
 	EOF
   xwrap2 "<replace>" nmg::prop_set_value var "$dict" "item" "newval"
-  xtest N49 t "returns true"
+  xret N49 t "returns true"
   vtest N49v "$dict" "returns updated props"
 
   xread_value2 dict <<- EOF
@@ -335,7 +339,7 @@ xtest::group3::prop() {
 	last:test
 	EOF
   xwrap2 "<remove>" nmg::prop_set_value var "$dict" "item"
-  xtest N50 t "returns true"
+  xret N50 t "returns true"
   vtest N50v "$dict" "returns updated props"
 }
 
@@ -355,26 +359,26 @@ xtest::group3::cmd() {
 
   # invalid call
   xwrap2 "<no args>" nmg::run
-  xtest X1 3 "returns 3"
+  xret X1 3 "returns 3"
   ftest X1f "ERR: nmg::run: missing <cmd>" "should log error"
 
   # test basic echo command
   xwrap2 "echo" nmg::run var info echo a few words
-  xtest X2 t "returns true"
+  xret X2 t "returns true"
   vtest X2v "a few words" "should generate output"
   ftest X2f "" "should not log"
 
   local nmg_dryrun=5 nmg_show_debug=''
 
   xwrap2 "<dry-run 5>" nmg::run var err true
-  xtest X3 5 "returns 5"
+  xret X3 5 "returns 5"
   vtest X3v "" "should clear retvar"
   ftest X3f "ERR: FAIL(5) DRY-RUN: true" "should log err"
 
   nmg_dryrun=0 nmg_show_debug=1
 
   xwrap2 "<dry-run>" nmg::run var err "$XFILE" 0
-  xtest X4 t "returns true"
+  xret X4 t "returns true"
   vtest X4v "" "no output"
   ftest X4f "DBG: DRY-RUN: $XFILE 0" "should log debug"
   unset nmg_dryrun nmg_show_debug
@@ -382,49 +386,49 @@ xtest::group3::cmd() {
   var="bogus"
 
   xwrap2 "<no-cmd>" nmg::run var
-  xtest X5 3 "returns 3"
+  xret X5 3 "returns 3"
   vtest X5v "" "retvar cleared"
   ftest X5f "ERR: nmg::run: missing <cmd>" "should log err"
 
   xwrap2 "<exit 5>" nmg_cmd "$XFILE" 5
-  xtest X11 5 "returns 5"
+  xret X11 5 "returns 5"
   ftest X11f "ERR: FAIL(5) $XFILE 5 => arg=5" "should log error"
 
   xwrap2 "<exit>" nmg_cmd "$XFILE"
-  xtest X12 t "returns true"
+  xret X12 t "returns true"
   ftest X12f "$XFILE => arg=" "should log info"
 
   xwrap2 "'not-there'" nmg_cmd "$XNOFILE"
-  xtest X13 127 "returns 127"
+  xret X13 127 "returns 127"
   ftest X13f "ERR: FAIL(127) $XNOFILE => No such file or directory" \
         "should log error"
 
   xwrap2 "true" nmg_cmd true
-  xtest X14 t "returns true"
+  xret X14 t "returns true"
   ftest X14f "" "should not log"
 
   xwrap2 "false" nmg_qcmd false
-  xtest X21 f "returns false"
+  xret X21 f "returns false"
   ftest X21f "" "should not log"
 
   xwrap2 "<exists>" nmg_need_progs "/bin/ls" "$XFILE"
-  xtest X31 t "returns true"
+  xret X31 t "returns true"
   ftest X31f "" "does not log"
 
   xwrap2 "<missing>" nmg_need_progs "/bin/ls" "$XNOFILE"
-  xtest X32 2 "returns 2"
-  ftest X32f "ERR: '${XNOFILE}' not found (locate in ./conf/general.conf)" \
+  xret X32 2 "returns 2"
+  ftest X32f "ERR: '${XNOFILE}' not found; locate in ./conf/general.conf" \
         "logs error"
 
   # make sure we don't use cgroups in tests
   local NMG_DAEMON_CGROUP=
 
   xwrap2 "<no args>" nmg_daemon
-  xtest X41 3 "returns 3"
+  xret X41 3 "returns 3"
   ftest X41f "ERR: nmg_daemon: missing <cmd>" "logs error"
 
   xwrap2 "<spawn exit 4>" nmg_daemon "$XFILE" 4
-  xtest X42 t "returns true"
+  xret X42 t "returns true"
   if shtest::last_check_ok; then
     wait $!
     xtest X42w 4 "returns 4"
@@ -432,24 +436,40 @@ xtest::group3::cmd() {
   ftest2 X42f "" "arg=4" "should have output"
 
   xwrap2 "'not-there'" nmg_daemon "$XNOFILE"
-  xtest X43 2 "returns 2"
-  ftest X43f "ERR: '$XNOFILE' not found (locate in ./conf/general.conf)" \
+  xret X43 2 "returns 2"
+  ftest X43f "ERR: '$XNOFILE' not found; locate in ./conf/general.conf" \
 	"logs error"
+
+  xwrap2 "<exists>" nmg_need_progs_env XFILE
+  xret X51 t "returns true"
+  ftest X51f "" "does not log"
+
+  xwrap2 "<missing>" nmg_need_progs_env XNOFILE
+  xret X52 2 "returns 2"
+  ftest X52f "ERR: '${XNOFILE}' not found; set XNOFILE in ./conf/general.conf" \
+        "logs error"
+
+  local XNOFILE=''
+  xwrap2 "<missing>" nmg_need_progs_env XNOFILE
+  xret X53 2 "returns 2"
+  ftest X53f "ERR: XNOFILE is empty; set in ./conf/general.conf" \
+        "logs error"
+
 }
 
-xtest::group3::ip() {
+xtest::group4::ipd() {
   local var='' out avar=() aref=() anull=()
 
-  shtest::title "IP Tests (ip group)"
+  shtest::title "IP Device Tests (ipd group)"
 
   xwrap2 "4 eth0 192.*" nmg::query_ips avar "" 4 "eth0" "^192.*"
-  xtest I1 t "returns true"
+  xret I1 t "returns true"
   aref=("192.168.66.4/24 8600sec 2400sec")
   atest I1a avar aref "returns address and lifetimes"
   ftest I1f "" "should not log"
 
   xwrap2 "4 scope host" nmg::query_ips avar "" 4 "" "" "scope" "host"
-  xtest I2 t "returns true"
+  xret I2 t "returns true"
   aref=("127.0.0.1/8 forever forever")
   atest I2a avar aref "returns local address and lifetimes"
   ftest I2f "" "should not log"
@@ -457,7 +477,7 @@ xtest::group3::ip() {
   avar=("bogus")
 
   xwrap2 "4 ethx" nmg::query_ips avar "" 4 "ethx"
-  xtest I3 2 "returns 2"
+  xret I3 2 "returns 2"
   atest I3a avar anull "clears avar"
   ftest I3f "ERR: FAIL(1) $NMG_IP -4 addr show dev ethx scope global\
  => Device \"ethx\" does not exist." \
@@ -466,22 +486,22 @@ xtest::group3::ip() {
   avar=("bogus")
 
   xwrap2 "5" nmg::query_ips avar "" 5 "ethx"
-  xtest I4 3 "returns 3"
+  xret I4 3 "returns 3"
   atest I4a avar anull "clears avar"
   ftest I4f "ERR: nmg::query_ips: invalid <version><flag> '5'" "logs error"
 
   xwrap2 "bad#name" nmg::query_ips "bad#name" "" 4 "eth0"
-  xtest I5 3 "returns 3"
+  xret I5 3 "returns 3"
   ftest I5f "ERR: nmg::query_ips: invalid <retvar> 'bad#name'" "logs error"
 
   xwrap2 "'lo'" nmg::query_ips avar "" 4 "lo" "" ""
-  xtest I6 t "returns true"
+  xret I6 t "returns true"
   aref=("127.0.0.1/8 forever forever")
   atest I6a avar aref "returns localhost"
   ftest I6f "" "should not log"
 
   xwrap2 "ethx <ignore>" nmg::query_ips avar "retvar ignore" 4 "ethx"
-  xtest I7 t "returns true"
+  xret I7 t "returns true"
   aref=("FAIL(1) $NMG_IP -4 addr show dev ethx scope global\
  => Device \"ethx\" does not exist.")
   atest I7a avar aref "retvar contains error"
@@ -490,7 +510,7 @@ xtest::group3::ip() {
   avar=("bogus")
 
   xwrap2 "ethx <nolog>" nmg::query_ips avar "nolog" 4 "ethx"
-  xtest I8 f "returns 1"
+  xret I8 f "returns 1"
   atest I8a avar anull "clears retvar"
   ftest I8f "" "does not log"
 
@@ -498,24 +518,24 @@ xtest::group3::ip() {
   avar=("bogus")
 
   xwrap2 "ethx <debug ignore>" nmg::query_ips avar "debug ignore" 4 "ethx"
-  xtest I9 t "returns true"
+  xret I9 t "returns true"
   atest I9a avar anull "clears retvar"
   ftest I9f "DBG: $NMG_IP -4 addr show dev ethx scope global" "logs debug"
   unset nmg_show_debug
 
   xwrap2 "<no args>" nmg::query_ips
-  xtest I10 t "returns true"
+  xret I10 t "returns true"
   ftest I10a "" "does not log"
 
   xwrap2 "<retvar>" nmg::query_ips "" retvar
-  xtest I11 3 "w/o retvar, returns 3"
+  xret I11 3 "w/o retvar, returns 3"
   ftest I11f "ERR: nmg::query_ips: <err-mode> retvar requires one" "logs error"
 
   local nmg_show_debug=1
   avar=("bogus")
 
   xwrap2 "eth1 ^50.*" nmg::query_ips avar "" 4 "eth1" "^50.*"
-  xtest I12 2 "returns 2"
+  xret I12 2 "returns 2"
   atest I12a avar anull "clears retvar"
   xread_value out <<-EOF
 	DBG: $NMG_IP -4 addr show dev eth1 scope global
@@ -524,191 +544,203 @@ xtest::group3::ip() {
   ftest I12f "$out" "logs debug (none found)"
 
   xwrap2 "nolog eth0 ^192.*" nmg::query_ips "" "nolog" 4 "eth0" "^192.*"
-  xtest I13 t "returns true"
+  xret I13 t "returns true"
   ftest I13f "DBG: $NMG_IP -4 addr show dev eth0 scope global" "logs debug"
   unset nmg_show_debug
 
   xwrap2 "4a scope host" nmg::query_ips avar "" 4a "lo" "" "scope" "host"
-  xtest I14 t "returns true"
+  xret I14 t "returns true"
   aref=("127.0.0.1/8")
   atest I14a avar aref "returns just address"
 
   xwrap2 "4p scope host" nmg::query_ips avar "" 4p "lo" "" "scope" "host"
-  xtest I15 t "returns true"
+  xret I15 t "returns true"
   aref=("127.0.0.1/8 scope:host valid_lft:forever preferred_lft:forever")
   atest I15a avar aref "returns all properties, no lifetimes"
 
   xwrap2 "a scope host" nmg::query_ips avar "" "a" "" "" "scope" "host"
-  xtest I16 t "returns true"
+  xret I16 t "returns true"
   aref=("127.0.0.1/8" "::1/128")
   atest I16a avar aref "returns ipv4+ipv6 addresses"
 
   xwrap2 "<ip6-with-0s>" nmg::query_ips avar "" 6a "eth0" \
-	 "2001:db8:871a:28c1:0::1/64"
-  xtest I17 t "returns true"
-  aref=("2001:db8:871a:28c1::1/64")
+	 "2001:db8:871a:28c1:0::1/128"
+  xret I17 t "returns true"
+  aref=("2001:db8:871a:28c1::1/128")
   atest I17a avar aref "returns ipv6 addresses"
   ftest I17f "" "does not log"
 
   xwrap2 "<ip6-prefix>" nmg::query_ips avar "" 6a "eth0" "2001:db8:871a:28c1::"
-  xtest I18 t "returns true"
+  xret I18 t "returns true"
   atest I18a avar aref "returns ipv6 addresses"
   ftest I18f "" "does not log"
 
   xwrap2 "<bad-search>" nmg::query_ips avar "" 6a "eth0" \
 	 "2001:db8:871a:28c1:x:"
-  xtest I19 2 "returns 2"
+  xret I19 2 "returns 2"
   ftest I19f "" "does not log"
 
   xwrap2 "<pattern with 0-s>" nmg::query_ips avar "" 6a "eth0" \
 	 "^2001:db8:871a:28c1:0::1"
-  xtest I20 t "returns true"
+  xret I20 t "returns true"
   atest I20a avar aref "returns ipv6 addresses"
   ftest I20f "" "does not log"
 
   xwrap2 "<no args>" nmg::mod_ip
-  xtest I31 3 "returns 3"
+  xret I31 3 "returns 3"
   ftest I31f "ERR: nmg::mod_ip: unknown <cmd> ''" "logs error"
 
   var='bogus'
 
   xwrap2 "add existing" nmg::mod_ip var "" "add6" "eth1" \
 	 "fdac:3741:50f8:f623::1/48" "preferred_lft" 0
-  xtest I32 t "returns true"
-  vtest I32v "ip '-6' 'addr' 'replace' 'fdac:3741:50f8:f623::1/48'\
- 'dev' 'eth1' 'preferred_lft' '0'" \
-        "sets var to output"
-  ftest I32f "Replacing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
+  xret I32 t "returns true"
+  vtest I32v "" "sets var to output"
+  xread_value out <<-EOF
+	Replacing fdac:3741:50f8:f623::1/48 on eth1
+	ip '-6' 'addr' 'replace' 'fdac:3741:50f8:f623::1/48'\
+ 'dev' 'eth1' 'preferred_lft' '0'
+	EOF
+  ftest I32f "$out" "logs action"
 
   xwrap2 "change existing" nmg::mod_ip var "" "change6" "eth1" \
 	 "fdac:3741:50f8:f623::1/48" "valid_lft" 0 "preferred_lft" 0
-  xtest I33 t "returns true"
-  vtest I33v "ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48'\
- 'dev' 'eth1' 'valid_lft' '0' 'preferred_lft' '0'" \
-        "sets var to output"
-  ftest I33f "Changing fdac:3741:50f8:f623::1/48 on eth1" "logs action"
+  xret I33 t "returns true"
+  vtest I33v "" "sets var to output"
+  xread_value out <<-EOF
+	Changing fdac:3741:50f8:f623::1/48 on eth1
+	ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48'\
+ 'dev' 'eth1' 'valid_lft' '0' 'preferred_lft' '0'
+	EOF
+  ftest I33f "$out" "logs action"
 
   xwrap2 "<no args>" nmg::wait_dad6
-  xtest I41 3 "returns 3"
+  xret I41 3 "returns 3"
   ftest I41f "ERR: nmg::wait_dad6: missing <intf>" "logs error"
 
   xwrap2 "eth3" nmg::wait_dad6 eth3
-  xtest I42 3 "returns 3"
+  xret I42 3 "returns 3"
   ftest I42f "ERR: nmg::wait_dad6: missing <addr>" "logs error"
 
   xwrap2 "eth3 ::1 x" nmg::wait_dad6 eth3 "::1" x
-  xtest I43 3 "returns 3"
+  xret I43 3 "returns 3"
   ftest I43f "ERR: nmg::wait_dad6: invalid <timeout> 'x'" "logs error"
 
+  local EPOCHREALTIME
+  # fake date, needs to ref $_nmgts for state, 5 is initial, ts+timeout after
+  # shellcheck disable=SC2317,SC2154
+  test_date() {
+    local -i d=${_nmgts:-0}
+    (( d == 0 ? ( d = 5 ) : ( d = _nmgts + nmg_timeout ) )) || :
+    nmg_err "date $d"
+    echo "$d"
+  }
+  local NMG_DATE=test_date
+
   xwrap2 "eth3 ::1" nmg::wait_dad6 eth3 "::1"
-  xtest I44 2 "returns 2"
-  ftest I44f "" "does not log"
+  xret I44 2 "returns 2"
+  ftest I44f "ERR: date 5" "calls date"
 
   xwrap2 "eth3 2001:db8:5::1/64" nmg::wait_dad6 eth3 "2001:db8:5::1/64"
-  xtest I45 1 "returns 1"
-  ftest I45f "" "does not log"
+  xret I45 1 "returns 1"
+  ftest I45f "ERR: date 5" "calls date"
 
   xwrap2 "eth2 2001:db8:1::1/64 0" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 0
-  xtest I46 2 "returns 2"
-  ftest I46f "" "does not log"
+  xret I46 2 "returns 2"
+  ftest I46f "" "does not call date"
 
-  # this sleeps
-  sleep() { echo "sleep" "$@"; }
-
-  xwrap2 "eth2 2001:db8:1::1/64 1" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 1
-  xtest I47 2 "returns 2 after sleeping"
-  ftest2 I47f "" "sleep 0.5"$'\n'"sleep 0.5" "performs sleep"
-
-  unset -f sleep
+  xwrap2 "eth2 2001:db8:1::1/64 1" nmg::wait_dad6 eth2 "2001:db8:1::1/64" 5
+  xret I47 2 "returns 2"
+  xread_value out <<-EOF
+	ERR: date 5
+	ERR: date 10
+	EOF
+  ftest I47f "$out" "calls date 3 times"
 
   xwrap2 "eth1 2001:db8:a0b:12f0::1/64" nmg::wait_dad6 eth1 \
 	 "2001:db8:a0b:12f0::1/64"
-  xtest I48 t "returns true"
-  ftest I48f "" "does not log"
+  xret I48 t "returns true"
+  ftest I48f "ERR: date 5" "calls date"
 }
 
-xtest::group3::ip4() {
+xtest::group5::ip4d() {
   local out
 
-  shtest::title "IP4 Tests (ip4 group)"
+  shtest::title "IP4 Device Tests (ip4d group)"
 
   xwrap2 "'192.168.88.1'" nmg_check_ip4_addr 192.168.88.1
-  xtest V1 13 "returns 13"
+  xret V1 13 "returns 13"
 
   xwrap2 "'192.168.88.1' 1 <private>" nmg_check_ip4_addr 192.168.88.1 1
-  xtest V2 t "returns true"
+  xret V2 t "returns true"
 
   xwrap2 "'172.16.1.1'" nmg_check_ip4_addr 172.16.1.1
-  xtest v3 13 "returns 13"
+  xret v3 13 "returns 13"
 
   xwrap2 "<pubip>" nmg_check_ip4_addr 203.0.113.8
-  xtest v4 t "returns true"
+  xret v4 t "returns true"
 
   xwrap2 "'127.0.0.1'" nmg_check_ip4_addr 127.0.0.1
-  xtest v5 11 "returns 11"
+  xret v5 11 "returns 11"
 
   xwrap2 "'127.0.0.a'" nmg_check_ip4_addr 127.0.0.a
-  xtest v6 1 "returns 1"
+  xret v6 1 "returns 1"
 
   xwrap2 "'169.254.155.1'" nmg_check_ip4_addr 169.254.155.1
-  xtest v7 12 "returns 12"
+  xret v7 12 "returns 12"
 
   # test locating address
   xwrap2 "10.0.*" nmg_find_ip4_addrs "" "^10.0.*"
-  xtest V11 t "returns true"
+  xret V11 t "returns true"
   ftest2 V11f "" "10.0.10.12/24" "returns matching address"
 
   xwrap2 "50.*" nmg_find_ip4_addrs "" "^50.*"
-  xtest V12 t "returns true"
+  xret V12 t "returns true"
   ftest V12f "" "returns no addresses"
 
   xwrap2 "eth0" nmg_find_ip4_addrs "eth0"
-  xtest V13 t "returns true"
+  xret V13 t "returns true"
   ftest2 V13f "" "192.168.66.4/24" "returns matching address"
 
   xwrap2 "eth2" nmg_find_ip4_addrs "eth2"
-  xtest V14 t "returns true"
+  xret V14 t "returns true"
   ftest2 V14f "" "10.1.10.12/24 10.2.10.12/24" "returns matching addresses"
 
   xwrap2 "<no args>" nmg_add_ip4_addr
-  xtest V21 3 "returns 3"
+  xret V21 3 "returns 3"
   ftest V21f "ERR: nmg_add_ip4_addr: missing <intf>" "logs error"
 
   xwrap2 "<no addr>" nmg_add_ip4_addr "eth0"
-  xtest V22 3 "returns 3"
+  xret V22 3 "returns 3"
   ftest V22f "ERR: nmg_add_ip4_addr: missing <addr/plen>" "logs error"
 
   xwrap2 "<bad addr>" nmg_add_ip4_addr "eth0" "10.10.10/24"
-  xtest V23 1 "returns 1"
+  xret V23 1 "returns 1"
   ftest V23f "ERR: nmg_add_ip4_addr: invalid address '10.10.10/24'" \
 	"logs error"
 
   xwrap2 "<existing addr>" nmg_add_ip4_addr "lo" "127.0.0.1/8"
-  xtest V24 t "returns true"
-  xread_value out <<-EOF
-	Replacing 127.0.0.1/8 on lo
-	$NMG_IP => ip '-4' 'addr' 'replace' '127.0.0.1/8' 'dev' 'lo'
-	EOF
-  ftest V24f "$out" "performs replace"
+  xret V24 t "returns true"
+  ftest V24f "" "performs no action"
 
-  xwrap2 "<new addr w/ plen>" nmg_add_ip4_addr "eth0" "10.5.5.10"
-  xtest V25 t "returns true"
+  xwrap2 "<new addr w/o plen>" nmg_add_ip4_addr "eth0" "10.5.5.10"
+  xret V25 t "returns true"
   xread_value out <<-EOF
 	Adding 10.5.5.10/32 to eth0
-	$NMG_IP => ip '-4' 'addr' 'add' '10.5.5.10/32' 'dev' 'eth0'
+	ip '-4' 'addr' 'add' '10.5.5.10/32' 'dev' 'eth0'
 	EOF
   ftest V25f "$out" "adds address with default plen"
 
   xwrap2 "<new addr>" nmg_add_ip4_addr "eth1" "10.10.5.11/24"
-  xtest V26 t "returns true"
+  xret V26 t "returns true"
   xread_value out <<-EOF
 	Adding 10.10.5.11/24 to eth1
-	$NMG_IP => ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1'
+	ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1'
 	EOF
   ftest V26f "$out" "adds address"
 
   xwrap2 "<bad ip-args>" nmg_add_ip4_addr "eth1" "10.10.5.11/24" "invalid"
-  xtest V27 255 "returns 255"
+  xret V27 255 "returns 255"
   xread_value out <<-EOF
 	Adding 10.10.5.11/24 to eth1
 	ERR: FAIL(255) $NMG_IP -4 addr add 10.10.5.11/24 dev eth1\
@@ -719,257 +751,642 @@ xtest::group3::ip4() {
 
   xwrap2 "<ip-args>" nmg_add_ip4_addr "eth1" "10.10.5.11/24" \
 	 "valid_lft" "forever"
-  xtest V28 t "returns true"
+  xret V28 t "returns true"
   xread_value out <<-EOF
 	Adding 10.10.5.11/24 to eth1
-	$NMG_IP => ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1'\
- 'valid_lft' 'forever'
+	ip '-4' 'addr' 'add' '10.10.5.11/24' 'dev' 'eth1' 'valid_lft' 'forever'
 	EOF
   ftest V28f "$out" "performs add with args"
 
   xwrap2 "<existing> <ip-args>" nmg_add_ip4_addr "eth1" "10.0.10.12/24" \
 	 "valid_lft" "forever"
-  xtest V29 t "returns true"
+  xret V29 t "returns true"
   xread_value out <<-EOF
 	Replacing 10.0.10.12/24 on eth1
-	$NMG_IP => ip '-4' 'addr' 'replace' '10.0.10.12/24' 'dev' 'eth1'\
+	ip '-4' 'addr' 'replace' '10.0.10.12/24' 'dev' 'eth1'\
  'valid_lft' 'forever'
 	EOF
   ftest V29f "$out" "performs replace with args"
 
   xwrap2 "<pref-life=0>" nmg_change_ip4_addr "eth1" "10.0.10.12/24" \
 	 "preferred_lft" "0"
-  xtest V31 t "returns true"
+  xret V31 t "returns true"
   xread_value out <<-EOF
 	Changing 10.0.10.12/24 on eth1
-	$NMG_IP => ip '-4' 'addr' 'change' '10.0.10.12/24' 'dev' 'eth1'\
+	ip '-4' 'addr' 'change' '10.0.10.12/24' 'dev' 'eth1'\
  'preferred_lft' '0'
 	EOF
   ftest V31f "$out" "performs change"
 
   xwrap2 "<new addr>" nmg_change_ip4_addr "eth1" "10.10.10.12/24" \
 	 "preferred_lft" "0"
-  xtest V32 t "returns true"
+  xret V32 t "returns true"
   xread_value out <<-EOF
 	Adding 10.10.10.12/24 to eth1
-	$NMG_IP => ip '-4' 'addr' 'replace' '10.10.10.12/24' 'dev' 'eth1'\
+	ip '-4' 'addr' 'replace' '10.10.10.12/24' 'dev' 'eth1'\
  'preferred_lft' '0'
 	EOF
   ftest V32f "$out" "performs replace"
 
+  xwrap2 "<no-ip-args>" nmg_change_ip4_addr "eth1" "10.0.10.12/24"
+  xret V33 3 "returns 3"
+  ftest V33f "ERR: nmg_change_ip4_addr: missing <ip-args>" "logs error"
+
   xwrap2 "<existing addr>" nmg_del_ip4_addr "eth1" "10.0.10.12/24"
-  xtest V41 t "returns true"
+  xret V41 t "returns true"
   xread_value out <<-EOF
 	Removing 10.0.10.12/24 from eth1
-	$NMG_IP => ip '-4' 'addr' 'del' '10.0.10.12/24' 'dev' 'eth1'
+	ip '-4' 'addr' 'del' '10.0.10.12/24' 'dev' 'eth1'
 	EOF
   ftest V41f "$out" "performs delete"
 
   xwrap2 "<addr-missing>" nmg_del_ip4_addr "eth1" "10.10.10.12/24"
-  xtest V42 2 "returns 2"
+  xret V42 2 "returns 2"
   ftest V42f "" "performs no action"
+
+  xwrap2 "<no args>" nmg_add_ip4_route
+  xret V51 3 "returns 3"
+  ftest V51f "ERR: nmg_add_ip4_route: missing <ip-route-args>" "logs error"
+
+  xwrap2 "<bad arg>" nmg_add_ip4_route "eth0"
+  xret V52 1 "returns 1"
+  xread_value out <<-EOF
+	Updating IP4 route: eth0
+	ERR: FAIL(1) $NMG_IP -4 route replace eth0 => Error: inet prefix is expected rather than "eth0"
+	EOF
+  ftest V52f "$out" "logs error"
+
+  xwrap2 "<bad route>" nmg_add_ip4_route "10.0.10.x" "dev" "eth0"
+  xret V53 1 "returns 1"
+  xread_value out <<-EOF
+	Updating IP4 route: 10.0.10.x dev eth0
+	ERR: FAIL(1) $NMG_IP -4 route replace 10.0.10.x dev eth0 =>\
+ Error: inet prefix is expected rather than "10.0.10.x"
+	EOF
+  ftest V53f "$out" "logs error"
+
+  xwrap2 "<existing route>" nmg_add_ip4_route "192.168.66.0/24" \
+	 "dev" "eth0"
+  xret V54 t "returns true"
+  xread_value out <<-EOF
+	Updating IP4 route: 192.168.66.0/24 dev eth0
+	ip '-4' 'route' 'replace' '192.168.66.0/24' 'dev' 'eth0'
+	EOF
+  ftest V54f "$out" "performs replace"
+
+  xwrap2 "<direct route>" nmg_add_ip4_route "192.168.66.1" "dev" "eth0"
+  xret V55 t "returns true"
+  xread_value out <<-EOF
+	Updating IP4 route: 192.168.66.1 dev eth0
+	ip '-4' 'route' 'replace' '192.168.66.1' 'dev' 'eth0'
+	EOF
+  ftest V55f "$out" "adds direct route"
+
+  xwrap2 "<no dev>" nmg_add_ip4_route "192.168.66.0/24"
+  xret V56 2 "returns 2"
+  xread_value out <<-EOF
+	Updating IP4 route: 192.168.66.0/24
+	ERR: FAIL(2) $NMG_IP -4 route replace 192.168.66.0/24\
+ => RTNETLINK answers: No such device
+	EOF
+  ftest V56f "$out" "logs error"
+
+  xwrap2 "<bad route-args>" nmg_add_ip4_route "192.168.66.0/24" "invalid"
+  xret V57 255 "returns 255"
+  xread_value out <<-EOF
+	Updating IP4 route: 192.168.66.0/24 invalid
+	ERR: FAIL(255) $NMG_IP -4 route replace 192.168.66.0/24\
+ invalid => Error: either "to" is duplicate, or "invalid" is a garbage.
+	EOF
+  ftest V57f "$out" "logs error"
+
+  xwrap2 "<route-args>" nmg_add_ip4_route "10.0.11.0/24" \
+	 "dev" "eth1" "metric" "500"
+  xret V58 t "returns true"
+  xread_value out <<-EOF
+	Updating IP4 route: 10.0.11.0/24 dev eth1 metric 500
+	ip '-4' 'route' 'replace' '10.0.11.0/24'\
+ 'dev' 'eth1' 'metric' '500'
+	EOF
+  ftest V58f "$out" "performs add with args"
+
+  xwrap2 "<existing> <ip-args>" nmg_add_ip4_route "10.0.10.1/24" \
+	 "dev" "eth1" "metric" "1024"
+  xret V59 t "returns true"
+  xread_value out <<-EOF
+	Updating IP4 route: 10.0.10.1/24 dev eth1 metric 1024
+	ip '-4' 'route' 'replace' '10.0.10.1/24'\
+ 'dev' 'eth1' 'metric' '1024'
+	EOF
+  ftest V59f "$out" "performs replace with args"
+
+  xwrap2 "<existing route>" nmg_del_ip4_route "10.0.10.0/24" \
+	 "dev" "eth1"
+  xret V61 t "returns true"
+  xread_value out <<-EOF
+	Removing IP4 route: 10.0.10.0/24 dev eth1
+	ip '-4' 'route' 'del' '10.0.10.0/24' 'dev' 'eth1'
+	EOF
+  ftest V61f "$out" "performs delete"
+
+  xwrap2 "<route-missing>" nmg_del_ip4_route "192.168.22.0/24"
+  xret V62 t "returns true"
+  ftest V62f "" "performs no action"
+
+  xwrap2 "<bad-dev>" nmg_del_ip4_route "192.168.22.0/24" "dev" "ethx"
+  xret V63 1 "returns 1"
+  ftest V63f "" "performs no action"
 }
 
-xtest::group3::ip6() {
-  local var=''
+xtest::group3::ip6p() {
+  local out var=''
 
-  shtest::title "IP6 Tests (ip6 group)"
+  shtest::title "IP6 Prefix Tests (ip6p group)"
+
+  var='bogus'
+
+  xwrap2 "<no-addr>" nmg::expand_ip6 var "" ""
+  xret G1 3 "returns 3"
+  vtest G1v "" "clears retvar"
+  ftest G1f "ERR: nmg::expand_ip6: missing <ip6-prefix>" "logs error"
+
+  xwrap2 "::1/128" nmg::expand_ip6 var "" "::1/128"
+  xret G2 t "returns true"
+  vtest G2v "0:0:0:0:0:0:0:1/128" "sets retvar"
+
+  xwrap2 "fe80::1" nmg::expand_ip6 var "" "fe80::1"
+  xret G3 t "returns true"
+  vtest G3v "fe80:0:0:0:0:0:0:1" "sets retvar"
+
+  xwrap2 "fe80:100::1" nmg::expand_ip6 var "" "fe80:100::1"
+  xret G4 t "returns true"
+  vtest G4v "fe80:100:0:0:0:0:0:1" "sets retvar"
+
+  xwrap2 "fe80:100::" nmg::expand_ip6 var "" "fe80:100::"
+  xret G5 t "returns true"
+  vtest G5v "fe80:100:0:0:0:0:0:0" "sets retvar"
+
+  xwrap2 "FE80:00::100" nmg::expand_ip6 var "" "FE80:00::100"
+  xret G6 t "returns true"
+  vtest G6v "fe80:0:0:0:0:0:0:100" "sets retvar"
+
+  xwrap2 "retval FE80::1/x" nmg::expand_ip6 var "retvar nolog" "FE80::1/x"
+  xret G7 3 "returns 3"
+  vtest G7v "invalid <ip6-prefix> plen 'FE80::1/x'" "sets retvar to error"
+  ftest G7f "" "does not log"
+
+  xwrap2 "<long ip>" nmg::expand_ip6 var "" "1:2:3:4:5:6:7:8:1"
+  xret G8 3 "returns 3"
+  ftest G8f "ERR: nmg::expand_ip6: invalid <ip6-prefix> '1:2:3:4:5:6:7:8:1'" \
+        "logs error"
+
+  xwrap2 "<bad ip>" nmg::expand_ip6 var "" "1:23451::1"
+  xret G9 3 "returns 3"
+  ftest G9f "ERR: nmg::expand_ip6: invalid <ip6-prefix> '1:23451::1'" \
+        "logs error"
+
+  xwrap2 "FE80::1 %04x" nmg::expand_ip6 var "" "FE80::1" "%04x"
+  xret Ga t "returns true"
+  vtest Gav "fe80:0000:0000:0000:0000:0000:0000:0001" "sets retvar"
+
+  xwrap2 "<no-addr>" nmg::compress_ip6 var "" ""
+  xret G11 3 "returns 3"
+  vtest G11v "" "clears retvar"
+  ftest G11f "ERR: nmg::compress_ip6: missing <ip6-prefix>" "logs error"
+
+  xwrap2 "::1/128" nmg::compress_ip6 var "" "0:0:0:0:0:0:0:1/128"
+  xret G12 t "returns true"
+  vtest G12v "::1/128" "sets retvar"
+
+  xwrap2 "fe80::1" nmg::compress_ip6 var "" "fe80:0:0:0:0:0:0:1"
+  xret G13 t "returns true"
+  vtest G13v "fe80::1" "sets retvar"
+
+  xwrap2 "fe80:100::1" nmg::compress_ip6 var "" "fe80:100:0:0:0:0:0:1"
+  xret G14 t "returns true"
+  vtest G14v "fe80:100::1" "sets retvar"
+
+  xwrap2 "fe80:100::" nmg::compress_ip6 var "" "fe80:100:0:0:0:0:0:0"
+  xret G15 t "returns true"
+  vtest G15v "fe80:100::" "sets retvar"
+
+  xwrap2 "FE80:00::100" nmg::compress_ip6 var "" "FE80:0:0::0:0:100"
+  xret G16 t "returns true"
+  vtest G16v "fe80::100" "sets retvar"
+
+  xwrap2 "retval FE80::1/x" nmg::compress_ip6 var "retvar nolog" "FE80::1/x"
+  xret G17 3 "returns 3"
+  vtest G17v "invalid <ip6-prefix> plen 'FE80::1/x'" "sets retvar to error"
+  ftest G17f "" "does not log"
+
+  xwrap2 "<long ip>" nmg::compress_ip6 var "" "1:2:3:4:5:6:7:8:1"
+  xret G18 3 "returns 3"
+  ftest G18f "ERR: nmg::compress_ip6: invalid <ip6-prefix> '1:2:3:4:5:6:7:8:1'" \
+        "logs error"
+
+  xwrap2 "<bad ip>" nmg::compress_ip6 var "" "1:23451::1"
+  xret G19 3 "returns 3"
+  ftest G19f "ERR: nmg::compress_ip6: invalid <ip6-prefix> '1:23451::1'" \
+        "logs error"
+
+  xwrap2 "FE80::1 %04x" nmg::compress_ip6 var "" \
+	 "fe80:0000:0000:0000:0000:0000:0000:0001" "%X"
+  xret G1a t "returns true"
+  vtest G1av "FE80::1" "sets retvar"
+
+  xwrap2 "<no-args>" nmg::prefix_ip6
+  xret G21 3 "returns 3"
+  ftest G21f "ERR: nmg::prefix_ip6: missing <ip6-prefix>" "logs error"
+
+  xwrap2 "<bad-prefix>" nmg::prefix_ip6 var "retvar" "2001:db8:4860:bb:"
+  xret G22 3 "returns 3"
+  vtest G22v "invalid <ip6-prefix> '2001:db8:4860:bb:'" "sets var to error"
+
+  xwrap2 "<prefix/64>" nmg::prefix_ip6 var "" "2001:db8:4860:bb::8888/64"
+  xret G23 t "returns true"
+  vtest G23v "2001:db8:4860:bb::/64" "returns prefix"
+
+  xwrap2 "<prefix/0>" nmg::prefix_ip6 var "" "2001::1/0"
+  xret G24 t "returns true"
+  vtest G24v "::/0" "returns prefix"
+
+  xwrap2 "<no-plen>" nmg::prefix_ip6 var "" "2001:aaaa:0::bbbb:1"
+  xret G25 t "returns true"
+  vtest G25v "2001:aaaa::bbbb:1" "returns compressed value"
+
+  xwrap2 "<odd-plen>" nmg::prefix_ip6 var "" "2001:aaaa:0::bbbb:1/97"
+  xret G26 t "returns true"
+  vtest G26v "2001:aaaa::8000:0/97" "returns masked value"
+
+  xwrap2 "<long-plen>" nmg::prefix_ip6 var "" "::bbbb:f/127"
+  xret G27 t "returns true"
+  vtest G27v "::bbbb:e/127" "returns masked value"
+
+  xwrap2 "<fmt>" nmg::prefix_ip6 var "" "a::bb00:f/127" "%04X"
+  xret G28 t "returns true"
+  vtest G28v "000A::BB00:000E/127" "returns masked fmt"
+}
+
+xtest::group4::ip6a() {
+  local out var=''
+
+  shtest::title "IP6 Address Tests (ip6a group)"
 
   xwrap2 "'fc80::1'" nmg_check_ip6_addr fc80::1
-  xtest P1 13 "returns 13"
+  xret P1 13 "returns 13"
   ftest P1f "" "does not log"
 
   xwrap2 "'fc80::1' 1" nmg_check_ip6_addr fc80::1 1
-  xtest P2 t "returns true"
+  xret P2 t "returns true"
 
   xwrap2 "'ffffff::1' 1" nmg_check_ip6_addr ffffff::1 1
-  xtest P3 1 "returns 1"
+  xret P3 1 "returns 1"
 
   xwrap2 "'zz::1'" nmg_check_ip6_addr zz::1
-  xtest P4 1 "returns 1"
+  xret P4 1 "returns 1"
 
   xwrap2 "'fe80::1'" nmg_check_ip6_addr fe80::1 1
-  xtest P5 12 "returns 12"
+  xret P5 12 "returns 12"
 
   xwrap2 "<pubip>" nmg_check_ip6_addr 2001:4860:4860::8888
-  xtest P6 t "returns true"
+  xret P6 t "returns true"
 
   xwrap2 "'::1'" nmg_check_ip6_addr ::1
-  xtest P7 11 "returns 11"
+  xret P7 11 "returns 11"
 
   xwrap2 "eth0 auto" nmg_create_ip6_host "eth0" "auto"
-  xtest P11 t "returns true"
+  xret P11 t "returns true"
   ftest2 P11f "" "a00:27ff:fe1b:ff9a" "returns ip6 host-part"
 
   xwrap2 "<prefix> <site> <plen>" nmg::create_ip6_prefix var \
 	 "fddd:dead:beef::/48" "1234" "60"
-  xtest P21 t "returns true"
+  xret P21 t "returns true"
   vtest P21v "fddd:dead:beef:2340::/60" "returns expected ip6 prefix"
 
   xwrap2 "<no args>" nmg::create_ip6_prefix
-  xtest P22 3 "returns 3"
+  xret P22 3 "returns 3"
   ftest P22f "ERR: nmg::create_ip6_prefix: missing <retvar>" "logs error"
 
   xwrap2 "invalid" nmg::create_ip6_prefix var "fddd:1234"
-  xtest P23 1 "returns 1"
+  xret P23 3 "returns 3"
   vtest P23v "" "clears var"
-  ftest P23f "ERR: nmg::create_ip6_prefix: invalid ip6-prefix 'fddd:1234'" \
+  ftest P23f \
+	"ERR: nmg::create_ip6_prefix: <ip6-prefix> 'fddd:1234' missing plen" \
         "logs error"
 
   xwrap2 "<no site>" nmg::create_ip6_prefix var "fddd:1234::/64"
-  xtest P24 3 "returns 3"
+  xret P24 3 "returns 3"
   vtest P24v "" "clears var"
   ftest P24f "ERR: nmg::create_ip6_prefix: missing <site>" "logs error"
 
-  xwrap2 "<bad site>" nmg::create_ip6_prefix var "fddd:1234::/64" "zz"
-  xtest P25 1 "returns 1"
+  xwrap2 "<bad site>" nmg::create_ip6_prefix var "fddd:1234::/62" "zz"
+  xret P25 3 "returns 3"
   vtest P25v "" "clears var"
   ftest P25f "ERR: nmg::create_ip6_prefix: invalid <site> 'zz'" "logs error"
 
   xwrap2 "<bad site-len>" nmg::create_ip6_prefix var "fddd:1234::/64" \
 	 "1:eeff" "zz"
-  xtest P26 1 "returns 1"
+  xret P26 3 "returns 3"
   vtest P26v "" "clears var"
   ftest P26f "ERR: nmg::create_ip6_prefix: invalid <site-len> 'zz'" \
         "logs error"
 
   xwrap2 "site-len=128" nmg::create_ip6_prefix var "fddd:1234::/60" \
 	 "1:eeff" "128"
-  xtest P27 t "returns true"
-  vtest P27v "fddd:1234:0:f::/128" "returns /128 prefix"
+  xret P27 t "returns true"
+  vtest P27v "fddd:1234::1:eeff/128" "returns /128 prefix"
 
   xwrap2 "<prefix>/48 <site>" nmg::create_ip6_prefix var \
 	 "fddd:1234:5678:abcd::/48" "eeff"
-  xtest P28 t "returns true"
+  xret P28 t "returns true"
   vtest P28v "fddd:1234:5678:eeff::/64" "returns /64 prefix"
+
+  xwrap2 "<prefix>/61 <site>/64" nmg::create_ip6_prefix var \
+	 "fddd:1234:5678:abcf::/61" "eef1" 64
+  xret P29 t "returns true"
+  vtest P29v "fddd:1234:5678:abc9::/64" "returns /64 prefix"
+
+  xwrap2 "<prefix>/58 <site>/80" nmg::create_ip6_prefix var \
+	 "fddd:1234:5678:abcf::/58" "ffc7:eef1" 78
+  xret P2a t "returns true"
+  vtest P2av "fddd:1234:5678:abdf:bbc4::/78" "returns /78 prefix"
 
   xwrap2 "<prefix>/48 <site>" nmg_create_ip6_prefix \
 	 "fddd:1234:5678:abcd::/48" "eeff"
-  xtest P31 t "returns true"
+  xret P31 t "returns true"
   ftest2 P31f "" "fddd:1234:5678:eeff::/64" "echos /64 prefix"
 
   xwrap2 "eth1" nmg::create_ip6_host var "eth1"
-  xtest P41 t "returns true"
+  xret P41 t "returns true"
   vtest P41v "31fd:68fd:ed8b:4d77" "returns link-local host-part"
 
   xwrap2 "eth0 auto" nmg::create_ip6_host var "eth0" "auto"
-  xtest P42 t "returns true"
+  xret P42 t "returns true"
   vtest P42v "a00:27ff:fe1b:ff9a" "returns link-local host-part"
 
   xwrap2 "<no intf>" nmg::create_ip6_host var
-  xtest P43 3 "returns 3"
+  xret P43 3 "returns 3"
   ftest P43f "ERR: nmg::create_ip6_host: missing <intf>" "logs error"
 
   xwrap2 "<bad intf>, auto" nmg::create_ip6_host var "ethx" "auto"
-  xtest P44 1 "returns 1"
+  xret P44 1 "returns 1"
   ftest P44f "" "does not log"
 
   xwrap2 "eth0 1" nmg::create_ip6_host var "eth0" "1"
-  xtest P45 t "returns true"
+  xret P45 t "returns true"
   vtest P45v "1" "sets retvar to 1"
 
   xwrap2 "<bad intf>" nmg::create_ip6_host var "ethx" ""
-  xtest P46 1 "returns 1"
+  xret P46 1 "returns 1"
   ftest P46f "ERR: nmg::create_ip6_host: Unable to determine an auto\
  host-part for interface ethx" "logs error"
 
   xwrap2 "<no args>" nmg::create_ip6_addr
-  xtest P51 3 "returns 3"
+  xret P51 3 "returns 3"
   ftest P51f "ERR: nmg::create_ip6_addr: missing <retvar>" "logs error"
 
   xwrap2 "<no prefix>" nmg::create_ip6_addr var
-  xtest P52 3 "returns 3"
+  xret P52 3 "returns 3"
   ftest P52f "ERR: nmg::create_ip6_addr: missing <prefix/plen>" "logs error"
 
   xwrap2 "<no plen>" nmg::create_ip6_addr var "abcd::"
-  xtest P53 3 "returns 3"
+  xret P53 3 "returns 3"
   ftest P53f "ERR: nmg::create_ip6_addr: missing <prefix/plen>" "logs error"
 
   xwrap2 "<no host>" nmg::create_ip6_addr var "abCD::/64"
-  xtest P54 3 "returns 3"
+  xret P54 3 "returns 3"
   ftest P54f "ERR: nmg::create_ip6_addr: missing <host-part>" "logs error"
 
   xwrap2 "pfx host" nmg::create_ip6_addr var "abCD::/64" "EFEF:1234"
-  xtest P55 t "returns true"
+  xret P55 t "returns true"
   vtest P55v "abcd::efef:1234/64" "sets retvar to lowercase addr"
 
-  # test locating address
-  xwrap2 "fdac.*" nmg_find_ip6_addrs "" "^fdac.*"
-  xtest P61 t "returns true"
-  ftest2 P61f "" "fdac:3741:50f8:f623::1/48" "returns matching address"
-
-  xwrap2 "2002.*" nmg_find_ip6_addrs "" "^2002.*"
-  xtest P62 t "returns true"
-  ftest P62f "" "returns no addresses"
-
-  xwrap2 "eth2" nmg_find_ip6_addrs "eth2"
-  xtest P63 t "returns true"
-  ftest2 P63f "" "2001:db8:1::1/64" "returns matching address"
-
-  xwrap2 "eth1" nmg_find_ip6_addrs "eth1"
-  xtest P64 t "returns true"
-  ftest2 P64f "" "2001:db8:a0b:12f0::1/64 fdac:3741:50f8:f623::1/48" \
-         "returns matching addresses"
-
-  var='bogus'
-
-  xwrap2 "<no-addr>" nmg::expand_ip6 var "" ""
-  xtest P71 1 "returns 1"
-  vtest P71v "" "clears retvar"
-  ftest P71f "ERR: nmg::expand_ip6: invalid ip6 format ''" "logs error"
-
-  xwrap2 "::1/128" nmg::expand_ip6 var "" "::1/128"
-  xtest P72 t "returns true"
-  vtest P72v "0:0:0:0:0:0:0:1/128" "sets retvar"
-
-  xwrap2 "fe80::1" nmg::expand_ip6 var "" "fe80::1"
-  xtest P73 t "returns true"
-  vtest P73v "fe80:0:0:0:0:0:0:1" "sets retvar"
-
-  xwrap2 "fe80:100::1" nmg::expand_ip6 var "" "fe80:100::1"
-  xtest P74 t "returns true"
-  vtest P74v "fe80:100:0:0:0:0:0:1" "sets retvar"
-
-  xwrap2 "fe80:100::" nmg::expand_ip6 var "" "fe80:100::"
-  xtest P75 t "returns true"
-  vtest P75v "fe80:100:0:0:0:0:0:0" "sets retvar"
-
-  xwrap2 "FE80:00::100" nmg::expand_ip6 var "" "FE80:00::100"
-  xtest P76 t "returns true"
-  vtest P76v "fe80:0:0:0:0:0:0:100" "sets retvar"
-
-  xwrap2 "retval FE80::1/x" nmg::expand_ip6 var "retvar nolog" "FE80::1/x"
-  xtest P77 1 "returns 1"
-  vtest P77v "invalid ip6 format 'FE80::1/x'" "sets retvar to error"
-  ftest P77f "" "does not log"
-
-  xwrap2 "<long ip>" nmg::expand_ip6 var "" "1:2:3:4:5:6:7:8:1"
-  xtest P78 1 "returns 1"
-  ftest P78f "ERR: nmg::expand_ip6: invalid ip6 format '1:2:3:4:5:6:7:8:1'" \
-        "logs error"
-
-  xwrap2 "<bad ip>" nmg::expand_ip6 var "" "1:23451::1"
-  xtest P79 1 "returns 1"
-  ftest P79f "ERR: nmg::expand_ip6: invalid ip6 format '1:23451::1'" \
-        "logs error"
-
-  xwrap2 "FE80::1 %04x" nmg::expand_ip6 var "" "FE80::1" "%04x"
-  xtest P80 t "returns true"
-  vtest P80v "fe80:0000:0000:0000:0000:0000:0000:0001" "sets retvar"
-
   xwrap2 "FE80::1x" nmg::is_ip6_prefix "FE80::1x"
-  xtest P91 1 "returns 1"
+  xret P91 1 "returns 1"
   ftest P91f "" "does not log"
 
   xwrap2 "FE80::1" nmg::is_ip6_prefix "FE80::1"
-  xtest P92 1 "returns 1"
+  xret P92 1 "returns 1"
   ftest P92f "" "does not log"
 
   xwrap2 "FE80::1/64" nmg::is_ip6_prefix "FE80::1/64"
-  xtest P93 1 "returns 1"
+  xret P93 1 "returns 1"
 
   xwrap2 "FE80::/8" nmg::is_ip6_prefix "FE80::/8"
-  xtest P94 t "returns true"
+  xret P94 t "returns true"
+}
+
+xtest::group5::ip6d() {
+
+  local out var=''
+
+  shtest::title "IP6 Device Tests (ip6d group)"
+
+  # test locating address
+  xwrap2 "fdac.*" nmg_find_ip6_addrs "" "^fdac.*"
+  xret D1 t "returns true"
+  ftest2 D1f "" "fdac:3741:50f8:f623::1/48" "returns matching address"
+
+  xwrap2 "2002.*" nmg_find_ip6_addrs "" "^2002.*"
+  xret D2 t "returns true"
+  ftest D2f "" "returns no addresses"
+
+  xwrap2 "eth2" nmg_find_ip6_addrs "eth2"
+  xret D3 t "returns true"
+  ftest2 D3f "" "2001:db8:1::1/64" "returns matching address"
+
+  xwrap2 "eth1" nmg_find_ip6_addrs "eth1"
+  xret D4 t "returns true"
+  ftest2 D4f "" "2001:db8:a0b:12f0::1/64 fdac:3741:50f8:f623::1/48" \
+         "returns matching addresses"
+
+  xwrap2 "<no args>" nmg_add_ip6_addr
+  xret D11 3 "returns 3"
+  ftest D11f "ERR: nmg_add_ip6_addr: missing <intf>" "logs error"
+
+  xwrap2 "<no addr>" nmg_add_ip6_addr "eth0"
+  xret D12 3 "returns 3"
+  ftest D12f "ERR: nmg_add_ip6_addr: missing <addr/plen>" "logs error"
+
+  xwrap2 "<bad addr>" nmg_add_ip6_addr "eth0" "2001:db8:871a/64"
+  xret D13 1 "returns 1"
+  ftest D13f "ERR: nmg_add_ip6_addr: invalid address '2001:db8:871a/64'" \
+	"logs error"
+
+  xwrap2 "<existing addr>" nmg_add_ip6_addr "lo" "::1/128"
+  xret D14 t "returns true"
+  ftest D14f "" "performs no action"
+
+  xwrap2 "<new addr w/o plen>" nmg_add_ip6_addr "eth0" "2001:db8:4860::8888"
+  xret D15 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:4860::8888/128 to eth0
+	ip '-6' 'addr' 'add' '2001:db8:4860::8888/128' 'dev' 'eth0'
+	EOF
+  ftest D15f "$out" "adds address with default plen"
+
+  xwrap2 "<new addr>" nmg_add_ip6_addr "eth1" "2001:db8:4860:1234::8888/64"
+  xret D16 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:4860:1234::8888/64 to eth1
+	ip '-6' 'addr' 'add' '2001:db8:4860:1234::8888/64' 'dev' 'eth1'
+	EOF
+  ftest D16f "$out" "adds address"
+
+  xwrap2 "<bad ip-args>" nmg_add_ip6_addr "eth1" \
+	 "2001:db8:4860:1234::8888/64" "invalid"
+  xret D17 255 "returns 255"
+  xread_value out <<-EOF
+	Adding 2001:db8:4860:1234::8888/64 to eth1
+	ERR: FAIL(255) $NMG_IP -6 addr add 2001:db8:4860:1234::8888/64 dev\
+ eth1 invalid => Error: either "local" is duplicate, or "invalid" is a garbage.
+	EOF
+  ftest D17f "$out" "logs error"
+
+  xwrap2 "<ip-args>" nmg_add_ip6_addr "eth1" "2001:db8:4860:1234::8888/64" \
+	 "valid_lft" "forever"
+  xret D18 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:4860:1234::8888/64 to eth1
+	ip '-6' 'addr' 'add' '2001:db8:4860:1234::8888/64' 'dev' 'eth1'\
+ 'valid_lft' 'forever'
+	EOF
+  ftest D18f "$out" "performs add with args"
+
+  xwrap2 "<existing> <ip-args>" nmg_add_ip6_addr "eth1" \
+	 "2001:db8:a0b:12f0::1/64" "valid_lft" "forever"
+  xret D19 t "returns true"
+  xread_value out <<-EOF
+	Replacing 2001:db8:a0b:12f0::1/64 on eth1
+	ip '-6' 'addr' 'replace' '2001:db8:a0b:12f0::1/64' 'dev' 'eth1'\
+ 'valid_lft' 'forever'
+	EOF
+  ftest D19f "$out" "performs replace with args"
+
+  xwrap2 "<pref-life=0>" nmg_change_ip6_addr "eth1" \
+	 "fdac:3741:50f8:f623::1/48" "preferred_lft" "0"
+  xret D21 t "returns true"
+  xread_value out <<-EOF
+	Changing fdac:3741:50f8:f623::1/48 on eth1
+	ip '-6' 'addr' 'change' 'fdac:3741:50f8:f623::1/48' 'dev' 'eth1'\
+ 'preferred_lft' '0'
+	EOF
+  ftest D21f "$out" "performs change"
+
+  xwrap2 "<new addr>" nmg_change_ip6_addr "eth1" "2001:db8:4860:aa::8888/64" \
+	 "preferred_lft" "0"
+  xret D22 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:4860:aa::8888/64 to eth1
+	ip '-6' 'addr' 'replace' '2001:db8:4860:aa::8888/64' 'dev' 'eth1'\
+ 'preferred_lft' '0'
+	EOF
+  ftest D22f "$out" "performs replace"
+
+  xwrap2 "<no-ip-args>" nmg_change_ip6_addr "eth1" "2001:db8:a0b:12f0::1/64"
+  xret D23 3 "returns 3"
+  ftest D23f "ERR: nmg_change_ip6_addr: missing <ip-args>" "logs error"
+
+  xwrap2 "<existing addr>" nmg_del_ip6_addr "eth1" "2001:db8:a0b:12f0::1/64"
+  xret D31 t "returns true"
+  xread_value out <<-EOF
+	Removing 2001:db8:a0b:12f0::1/64 from eth1
+	ip '-6' 'addr' 'del' '2001:db8:a0b:12f0::1/64' 'dev' 'eth1'
+	EOF
+  ftest D31f "$out" "performs delete"
+
+  xwrap2 "<addr-missing>" nmg_del_ip6_addr "eth1" "2001:db8:4860:bb::8888/64"
+  xret D32 2 "returns 2"
+  ftest D32f "" "performs no action"
+
+  xwrap2 "<bad-dev>" nmg_del_ip6_addr "ethx" "2001:db8:4860:bb::8888/64"
+  xret D33 2 "returns 2"
+  ftest D33f "" "performs no action"
+
+  xwrap2 "<no args>" nmg_add_ip6_route
+  xret D41 3 "returns 3"
+  ftest D41f "ERR: nmg_add_ip6_route: missing <ip-route-args>" "logs error"
+
+  xwrap2 "<bad arg>" nmg_add_ip6_route "eth0"
+  xret D42 1 "returns 1"
+  xread_value out <<-EOF
+	ERR: FAIL(1) $NMG_IP -6 route replace eth0 => Error: inet6 prefix is expected rather than "eth0"
+	EOF
+  ftest D42f "$out" "logs error"
+
+  xwrap2 "<bad route>" nmg_add_ip6_route "2001:db8:871a/64" "dev" "eth0"
+  xret D43 1 "returns 1"
+  xread_value out <<-EOF
+	ERR: FAIL(1) $NMG_IP -6 route replace 2001:db8:871a/64 dev eth0 =>\
+ Error: inet6 prefix is expected rather than "2001:db8:871a/64"
+	EOF
+  ftest D43f "$out" "logs error"
+
+  xwrap2 "<existing route>" nmg_add_ip6_route "2001:db8:871a:28c1::/64" \
+	 "dev" "eth0"
+  xret D44 t "returns true"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:871a:28c1::/64' 'dev' 'eth0'
+	EOF
+  ftest D44f "$out" "performs replace"
+
+  xwrap2 "<direct route>" nmg_add_ip6_route "2001:db8:4860::8888" "dev" "eth0"
+  xret D45 t "returns true"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:4860::8888' 'dev' 'eth0'
+	EOF
+  ftest D45f "$out" "adds direct route"
+
+  xwrap2 "<no dev>" nmg_add_ip6_route "2001:db8:4860:1234::8888/64"
+  xret D46 2 "returns 2"
+  xread_value out <<-EOF
+	ERR: FAIL(2) $NMG_IP -6 route replace 2001:db8:4860:1234::8888/64\
+ => RTNETLINK answers: No such device
+	EOF
+  ftest D46f "$out" "logs error"
+
+  xwrap2 "<bad route-args>" nmg_add_ip6_route "2001:db8:4860:1234::8888/64" \
+	 "invalid"
+  xret D47 255 "returns 255"
+  xread_value out <<-EOF
+	ERR: FAIL(255) $NMG_IP -6 route replace 2001:db8:4860:1234::8888/64\
+ invalid => Error: either "to" is duplicate, or "invalid" is a garbage.
+	EOF
+  ftest D47f "$out" "logs error"
+
+  xwrap2 "<route-args>" nmg_add_ip6_route "2001:db8:4860:1234::/64" \
+	 "dev" "eth1" "metric" "500"
+  xret D48 t "returns true"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:4860:1234::/64' 'dev' 'eth1'\
+ 'metric' '500'
+	EOF
+  ftest D48f "$out" "performs add with args"
+
+  xwrap2 "<existing> <ip-args>" nmg_add_ip6_route "2001:db8:a0b:12f0::1/64" \
+	 "dev" "eth1" "metric" "1024"
+  xret D49 t "returns true"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:a0b:12f0::1/64' 'dev' 'eth1'\
+ 'metric' '1024'
+	EOF
+  ftest D49f "$out" "performs replace with args"
+
+  xwrap2 "<existing route>" nmg_del_ip6_route "2001:db8:a0b:12f0::1/64" \
+	 "dev" "eth1"
+  xret D51 t "returns true"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'del' '2001:db8:a0b:12f0::1/64' 'dev' 'eth1'
+	EOF
+  ftest D51f "$out" "performs delete"
+
+  xwrap2 "<route-missing>" nmg_del_ip6_route "2001:db8:4860:bb::8888/64"
+  xret D52 t "returns true"
+  ftest D52f "" "performs no action"
+
+  xwrap2 "<bad-dev>" nmg_del_ip6_route "2001:db8:4860:bb::8888/64" "dev" "ethx"
+  xret D53 1 "returns 1"
+  ftest D53f "" "performs no action"
 }
 
 xtest::onexit::file() {
@@ -984,20 +1401,20 @@ xtest::group3::file() {
 
   # no args
   xwrap2 "<no args>" nmg_write
-  xtest F1 3 "returns 3"
+  xret F1 3 "returns 3"
   ftest F1f "ERR: nmg_write: missing <filename>" "logs error"
 
   xrm "$XFILE"
   local nmg_dryrun=5
 
   xwrap2 "<dry-run 5>" nmg_write "$XFILE" "content"
-  xtest F2 5 "returns 5"
+  xret F2 5 "returns 5"
   ftest F2f "ERR: FAIL(5): DRY-RUN: nmg_write($XFILE)" "logs error"
 
   nmg_dryrun=0
 
   xwrap2 "<dry-run>" nmg_write "$XFILE" "content"
-  xtest F3 t "returns true"
+  xret F3 t "returns true"
   ftest F3f "DRY-RUN: nmg_write($XFILE)" "logs info"
   unset nmg_dryrun
 
@@ -1005,13 +1422,13 @@ xtest::group3::file() {
   command -p chmod a-w "$XFILE"
 
   xwrap2 "<write prot>" nmg_write "$XFILE" "content"
-  xtest F4 1 "returns 1"
+  xret F4 1 "returns 1"
   ftest F4f "ERR: FAIL(1) nmg_write($XFILE) => Permission denied" "logs error"
 
   xrm "$XFILE"
 
   xwrap2 "<file>" nmg_write "$XFILE" "content"
-  xtest F5 t "returns true"
+  xret F5 t "returns true"
   ftest F5f "" "should not log"
   shtest::check_file F5c "$XFILE" "content" "file should have content"
 
@@ -1021,25 +1438,25 @@ xtest::group3::file() {
 	EOF
 
   xwrap2 "<multi-line file>" nmg_write "$XFILE" "$var"
-  xtest F6 t "returns true"
+  xret F6 t "returns true"
   ftest F6f "" "should not log"
   shtest::check_file F6c "$XFILE" "$var" "file should have content"
 
   command -p chmod -w "$XFILE"
 
   xwrap2 "<protected file>" nmg_write "$XFILE" "should fail"
-  xtest F7 f "returns false"
+  xret F7 f "returns false"
   ftest F7f "ERR: FAIL(1) nmg_write($XFILE) => Permission denied" "logs error"
   command -p chmod +w "$XFILE"
 
   # test w/o args
   xwrap2 "<no args>" nmg::read
-  xtest F11 1 "returns 1"
+  xret F11 3 "returns 3"
   ftest F11f "ERR: nmg::read: empty <filename>" "logs error"
 
   # test w/o filename
   xwrap2 "''" nmg::read var "retvar info" ""
-  xtest F12 1 "returns 1"
+  xret F12 3 "returns 3"
   vtest F12v "empty <filename>" "should set retvar=err"
   ftest F12f "nmg::read: empty <filename>" "should log info"
 
@@ -1047,49 +1464,49 @@ xtest::group3::file() {
   var="bogus"
 
   xwrap2 "'not-there' ignore" nmg::read var "ignore retvar" "$XNOFILE"
-  xtest F13 t "returns true"
+  xret F13 t "returns true"
   vtest F13v "'$XNOFILE' not found" "should set retvar=err"
   ftest F13f "" "should not log"
 
   xwrap2 "<empty retvar>" nmg::read "" "retvar" "$XNOFILE"
-  xtest F14 3 "returns 1"
+  xret F14 3 "returns 1"
   ftest F14f "ERR: nmg::read: <err-mode> retvar requires one" "logs error"
 
   xwrap2 "<bad retvar> retvar" nmg::read "bad#name" "retvar" "$XNOFILE"
-  xtest F15 3 "returns 1"
+  xret F15 3 "returns 1"
   ftest F15f "ERR: nmg::read: invalid <retvar> 'bad#name'" "logs error"
 
   var="orig"
 
   xwrap2 "'not-there'" nmg::read var "" "$XNOFILE"
-  xtest F16 2 "returns 2"
+  xret F16 2 "returns 2"
   vtest F16v "" "should clear var"
   ftest F16f "" "should not log"
 
   command -p chmod a-r "$XFILE"
 
   xwrap2 "<read protected file> retvar" nmg::read var "retvar" "$XFILE"
-  xtest F17 1 "returns 1"
-  vtest F17v "'$XFILE' Permission denied" "set retvar=err"
-  ftest F17f "ERR: nmg::read: '$XFILE' Permission denied" "logs error"
+  xret F17 1 "returns 1"
+  vtest F17v "'$XFILE' permission denied" "set retvar=err"
+  ftest F17f "ERR: nmg::read: '$XFILE' permission denied" "logs error"
 
   xrm "$XFILE"
   echo "some"$'\n'"contents" > "$XFILE"
 
   xwrap2 "<file>" nmg::read var "" "$XFILE"
-  xtest F18 t "returns true"
+  xret F18 t "returns true"
   vtest F18v "some"$'\n'"contents"$'\n' "sets var to content"
   ftest F18f "" "should not log"
 
   xwrap2 "<no args>" nmg_remove
-  xtest F31 3 "returns 3"
+  xret F31 3 "returns 3"
   ftest F31f "ERR: nmg_remove: missing <filename>" "logs error"
 
   xrm "$XFILE"
   echo "some"$'\n'"contents" > "$XFILE"
 
   xwrap2 "<file>" nmg_remove "$XFILE"
-  xtest F32 t "returns true"
+  xret F32 t "returns true"
   ftest F32f "" "should not log"
   [[ -f "$XFILE" ]]
   xtest F32r f "file should be removed"
@@ -1097,22 +1514,22 @@ xtest::group3::file() {
   # normalize ordering
   local LC_ALL=C
   xwrap2 "<no args>" nmg::foreach_filematch
-  xtest F41 3 "returns 3"
+  xret F41 3 "returns 3"
   ftest F41f "ERR: nmg::foreach_filematch: missing <pattern>" "logs error"
 
   xwrap2 "<no wild>" nmg::foreach_filematch "@SUB@.match"
-  xtest F42 3 "returns 3"
+  xret F42 3 "returns 3"
   ftest F42f "ERR: nmg::foreach_filematch: missing <wild>" "logs error"
 
   xwrap2 "<no callback>" nmg::foreach_filematch "@SUB@.match" "@SUB@"
-  xtest F43 3 "returns 3"
+  xret F43 3 "returns 3"
   ftest F43f "ERR: nmg::foreach_filematch: missing <callback>" "logs error"
 
   xrm "$TEST_OUT/"*".match"
 
   xwrap2 "<no match>" nmg::foreach_filematch "$TEST_OUT/@SUB@.match" \
 	 "@SUB@" nmg_info
-  xtest F44 t "returns true"
+  xret F44 t "returns true"
   ftest F44f "" "makes no callbacks"
 
   printf "" >>"$TEST_OUT/xx.match"
@@ -1120,21 +1537,22 @@ xtest::group3::file() {
 
   xwrap2 "<2 matches>" nmg::foreach_filematch "$TEST_OUT/@SUB@.match" \
 	 "@SUB@" nmg_info
-  xtest F45 t "returns true"
+  xret F45 t "returns true"
   ftest F45f "$TEST_OUT/xx.match xx"$'\n'"$TEST_OUT/yy.match yy" \
 	"makes callbacks"
 
   xwrap2 "<2 matches>" nmg::foreach_filematch "$TEST_OUT/@SUB@.match" \
 	 "@SUB@" nmg_info arg
-  xtest F46 t "returns true"
+  xret F46 t "returns true"
   ftest F46f "$TEST_OUT/xx.match xx arg"$'\n'"$TEST_OUT/yy.match yy arg" \
 	"makes callbacks"
 
   xwrap2 "<no-pat>" nmg::foreach_filematch "$TEST_OUT/SUB.match" \
 	 "@SUB@" nmg_info arg
-  xtest F47 t "returns true"
+  xret F47 t "returns true"
   ftest F47f "" "makes no callbacks"
 
+  # shellcheck disable=SC2317
   xtest_file_cb() {
     nmg_info "$1 $2 fail"
     return 3
@@ -1142,16 +1560,16 @@ xtest::group3::file() {
 
   xwrap2 "<2 matches, callback fails>" nmg::foreach_filematch \
 	 "$TEST_OUT/@SUB@.match" "@SUB@" xtest_file_cb
-  xtest F48 3 "returns fail code"
+  xret F48 3 "returns fail code"
   ftest F48f "$TEST_OUT/xx.match xx fail" "makes 1 callback"
   unset xtest_file_cb
 
   xwrap2 "<no args>" nmg::realpath
-  xtest F51 3 "returns 3"
+  xret F51 3 "returns 3"
   ftest F51f "ERR: nmg::realpath: missing <retvar>" "logs error"
 
   xwrap2 "$TEST_OUT/file" nmg::realpath var "$TEST_OUT/a\' test"
-  xtest F52 t "returns true"
+  xret F52 t "returns true"
   if [[ $var =~ "/a\' test" ]]; then
     xtest F52v t "sets var to full path"
   else
@@ -1160,7 +1578,7 @@ xtest::group3::file() {
   ftest F52f "" "does not log"
 
   xwrap2 "<bad-dir>" nmg::realpath var "$XNOFILE/a\' test"
-  xtest F53 2 "returns 2"
+  xret F53 2 "returns 2"
   ftest F53f "ERR: nmg::realpath: failed to locate ${XNOFILE}/a\' test" \
 	"logs error"
 
@@ -1173,77 +1591,113 @@ xtest::group3::misc() {
   shtest::title "Misc Tests (misc group)"
 
   xwrap2 "0x5d" nmg::2dec var "0x5d"
-  xtest M11 t "returns true"
+  xret M11 t "returns true"
   vtest M11v "93" "converted to 93"
 
   var="orig"
 
   xwrap2 "xx" nmg::2dec var "xx"
-  xtest M12 1 "returns 1"
+  xret M12 1 "returns 1"
   vtest M12v "" "clears retvar"
   ftest M12f "ERR: nmg::2dec: invalid <value> 'xx'" "logs error"
 
   xwrap2 "93" nmg::2hex var "93"
-  xtest M21 t "returns true"
+  xret M21 t "returns true"
   vtest M21v "5d" "converted to 0x5d"
 
   var="orig"
 
   xwrap2 "xx" nmg::2hex var "xx"
-  xtest M22 1 "returns 1"
+  xret M22 1 "returns 1"
   vtest M22v "" "clears retvar"
   ftest M22f "ERR: nmg::2hex: invalid <value> 'xx'" "logs error"
 
   xwrap2 "<no args>" nmg::require_version
-  xtest M31 3 "returns 3"
+  xret M31 3 "returns 3"
   ftest M31f "ERR: nmg::require_version: missing <version>" "logs error"
 
   xwrap2 "<miss req>" nmg::require_version "1.2.3"
-  xtest M32 3 "returns 3"
+  xret M32 3 "returns 3"
   ftest M32f "ERR: nmg::require_version: missing <min-required>" "logs error"
 
   xwrap2 ">req" nmg::require_version "1.2.3" "1.2.2"
-  xtest M33 t "returns true"
+  xret M33 t "returns true"
 
   xwrap2 "=req" nmg::require_version "1.2.3" "1.2.3"
-  xtest M34 t "returns true"
+  xret M34 t "returns true"
 
   xwrap2 "<req" nmg::require_version "1.2.3" "1.2.4"
-  xtest M35 1 "returns 1"
+  xret M35 1 "returns 1"
   ftest M35f "" "does not log"
 
   xwrap2 "> <short>" nmg::require_version "1.2.3" "1"
-  xtest M36 t "returns true"
+  xret M36 t "returns true"
 
   xwrap2 "< <short>" nmg::require_version "1.2.3" "2"
-  xtest M37 1 "returns 1"
+  xret M37 1 "returns 1"
 
   xwrap2 "> <partial>" nmg::require_version "1.2.3" "1.2"
-  xtest M38 t "returns true"
+  xret M38 t "returns true"
 
   xwrap2 "< <partial>" nmg::require_version "1.2" "1.2.3"
-  xtest M39 1 "returns 1"
+  xret M39 1 "returns 1"
 
   xwrap2 "< <major>" nmg::require_version "1.2" "2.2.3"
-  xtest M40 1 "returns 1"
+  xret M40 1 "returns 1"
 
   xwrap2 "> <long>" nmg::require_version "2.2" "1.2.3"
-  xtest M41 t "returns true"
+  xret M41 t "returns true"
 
   xwrap2 "<no args>" nmg::args_contains
-  xtest M51 t "returns true"
+  xret M51 t "returns true"
 
   xwrap2 "''" nmg::args_contains ""
-  xtest M52 t "returns true"
+  xret M52 t "returns true"
 
   xwrap2 "'x'" nmg::args_contains "x"
-  xtest M53 1 "returns 1"
+  xret M53 1 "returns 1"
 
   xwrap2 "'x' <x-in-args>" nmg::args_contains "x" "" "y" "X" "x"
-  xtest M54 t "returns true"
+  xret M54 t "returns true"
 
   xwrap2 "'x' <x-not-in-args>" nmg::args_contains "x" "" "y" "X" "1"
-  xtest M55 1 "returns 1"
+  xret M55 1 "returns 1"
+
+  xwrap2 "<no args>" nmg::time
+  xret M60 3 "returns 3"
+  ftest M60f "ERR: nmg::time: missing <retvar>" "logs error"
+
+  # causes EPOCHREALTIME to lose special meaning in func
+  local EPOCHREALTIME
+  # shellcheck disable=SC2317
+  test_date() { echo 55; }
+  local NMG_DATE=test_date
+
+  xwrap2 "<date-fallback>" nmg::time var
+  xret M61 t "returns true"
+  vtest M61v "55" "returns date output"
+
+  # shellcheck disable=SC2317
+  test_date() { echo bogus; }
+
+  xwrap2 "<invalid date>" nmg::time var
+  xret M62 1 "returns 1"
+  ftest M62f "ERR: nmg::time: test_date returned non-number bogus!" \
+	"logs error"
+
+  # shellcheck disable=SC2317
+  test_date() { return 1; }
+
+  xwrap2 "<date fail>" nmg::time var
+  xret M63 1 "returns 1"
+  ftest M63f "ERR: nmg::time: test_date failed!" "logs error"
+
+  EPOCHREALTIME=155.12345
+
+  xwrap2 "<bash date>" nmg::time var
+  xret M64 t "returns true"
+  vtest M64v "155" "returns date"
+
 }
 
 xtest::group3::string() {
@@ -1254,85 +1708,105 @@ xtest::group3::string() {
   var="orig"
 
   xwrap2 "" nmg::transpose var
-  xtest S1 t "returns true"
+  xret S1 t "returns true"
   vtest S1v "" "clears retvar"
 
   var="orig"
 
   xwrap2 "xx" nmg::transpose var "xx"
-  xtest S2 t "returns true"
+  xret S2 t "returns true"
   vtest S2v "xx" "sets retvar"
 
   var="orig"
 
   xwrap2 "xx xy" nmg::transpose var "xx" "xy"
-  xtest S3 t "returns true"
+  xret S3 t "returns true"
   vtest S3v "xx" "sets retvar"
 
   var="orig"
 
   xwrap2 "xx xy YZ" nmg::transpose var "xx" "xy" "YZ"
-  xtest S4 t "returns true"
+  xret S4 t "returns true"
   vtest S4v "YY" "sets retvar"
 
   xwrap2 "<no args>" nmg::transpose
-  xtest S5 3 "returns 3"
+  xret S5 3 "returns 3"
   ftest S5f "ERR: nmg::transpose: missing <retvar>" "logs error"
 
   xwrap2 "<bad retvar>" nmg::transpose "!bad" "xx" "xy" "YZ"
-  xtest S6 3 "returns 3"
+  xret S6 3 "returns 3"
   ftest S6f "ERR: nmg::transpose: invalid <retvar> '!bad'" "logs error"
 
   xwrap2 "text" nmg::uppercase var "Some Text"
-  xtest S11 t "returns true"
+  xret S11 t "returns true"
   vtest S11v "SOME TEXT" "set retvar"
 
   var="orig"
 
   xwrap2 "<no text>" nmg::uppercase var
-  xtest S12 t "returns true"
+  xret S12 t "returns true"
   vtest S12v "" "clears retvar"
 
   xwrap2 "text" nmg::lowercase var "Some Text"
-  xtest S21 t "returns true"
+  xret S21 t "returns true"
   vtest S21v "some text" "set retvar"
 
   var="orig"
 
   xwrap2 "<no text>" nmg::lowercase var
-  xtest S22 t "returns true"
+  xret S22 t "returns true"
   vtest S22v "" "clears retvar"
 
   xwrap2 "<no args>" nmg::list_match_values
-  xtest S31 3 "returns 3"
+  xret S31 3 "returns 3"
   ftest S31f "ERR: nmg::list_match_values: missing <sep>" "logs error"
 
   xwrap2 "<sep only>" nmg::list_match_values ","
-  xtest S32 t "returns true"
+  xret S32 t "returns true"
 
   xwrap2 "<mismatch>" nmg::list_match_values "," "a,b" "a"
-  xtest S33 1 "returns 1"
+  xret S33 1 "returns 1"
 
   xwrap2 "<mismatch2>" nmg::list_match_values "," "a" "a,b"
-  xtest S34 1 "returns 1"
+  xret S34 1 "returns 1"
 
   xwrap2 "<mismatch3>" nmg::list_match_values "," "" "a,b"
-  xtest S35 1 "returns 1"
+  xret S35 1 "returns 1"
 
   xwrap2 "<mismatch4>" nmg::list_match_values "," "a,b" ""
-  xtest S36 1 "returns 1"
+  xret S36 1 "returns 1"
 
   xwrap2 "<diff-order>" nmg::list_match_values "," "a,b" "b,a"
-  xtest S37 t "returns true"
+  xret S37 t "returns true"
 
   xwrap2 "<case-diff>" nmg::list_match_values "," "a,b" "A,b"
-  xtest S38 1 "returns 1"
+  xret S38 1 "returns 1"
 
   xwrap2 "<dups>" nmg::list_match_values "," "a,b" "b,a,a"
-  xtest S39 t "returns true"
+  xret S39 t "returns true"
 
   xwrap2 "<dups2>" nmg::list_match_values "," "a,b,b" "b,a"
-  xtest S40 t "returns true"
+  xret S3a t "returns true"
+
+  xwrap2 "<no-args>" nmg::hash
+  xret S40 3 "returns 3"
+  ftest S40f "ERR: nmg::hash: missing <retvar>" "logs error"
+
+  xwrap2 "<empty>" nmg::hash var
+  xret S41 t "returns true"
+  vtest S41v "00000000" "sets retvar"
+
+  xwrap2 "<empty-seeded>" nmg::hash var "" 5
+  xret S42 t "returns true"
+  vtest S42v "cc0d53cd" "sets retvar"
+
+  xwrap2 "<test>" nmg::hash var test
+  xret S43 t "returns true"
+  vtest S43v "ba6bd213" "sets retvar"
+
+  xwrap2 "<mod-2-byte>" nmg::hash var test 0 "%04x" "0xffff"
+  xret S44 t "returns true"
+  vtest S44v "8c7f" "sets retvar"
 }
 
 xtest::group4::array() {
@@ -1341,38 +1815,38 @@ xtest::group4::array() {
   shtest::title "Array Tests (array group)"
 
   xwrap2 "<no args>" nmg::array_copy
-  xtest AC1 3 "returns 3"
+  xret AC1 3 "returns 3"
   ftest AC1f "ERR: nmg::array_copy: missing <retvar>" "logs error"
 
   xwrap2 "<bad dest>" nmg::array_copy bad#name
-  xtest AC2 3 "returns 3"
-  ftest AC2f "ERR: nmg::array_copy: invalid <retvar> 'bad#name'"
+  xret AC2 3 "returns 3"
+  ftest AC2f "ERR: nmg::array_copy: invalid <retvar> 'bad#name'" "logs error"
 
   xwrap2 "<no src>" nmg::array_copy avar
-  xtest AC3 3 "returns 3"
+  xret AC3 3 "returns 3"
   ftest AC3f "ERR: nmg::array_copy: missing <srcarr>" "logs error"
 
   xwrap2 "<bad src>" nmg::array_copy avar bad#name
-  xtest AC4 3 "returns 3"
+  xret AC4 3 "returns 3"
   ftest AC4f "ERR: nmg::array_copy: <srcarr> 'bad#name' is unset" \
 	"logs error"
 
   xwrap2 "<same names>" nmg::array_copy avar avar
-  xtest AC5 3 "returns 3"
+  xret AC5 3 "returns 3"
   ftest AC5f "ERR: nmg::array_copy: <retarr> and <srcarr> must differ" \
 	"logs error"
 
   avar=("bogus") aref=()
 
   xwrap2 "<empty>" nmg::array_copy avar aref
-  xtest AC6 t "returns true"
+  xret AC6 t "returns true"
   ftest AC6f "" "no log"
   atest AC6a avar aref "sets avar empty"
 
   avar=("bogus") aref=("a" "b"$'\n'"c" "e 'q';exit")
 
   xwrap2 "<idx array>" nmg::array_copy avar aref
-  xtest AC7 t "returns true"
+  xret AC7 t "returns true"
   ftest AC7f "" "no log"
   atest AC7a avar aref "sets avar to aref"
 
@@ -1383,14 +1857,14 @@ xtest::group4::array() {
     declare -A aref2=([first]='multi word' ['2nd item']='"with"!;exit"' \
 			    ['special$aref']='"and $var("' )
     xwrap2 "<assoc array>" nmg::array_copy avar2 aref2
-    xtest AC8 t "returns true"
+    xret AC8 t "returns true"
     ftest AC8f "" "no log"
     atest AC8a avar2 aref2 "sets avar to aref"
 
     unset avar2
-    declare -a avar2=(test)
-    xwrap2 "<assoc array mistach>" nmg::array_copy avar2 aref2
-    xtest AC9 3 "returns 3"
+    declare -a avar2=([0]=test)
+    xwrap2 "<array type mistach>" nmg::array_copy avar2 aref2
+    xret AC9 3 "returns 3"
     ftest AC9f "ERR: nmg::array_copy: <retarr> type must match <srcarr>" \
 	  "logs error"
     atest AC9a avar2 anull "clears avar"
@@ -1400,68 +1874,73 @@ xtest::group4::array() {
   avar=() aref=()
 
   xwrap2 "<no retarr>" nmg::array
-  xtest A1 3 "returns 3"
+  xret A1 3 "returns 3"
   ftest A1f "ERR: nmg::array: missing <retvar>" "logs error"
 
   avar=("bogus")
 
   xwrap2 "<no vals>" nmg::array avar
-  xtest A2 t "returns true"
+  xret A2 t "returns true"
   atest A2v avar aref "clears <retarr>"
 
   aref=("first")
   unset avar
 
   xwrap2 "1 val" nmg::array avar "," "first"
-  xtest A3 t "returns true"
+  xret A3 t "returns true"
   atest A3v avar aref "sets 1 value"
 
   avar=("bogus") aref=("first" "second")
 
   xwrap2 "2 , vals" nmg::array avar "," "first,second"
-  xtest A4 t "returns true"
+  xret A4 t "returns true"
   atest A4v avar aref "sets 2 values"
 
   avar=("bogus")
 
   xwrap2 "2 newline vals" nmg::array avar $'\n' "first"$'\n'"second"
-  xtest A5 t "returns true"
+  xret A5 t "returns true"
   atest A5v avar aref "sets 2 values"
 
   xwrap2 "<no args>" nmg::array_unique
-  xtest A11 3 "returns 3"
+  xret A11 3 "returns 3"
   ftest A11f "ERR: nmg::array_unique: missing <retarr>" "logs error"
 
+  avar=("one" "two" "one")
+
   xwrap2 "<no name>" nmg::array_unique avar
-  xtest A12 3 "returns 3"
-  ftest A12f "ERR: nmg::array_unique: missing <name>" "logs error"
+  xret A12 t "returns true"
+  aref=("one" "two")
+  atest A12a avar aref "<retarr> has unique values"
+
+  avar=("bogus")
 
   xwrap2 "<bad name>" nmg::array_unique avar "bad#name"
-  xtest A13 t "returns true"
+  xret A13 t "returns true"
   ftest A13f "" "does not log"
 
   avar=("bogus") aref=("first" "second" "first")
 
   xwrap2 "<dups>" nmg::array_unique avar aref
-  xtest A14 t "returns true"
+  xret A14 t "returns true"
   aref=("first" "second")
   atest A14a avar aref "removes dups"
 
   avar=("bogus") aref=()
 
   xwrap2 "<empty array>" nmg::array_unique avar aref
-  xtest A15 t "returns true"
+  xret A15 t "returns true"
   atest A15a avar aref "clears <retarr>"
 
   avar=("a" "b" "c" "a" "b")
   xwrap2 "<src>=<src>" nmg::array_unique avar avar
-  xtest A16 t "returns true"
+  xret A16 t "returns true"
   aref=("a" "b" "c")
   atest A16a avar aref "removes dups to same name array"
 
   avar=("a"$'\n'"b" "c" "d"$'\n' "a"$'\n'"b" "c")
   xwrap2 "<newline in vals>" nmg::array_unique avar avar
-  xtest A17 t "returns true"
+  xret A17 t "returns true"
   aref=("a"$'\n'"b" "c" "d"$'\n')
   atest A17a avar aref "removes dups"
 
@@ -1473,80 +1952,87 @@ xtest::group4::array() {
     # shellcheck disable=SC2016
     declare -A aref2=([0]='multi word')
     xwrap2 "<assoc array>" nmg::array_unique avar2 avar2
-    xtest A18 t "returns true"
+    xret A18 t "returns true"
     atest A18a avar2 aref2 "removes dups"
   fi
 
+  # same as A17, but using default 2nd array
+  avar=("a"$'\n'"b" "c" "d"$'\n' "a"$'\n'"b" "c")
+  xwrap2 "<newline in vals>" nmg::array_unique avar
+  xret A19 t "returns true"
+  aref=("a"$'\n'"b" "c" "d"$'\n')
+  atest A19a avar aref "removes dups"
+
   xwrap2 "<no args>" nmg::array_join
-  xtest A21 3 "returns 3"
+  xret A21 3 "returns 3"
   ftest A21f "ERR: nmg::array_join: missing <retvar>" "logs error"
 
   var="orig"
 
   xwrap2 "<retvar>" nmg::array_join var
-  xtest A22 t "returns true"
+  xret A22 t "returns true"
   vtest A22v "" "clears retvar"
 
   xwrap2 "',' <words>" nmg::array_join var "," "${src[@]}"
-  xtest A23 t "returns true"
+  xret A23 t "returns true"
   vtest A23v "word 1,word 2,word 3" "sets <retvar> to comma-list"
 
   xwrap2 "<array w/ nil>" nmg::array_join var "," "a" "" "c"
-  xtest A24 t "returns true"
+  xret A24 t "returns true"
   vtest A24v "a,,c" "list contains an empty item"
 
   xwrap2 "<no args>" nmg::array_match_values
-  xtest A41 3 "returns 3"
+  xret A41 3 "returns 3"
   ftest A41f "ERR: nmg::array_match_values: missing <name1>" "logs error"
 
   xwrap2 "<1 arg>" nmg::array_match_values avar
-  xtest A42 3 "returns 3"
+  xret A42 3 "returns 3"
   ftest A42f "ERR: nmg::array_match_values: missing <name2>" "logs error"
 
   avar=() aref=()
 
   xwrap2 "<unset-var> <empty-array>" nmg::array_match_values unset_name aref
-  xtest A43 t "returns true"
+  xret A43 t "returns true"
 
   xwrap2 "<empty-array> <empty-array>" nmg::array_match_values avar aref
-  xtest A44 t "returns true"
+  xret A44 t "returns true"
 
   avar=("a")
   xwrap2 "<1-item> <empty-array>" nmg::array_match_values avar aref
-  xtest A45 1 "returns 1"
+  xret A45 1 "returns 1"
 
   aref=("b")
   xwrap2 "<1-item> <diff-item>" nmg::array_match_values avar aref
-  xtest A46 1 "returns 1"
+  xret A46 1 "returns 1"
 
   aref=("a")
   xwrap2 "<1-item> <match-item>" nmg::array_match_values avar aref
-  xtest A47 t "returns true"
+  xret A47 t "returns true"
 
   avar=("a b" "c d") aref=("a b")
   xwrap2 "<2-item> <1-item>" nmg::array_match_values avar aref
-  xtest A48 1 "returns 1"
+  xret A48 1 "returns 1"
 
   avar=("a b" "c d") aref=("c d" "a b")
   xwrap2 "<2-item> <2-diff-order>" nmg::array_match_values avar aref
-  xtest A49 t "returns true"
+  xret A49 t "returns true"
 
   avar=("a b" "c d") aref=("a b" "c d" "c d")
   xwrap2 "<2-item> <3-dups>" nmg::array_match_values avar aref
-  xtest A50 t "returns true"
+  xret A50 t "returns true"
 
   avar=("a" "a") aref=("a" "b")
   xwrap2 "<2-same> <2-diff>" nmg::array_match_values avar aref
-  xtest A51 1 "returns 1"
+  xret A51 1 "returns 1"
 
   xwrap2 "<bad name> <unset name>" nmg::array_match_values "bad#name" \
 	 "unset_name"
-  xtest A52 t "returns true"
+  xret A52 t "returns true"
   ftest A52f "" "does not log"
 
   xwrap2 "<unset name> <bad name>" nmg::array_match_values "unset_name" \
 	 "bad#name"
-  xtest A53 t "returns true"
+  xret A53 t "returns true"
   ftest A53f "" "does not log"
 
 }
@@ -1557,64 +2043,66 @@ xtest::group4::config() {
   shtest::title "Config Tests (config group)"
 
   xwrap2 "<no args>" nmg_read_config
-  xtest C1 1 "returns 1"
+  xret C1 1 "returns 1"
   ftest C1f "" "should not log"
 
   xrm "$XNOFILE"
 
   xwrap2 "'not-there'" nmg_read_config "$XNOFILE"
-  xtest C2 1 "returns 1"
+  xret C2 1 "returns 1"
   ftest C2f "" "should not log"
 
   xrm "$XFILE"
   echo "TEST1=1"$'\n'"{ # parse error" > "$XFILE"
 
   xwrap2 "<bad file>" nmg_read_config "$XFILE"
-  xtest C3 2 "returns 2"
+  xret C3 2 "returns 2"
   ftest C3f "ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3:\
  syntax error: unexpected end of file" "logs error"
 
   xwrap2 "<bad file> nolog" nmg_read_config "$XFILE" 1
-  xtest C4 2 "returns 2"
+  xret C4 2 "returns 2"
   ftest C4f "" "should not log"
 
   command -p chmod a-r "$XFILE"
 
   xwrap2 "<read prot" nmg_read_config "$XFILE"
-  xtest C5 2 "returns 2"
+  xret C5 2 "returns 2"
   ftest C5f "ERR: nmg_read_config($XFILE): access denied" "logs error"
 
   xwrap2 "<read prot> nolog" nmg_read_config "$XFILE" 1
-  xtest C6 2 "returns 2"
+  xret C6 2 "returns 2"
   ftest C6f "" "should not log"
 
   xrm "$XFILE"
   echo "echo >&2 to stderr"$'\n'"echo to stdout" > "$XFILE"
 
   xwrap2 "<file w/ output>" nmg_read_config "$XFILE"
-  xtest C7 t "returns true"
+  xret C7 t "returns true"
   ftest C7f "" "should not output/log"
 
   unset var
   echo "var='new value'" > "$XFILE"
 
   xwrap2 "<config>" nmg_read_config "$XFILE"
-  xtest C8 t "returns true"
+  xret C8 t "returns true"
   vtest C8v "new value" "correctly load values"
   ftest C8f "" "should not log"
 
   unset var
 
   xwrap2 "<config>" nmg_required_config "$XFILE"
-  xtest C21 t "returns true"
+  xret C21 t "returns true"
   vtest C21v "new value" "correctly load values"
   ftest C21f "" "should not log"
 
   xrm "$XNOFILE"
+  var=0
 
   shtest::prefix "nmg_required_config('not-there') - "
-  (xwrap nmg_required_config "$XNOFILE"; echo "not reached")
-  xtest C22 t "exits 0"
+  (xwrap nmg_required_config "$XNOFILE"; echo "not reached") || var=$?
+  vtest C22 0 "exits 0"
+  shtest::prefix " - "
   ftest C22f "" "should not log"
 
   xrm "$XFILE"
@@ -1624,6 +2112,7 @@ xtest::group4::config() {
   shtest::prefix "nmg_required_config(<bad file>) - "
   (xwrap nmg_required_config "$XFILE"; echo "not reached") || var=$?
   vtest C23 2 "exits 2"
+  shtest::prefix " - "
   out="ERR: Failed to parse config file '$XFILE': ${XFILE}: line 3:\
  syntax error: unexpected end of file"
   ftest C23f "$out" "logs error"
@@ -1636,8 +2125,9 @@ test_version() {
 
   shtest::whitelist source
 
-  (source 2>/dev/null "${NMG}") &&
-    xtest::fail "  FATAL: ${NMG} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
+  (source 2>/dev/null "${TEST_FILE}") &&
+    xtest::fail "  FATAL: ${TEST_FILE} loaded when\
+ NMG_REQUIRED=${NMG_REQUIRED}"
 
   shtest::reset_state
 
@@ -1650,9 +2140,9 @@ xtest::onexit() {
 
 xmain() {
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/general file"
-  local NMG=${NMG:-${NMUTILS}/general-functions}
+  local TEST_FILE="${NMUTILS}/general-functions"
 
-  xload_script "${NMG}"
+  xload_script "${TEST_FILE}"
 
   test_version
 

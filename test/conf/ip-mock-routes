@@ -1,0 +1,25 @@
+route default via 192.168.66.254 dev eth0 proto static src 192.168.66.4 metric 400
+route6 default via fe80::fcac:2fff:fe4f:a805 dev eth0 proto ra metric 405
+route 192.168.66.0/24 dev eth0 proto kernel src 192.168.66.4 metric 400
+route6 2001:db8:871a:28c1::/64 dev eth0 proto kernel
+route6 2001:db8:4860:4860::/64 dev eth0 proto kernel
+route6 fda5:3d6f:2bc7:203d::/64 dev eth0 proto kernel
+route6 fe80::/64 dev eth0 proto kernel
+route default via 10.0.10.1 dev eth1 proto static src 10.0.10.12 metric 400
+route6 default via fe80::59b1:2362:2abc:512f dev eth1 proto ra metric 406
+route6 default from 2001:db8:871a:28c1::/64 via fe80::59b1:2362:2abc:512f dev eth1 proto static
+route 10.0.10.0/24 dev eth1 proto kernel scope link src 10.0.10.12 metric 400
+route6 2001:db8:a0b:12f0::/64 dev eth1 proto kernel
+route6 fdac:3741:50f8:f623::/64 dev eth1 proto kernel
+route6 fe80::/64 dev eth1 proto kernel
+route6 default via fe80::faaa:dead:beef:8000 dev wan0 proto ra metric 405
+route6 default from 2001:db8:100::/56 via fe80::faaa:dead:beef:8000 dev wan0 proto static
+route6 default from 2001:db8:200::/56 via fe80::faaa:dead:beef:8000 dev wan0 proto static
+route6 2001:db8:100::/56 type unreachable dev lo metric 2147483647
+route6 2001:db8:200::/56 type unreachable dev lo metric 2147483647
+#
+# ip route get entries (totally separate for now)
+#
+groute6 2001:db8:aaa::100 from :: dev wan0 proto ra src 2001:db8:aaa::1
+groute6 2001:db8:aaa::200 from :: dev wan0 proto ra src 2001:db8:aaa::1
+groute6 default from :: via fe80::faaa:dead:beef:8000 dev wan0 proto ra src 2001:db8:aaa::1

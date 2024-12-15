@@ -1,21 +1,50 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # General placeholder command
 #
+# Environment values:
+#
 # DUMMY_MOCK_FAIL (optional) - !0 fail code
 #
-# DUMMY_MOCK_OUTPUT (optional) - echo, "@ARGS@" replaced by arguments
+# DUMMY_MOCK_FAIL_ARGS (optional) - if args match regex, use MOCK_FAIL
+#   NOTE: each arg is enclosed in single-quotes, eg: 'first' 'second arg'
 #
-
+# DUMMY_MOCK_OUTPUT (optional) - echo value to stdout (stderr if _FAIL):
+#     "@EXE@" replaced by executable name
+#     "@ARGS@" replaced by arguments
+#
+# MOCK_ECHO (optional) - output quoted args
+#
+# MOCK_ECHO_STDIN (optional) - echos stdin
+#
+# MOCK_ECHO_STDIN_ARGS (optional) - if args match regex, use MOCK_ECHO_STDIN
+#
+# MOCK_ECHO_FD (optional) - MOCK_ECHO(_STDIN) to this file descriptor
+#
+# DUMMY_MOCK_FD (optional) - DUMMY_MOCK_OUTPUT to this file descriptor
+#
+# Any DUMMY_MOCK_<NAME>_<FILENAME> overrides above values if $0 ends
+# in <FILENAME> ('-' mapped to '_')
+#
 unset IFS
+
+set_output() {
+  [[ ${DUMMY_MOCK_FD-} ]] || return 0
+  local fd=2
+  printf 2>/dev/null -v fd "%d" "${DUMMY_MOCK_FD}" || fd=2
+  [[ $fd != 1 ]] && exec >&"$fd"
+  [[ $fd != 2 ]] && exec 2>&"$fd"
+}
 
 err() {
   printf >&2 "%s\n" "$*"
 }
 
 fail() {
+  # <rc> <output>
   local -i rc=0
   [[ $1 != 0 ]] && { printf 2>/dev/null -v rc "%d" "$1" || rc=1; }
   shift
@@ -23,10 +52,64 @@ fail() {
   exit "$rc"
 }
 
+check_overrides() {
+  local var exe=${0##*/}
+  exe=${exe//-/_}
+  var="DUMMY_MOCK_FAIL_${exe}"
+  [[ ${!var+x} ]] && DUMMY_MOCK_FAIL=${!var}
+  var="DUMMY_MOCK_FAIL_ARGS_${exe}"
+  [[ ${!var+x} ]] && DUMMY_MOCK_FAIL_ARGS=${!var}
+  var="DUMMY_MOCK_OUTPUT_${exe}"
+  [[ ${!var+x} ]] && DUMMY_MOCK_OUTPUT=${!var}
+  var="DUMMY_MOCK_FD_${exe}"
+  [[ ${!var+x} ]] && DUMMY_MOCK_FD=${!var}
+  var="MOCK_ECHO_${exe}"
+  [[ ${!var+x} ]] && MOCK_ECHO=${!var}
+  var="MOCK_ECHO_STDIN_${exe}"
+  [[ ${!var+x} ]] && MOCK_ECHO_STDIN=${!var}
+  var="MOCK_ECHO_STDIN_ARGS_${exe}"
+  [[ ${!var+x} ]] && MOCK_ECHO_STDIN_ARGS=${!var}
+  var="MOCK_ECHO_FD_${exe}"
+  [[ ${!var+x} ]] && MOCK_ECHO_FD=${!var}
+}
+
+mock_echo() {
+  # <arg>...
+  [[ ${MOCK_ECHO-} || ${MOCK_ECHO_STDIN-} ]] || return 0
+  local fd=1
+  [[ ${MOCK_ECHO_FD-} ]] && {
+    printf 2>/dev/null -v fd "%d" "${MOCK_ECHO_FD}" || fd=1
+  }
+  # echo args if requested
+  [[ ${MOCK_ECHO-} ]] && {
+    local arg out=${0##*/}
+    out=${out%-mock}
+    for arg in "$@"; do out+=" '${arg}'"; done
+    printf >&"$fd" "%s\n" "${out}"
+  }
+  # echo stdin if requested
+  [[ ${MOCK_ECHO_STDIN-} ]] && command -p cat >&"$fd" -
+}
+
+check_overrides
+
+args=''
+for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+
+[[ ${DUMMY_MOCK_FAIL_ARGS-} ]] && {
+  [[ ${args} =~ ${DUMMY_MOCK_FAIL_ARGS} ]] || DUMMY_MOCK_FAIL=''
+}
+[[ ${MOCK_ECHO_STDIN_ARGS-} ]] && {
+  [[ ${args} =~ ${MOCK_ECHO_STDIN_ARGS} ]] || MOCK_ECHO_STDIN=''
+}
+
+mock_echo "$@"
+
+set_output
+
 [[ ${DUMMY_MOCK_FAIL-} || ${DUMMY_MOCK_OUTPUT-} ]] && {
-  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
-  fail "${DUMMY_MOCK_FAIL:-0}" \
-       "${DUMMY_MOCK_OUTPUT+${DUMMY_MOCK_OUTPUT/@ARGS@/${args}}}"
+  out=${DUMMY_MOCK_OUTPUT+${DUMMY_MOCK_OUTPUT/@EXE@/$0}}
+  fail "${DUMMY_MOCK_FAIL:-0}" "${out/@ARGS@/$args}"
 }
 
 exit 0
