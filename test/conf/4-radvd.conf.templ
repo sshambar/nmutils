@@ -1,11 +1,12 @@
 interface eth0
 {
+	AdvDefaultLifetime @ROUTER_LIFETIME@;
 	AdvSendAdvert on;
 	MinRtrAdvInterval 30;
 	# should match 1 additional (and remove 1 from source conf)
 	@PREFIX@ {
-		AdvValidLifetime 86400;
-		AdvPreferredLifetime 14400;
+		AdvAutonomous on;
+		DecrementLifetimes on;
 	};
 };
 interface eth1

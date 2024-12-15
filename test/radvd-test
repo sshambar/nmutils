@@ -1,6 +1,7 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Fake radvd to test scripts
 #
@@ -26,4 +27,4 @@ TEST_COMMON=${TEST_COMMON:-conf/common.conf}
 # radvd-gen.conf loads general.conf for program overrides
 export RADVDGEN_CONF=${RADVDGEN_CONF-$TEST_CONF/radvd-gen.conf}
 
-bash "$SRC_ROOT/etc/NetworkManager/dispatcher.d/95-radvd-gen" "$@" eth0 up
+"${BASH}" "${TEST_NMDIR}/95-radvd-gen" "$@" eth0 up

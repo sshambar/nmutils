@@ -1,0 +1,16 @@
+#
+# radvd template used by 95-radvd-gen
+#
+# See /etc/NetworkManager/dispatcher.d/95-radvd-gen for docs
+#
+# Unlike other configurations in this directory, place this file in
+#   /etc/NetworkManager
+#
+# @PREFIX@ will be replaced with any ipv6 prefixes on interface eth1
+#
+interface eth1
+{
+       @PREFIX@ {
+                DecrementLifetimes on;
+        };
+};

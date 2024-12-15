@@ -1,24 +1,12 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# radvd-gen v1.5.3 - Generate radvd.conf from template based on ip state
+# Copyright (C) 2018-24 Scott Shambarger
+#
+# radvd-gen v2.0.0 - Generate radvd.conf from template based on ip state
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2018-21 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Usage: [ -d ] [ -v ] [ <interface> [ <action> ] ]
 #
@@ -45,6 +33,21 @@
 #       used to correct SELinux context on radvd.conf (set empty
 #       to not use even if available)
 #
+#   ROUTER_DEFAULT_LIFETIME (default: 0)
+#       Default router lifetime for @ROUTER_LIFETIME@ if no dynamic prefixes
+#       but default route is present (set this non-zero if static prefixes are
+#       routable or SNAT in use).
+#
+#   ROUTER_MIN_LIFETIME (default: 600)
+#   ROUTER_MAX_LIFETIME (default: 9000)
+#       Min/max router lifetimes for @ROUTER_LIFETIME@ (current radvd limits)
+#
+#   DEFROUTE_TEST (default: 2001::1)
+#       If @ROUTER_LIFETIME@ referenced (see below), non-empty value will
+#       be used for testing existence of the default route (just a route check,
+#       not a connectivity check - so any global ipv6 will do).
+#       Empty value always succeeds.
+#
 # Script is triggered on any interface up/down, or dhcp6 address
 # change, but can also be triggered by other scripts, for example:
 #
@@ -59,6 +62,7 @@
 # Example template is:
 #
 # interface lan1 {
+#       AdvDefaultLifetime @ROUTER_LIFETIME@;
 #	AdvSendAdvert on;
 #	MinRtrAdvInterval 30;
 #       @PREFIX@ {
@@ -78,6 +82,10 @@
 # defined prefixes like ffdd:1234:1234::/64 above).
 #
 # @PREFIX@ specific options are optional, just "@PREFIX@" (w/o { }) is ok.
+#
+# @ROUTER_LIFETIME@, if referenced, replaced by a dynamic value
+#   generated from the max preferred life of any dynamic prefix on the
+#   interface.  If no default routes are present, has a value of 0.
 #
 # TODO:
 #
@@ -106,6 +114,10 @@ DST=/etc/radvd.conf
 
 # percentage difference to trigger new config
 PERDIFF=10
+# router lifetimes
+ROUTER_DEFAULT_LIFETIME=0
+ROUTER_MIN_LIFETIME=600
+ROUTER_MAX_LIFETIME=9000
 # group that can read radvd.conf (set empty for default)
 RADVD_GROUP=radvd
 
@@ -340,6 +352,11 @@ is_iface_key() { # <iface> <key> (true if value)
   ds_nget "" 3 IFACES "$@"
 }
 
+get_iface_key() { # <ret> <iface> <key> (true if value)
+  debug "$@"
+  ds_nget "$1" 3 IFACES "${@:2}"
+}
+
 # ret=interface #n (true if value)
 get_iface() { # <ret> <n>
   debug "$@"
@@ -490,6 +507,8 @@ parse_interface() {
 #   <iface> <mode> 1 - if interface exists in that file
 #   <iface> dynamic 1 - if interface is @PREFIX@
 #   <iface> decr 1 - if interface has prefixes with decr times
+#   <iface> rlife # - @ROUTER_LIFETIME@ present, calculated lifetime
+#   <iface> advint # - advertisement interval set
 #   <iface> <prefix> decr 1 - static prefix has decrementing times
 #   <iface> <prefix> <mode> 1 - prefix declared in <mode>
 #   <iface> <prefix> <mode>_valid # - valid lifetime in <mode> (# or infinity)
@@ -525,9 +544,25 @@ read_file() { # cur|src <file>
         ;;
       interface-opts)
         parse_interface || return 1
-        if [[ $prefix == dynamic && $mode != src ]]; then
-          err "@PREFIX@ found in \"$src\":$lno!" && return 1
+        if [[ $mode != src ]]; then
+          if [[ $prefix == dynamic ]]; then
+            err "@PREFIX@ found in \"$src\":$lno!" && return 1
+          elif [[ $line =~ @router_lifetime@ ]]; then
+            err "@ROUTER_LIFETIME@ found in \"$src\":$lno!" && return 1
+          elif [[ $line =~ advdefaultlifetime ]]; then
+            # save for comparison later
+            parse_2nd val "$line"
+            set_iface_key "$iface" cur_rlife "$val"
+          fi
         fi
+        [[ $line =~ ^maxrtradvinterval ]] && {
+          parse_2nd val "$line"
+          set_iface_key "$iface" advint "$val"
+        }
+        [[ $line =~ @router_lifetime@ ]] && {
+          verbose "    Router lifetime requested"
+          set_iface_key "$iface" rlife "$ROUTER_DEFAULT_LIFETIME"
+        }
         ;;
       prefix-opts)
         parse_2nd val "$line"
@@ -661,6 +696,11 @@ get_iface_addrs() {
   done
 }
 
+has_default_route() { # returns true if default route present
+  [[ $DEFROUTE_TEST ]] || return 0
+  "$IP_EXE" &>/dev/null -6 route get "$DEFROUTE_TEST"
+}
+
 # ret=item from static or dynamic entry in template
 get_src_value() { # <ret> <iface> <prefix> <item>
   local ret=$1 iface=$2 prefix=$3 item=$4
@@ -698,13 +738,8 @@ get_new_lifetime() { # <ret> <iface> <prefix> <type>
     get_prefix_key "$1" "$2" "$3" "wired_$4"
 }
 
-pfx_lifetime_differs() { # <iface> <prefix> <type>
-  debug "$@"
-  local iface=$1 prefix=$2 type=$3 new cur
-
-  # get template value (or wired if unset), and compare with current file
-  get_new_lifetime new "$iface" "$prefix" "$type"
-  get_prefix_key cur "$iface" "$prefix" "cur_$type"
+lifetime_differs() { # <new> <cur> <type>
+  local new=$1 cur=$2 type=$3
 
   # if either infinity, just check for a change
   if [[ $new == infinity || $cur == infinity ]]; then
@@ -721,6 +756,11 @@ pfx_lifetime_differs() { # <iface> <prefix> <type>
   verbose "    Checking $type lifetime values ($new : $cur)"
 
   local -i a=$new b=$cur d
+  # any change from zero is a difference
+  (( (a == 0) || (b == 0) )) && {
+    (( a != b ))
+    return
+  }
   ((d=((a*200)-(b*200))/(a+b)))
   (( d < 0 )) && ((d=-d))
   if (( d < PERDIFF )); then
@@ -729,6 +769,32 @@ pfx_lifetime_differs() { # <iface> <prefix> <type>
   fi
   verbose "      Lifetimes differ more than $PERDIFF% ($d%) - CHANGE"
   return 0
+}
+
+router_lifetime_differs() { # <iface>
+  local iface=$1 rlife cur_rlife
+
+  get_iface_key rlife "$iface" rlife
+  get_iface_key cur_rlife "$iface" cur_rlife
+
+  lifetime_differs "$rlife" "$cur_rlife" "router"
+}
+
+pfx_lifetime_differs() { # <iface> <prefix> <type>
+  debug "$@"
+  local iface=$1 prefix=$2 type=$3 new cur advint
+
+  # get template value (or wired if unset), and compare with current file
+  get_new_lifetime new "$iface" "$prefix" "$type"
+  get_iface_key advint "$iface" advint || advint=600
+  get_min_lifetime cur "$new" "$advint"
+  [[ $cur == "$new" ]] && {
+    verbose "    $type lifetime $new below MaxRtrAdvInterval $advint - RELOAD"
+    return 0
+  }
+  get_prefix_key cur "$iface" "$prefix" "cur_$type"
+
+  lifetime_differs "$new" "$cur" "$type"
 }
 
 # Look for changes on new and current <iface> (true if changes)
@@ -741,6 +807,8 @@ iface_differs() { # <iface>
   is_iface_key "$if" src || return 0
 
   verbose "Looking for significant changes on interface $if"
+
+  router_lifetime_differs "$if" && return
 
   p=0
   while get_prefix pfx "$if" $p; do
@@ -793,6 +861,28 @@ gen_line() {
   echo "$out"
 }
 
+gen_pref_lifetime() {
+  # <iface> <source> <prefix> <pref> <valid> [ "both" ]
+  local if=$1 src=$2 pfx=$3 pref=$4 valid=$5 both=${6-}
+
+  get_min_lifetime pref "$pref" "$valid"
+
+  [[ $pref == 0 ]] && {
+    # deprecated, set valid to no more than 2 hrs
+    get_min_lifetime valid "7205" "$valid"
+
+    get_prefix_key "" "$if" "$src" src_decr && {
+      # special handling of deprecated prefix... radvd won't advertise them
+      # if decrementing times... so disable decrement
+      set_prefix_key "$if" "$pfx" skip_decr 1
+      set_prefix_key "$if" "$pfx" decr
+      gen_line "\\t\\tDecrementLifetimes off;"
+    }
+  }
+  [[ $both ]] && gen_line "\\t\\tAdvValidLifetime %s;" "$valid"
+  gen_line "\\t\\tAdvPreferredLifetime %s;" "$pref"
+}
+
 # Echos missing lifetime entries for prefix, if not defined in <source>
 gen_missing_lifetimes() { # <iface> <source> <prefix>
   debug "$@"
@@ -808,13 +898,11 @@ gen_missing_lifetimes() { # <iface> <source> <prefix>
     gen_line "\\t\\tAdvValidLifetime %s;" "$valid"
   elif [[ $svalid ]]; then
     get_new_lifetime pref "$iface" "$prefix" pref
-    get_min_lifetime pref "$pref" "$svalid"
-    gen_line "\\t\\tAdvPreferredLifetime %s;" "$pref"
+    gen_pref_lifetime "$iface" "$source" "$prefix" "$pref" "$svalid"
   else
     get_new_lifetime valid "$iface" "$prefix" valid
-    gen_line "\\t\\tAdvValidLifetime %s;" "$valid"
     get_new_lifetime pref "$iface" "$prefix" pref
-    gen_line "\\t\\tAdvPreferredLifetime %s;" "$pref"
+    gen_pref_lifetime "$iface" "$source" "$prefix" "$pref" "$valid" both
   fi
 }
 
@@ -822,6 +910,7 @@ gen_missing_lifetimes() { # <iface> <source> <prefix>
 gen_dynamic() { # <iface>
   debug "$@"
   local -i p i; local iface=$1 pfx key val
+  local -l lower
 
   p=0
   while get_prefix pfx "$iface" $p; do
@@ -839,6 +928,9 @@ gen_dynamic() { # <iface>
     while get_prefix_keyi key "$iface" saved "$i"; do
       ((i++))
       get_prefix_key val "$iface" saved "$key"
+      strip lower "$val"
+      [[ $lower =~ ^decrementlifetimes ]] &&
+        get_prefix_key "" "$iface" "$pfx" skip_decr && continue
       gen_line "%s" "$val"
     done
     gen_line "\\t%s" "};"
@@ -862,7 +954,7 @@ gen_file() { # <template> <config>
   TMPFILE=$("$MKTEMP_EXE")
   [[ -w $TMPFILE ]] || fatal "Unable to create temp file '$TMPFILE'"
 
-  local orig iface prefix save_prefix add_close
+  local orig iface prefix save_prefix add_close rlife
 
   local -i lno=0 si=0
   local -l line # lowercase
@@ -913,6 +1005,10 @@ gen_file() { # <template> <config>
       set_prefix_key "$iface" saved "$si" "$orig"
       ((si++))
     else
+      [[ $line =~ @router_lifetime@ ]] && {
+        get_iface_key rlife "$iface" rlife || rlife=$ROUTER_DEFAULT_LIFETIME
+        orig=${orig/@ROUTER_LIFETIME@/$rlife}
+      }
       gen_line "%s" "$orig"
     fi
   done < "$src" >> "$TMPFILE"
@@ -952,6 +1048,45 @@ signal_radvd() { # reload|reset
   fi
 }
 
+calc_router_lifetimes() {
+  verbose "Calculating router lifetimes"
+  local -i i p; local if pfx rlife pref valid
+
+  i=0
+  while get_iface if $i; do
+    ((i++))
+    # skip if not in src doesn't have dynamic settings on interface
+    is_iface_key "$if" rlife || continue
+    rlife=0
+    if has_default_route; then
+      p=0 rlife=''
+      while get_prefix pfx "$if" $p; do
+        ((p++))
+        # only consider dynamic prefixes
+        is_prefix_key "$if" "$pfx" wired || continue
+        is_prefix_key "$if" "$pfx" src && continue
+        # get current pref-life value
+        get_prefix_key pref "$if" dynamic src_pref || {
+          get_new_lifetime pref "$if" "$pfx" pref
+          get_prefix_key valid "$if" dynamic src_valid &&
+            get_min_lifetime pref "$pref" "$valid"
+        }
+        [[ $rlife ]] || rlife=0
+        # enforce limits
+        if [[ $pref == infinity ]]; then
+          pref=$ROUTER_MAX_LIFETIME
+        elif (( pref > ROUTER_MAX_LIFETIME )); then
+          pref=$ROUTER_MAX_LIFETIME
+        elif (( pref > 0 && pref < ROUTER_MIN_LIFETIME )); then
+          pref=$ROUTER_MIN_LIFETIME
+        fi
+        (( (pref > rlife) && (rlife = pref) ))
+      done
+    fi
+    [[ $rlife ]] && set_iface_key "$if" "rlife" "$rlife"
+  done
+}
+
 setup_radvd() {
 
   # if no template, we're not configured; bail.
@@ -973,6 +1108,7 @@ setup_radvd() {
   read_file "cur" "$DST"
 
   get_iface_addrs
+  calc_router_lifetimes
 
   if [[ -f $DST && $DST -nt $SRC ]] && ! ifaces_differs; then
     # reset radvd if a prefix is decrementing
