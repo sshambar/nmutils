@@ -1,30 +1,43 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Copyright (C) 2021-2024 Scott Shambarger
 #
 # ip-mock - ip command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2021 Scott Shambarger
+# Environment values:
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
+# IP_MOCK_FAIL (optional) - !0 fail code
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# IP_MOCK_OUTPUT (optional) - echo this:
+#     "@ARGS@" replaced by arguments
 #
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# MOCK_ECHO (optional) - output quoted args for all commands except "show"
 #
-VERSION=0.5.1
+# MOCK_ECHO_FD (optional) - MOCK_ECHO to this file descriptor
+#
+
+VERSION=0.6.0
 
 IP_MOCK_ADDRS=${IP_MOCK_ADDRS:-conf/ip-mock-addrs}
+IP_MOCK_ROUTES=${IP_MOCK_ROUTES:-conf/ip-mock-routes}
+IP_MOCK_MONITOR=${IP_MOCK_MONITOR:-conf/ip-mock-monitor}
 
 IP_MOCK_FAIL=${IP_MOCK_FAIL-}
+
+mock_echo() {
+  # <arg>...
+  [[ ${MOCK_ECHO-} ]] || return 0
+  local fd=1 out='ip' arg
+  for arg in "$@"; do out+=" '${arg}'"; done
+  [[ ${MOCK_ECHO_FD-} ]] && {
+    printf 2>/dev/null -v fd "%d" "${MOCK_ECHO_FD}" || fd=1
+  }
+  printf >&"$fd" "%s\n" "${out}"
+}
 
 err() {
   local IFS; unset IFS
@@ -35,7 +48,13 @@ fail() {
   local -i rc=0
   [[ $1 != 0 ]] && { printf 2>/dev/null -v rc "%d" "$1" || rc=1; }
   shift
-  [[ $1 ]] && { if [[ $rc == 0 ]]; then echo "$@"; else err "$@"; fi; }
+  [[ $1 ]] && {
+    if [[ $rc == 0 ]]; then
+      echo "$*"
+    else
+      err "$*"
+    fi
+  }
   exit "$rc"
 }
 
@@ -45,10 +64,131 @@ verbose() {
 
 usage() {
   err "Usage: ${0##*/} [ OPTIONS ] OBJECT { COMMAND | help }"
-  err "where  OBJECT := { address }"
-  err "       OPTIONS := { -4 | -6 | -v | -V[ersion] }"
-  exit 1
+  err "where  OBJECT := { address | route }"
+  err "       OPTIONS := { -d | -4 | -6 | -v | -V[ersion] }"
+  exit 255
 }
+
+# === Duplicated from ipv6_utils.sh to avoid locating file ===
+# Credit to: Frank Crawford - <frank@crawford.emu.id.au>
+
+# helper to convert hex to dec (portable version)
+hex2dec() {
+    [ "$1" != "" ] && printf "%d" "$(( 0x$1 ))"
+}
+
+# convert ipv6 to lowercase
+# inspired by https://stackoverflow.com/a/51573758/14179001
+lowercase_ipv6() { # <ipv6-address> - echoes result
+    local lcs="abcdef" ucs="ABCDEF"
+    local result="${1-}" uchar uoffset
+
+    while [[ "$result" =~ ([A-F]) ]]; do
+        uchar="${BASH_REMATCH[1]}"
+        uoffset="${ucs%%"${uchar}"*}"
+        result="${result//${uchar}/${lcs:${#uoffset}:1}}"
+    done
+
+  echo -n "$result"
+}
+
+# expand an IPv6 address
+expand_ipv6() {
+    local ip
+    ip=$(lowercase_ipv6 "${1:-::1}")
+
+    # prepend 0 if we start with :
+    [[ "$ip" =~ ^: ]] && ip="0${ip}"
+
+    # expand ::
+    if [[ "$ip" =~ :: ]]; then
+        local colons=${ip//[^:]/}
+        local missing=':::::::::'
+        missing=${missing/$colons/}
+        local expanded=${missing//:/:0}
+        ip=${ip/::/$expanded}
+    fi
+
+    local blocks=${ip//[^0-9a-f]/ }
+    # shellcheck disable=SC2086
+    set $blocks
+
+    printf "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n" \
+        "$(hex2dec "$1")" \
+        "$(hex2dec "$2")" \
+        "$(hex2dec "$3")" \
+        "$(hex2dec "$4")" \
+        "$(hex2dec "$5")" \
+        "$(hex2dec "$6")" \
+        "$(hex2dec "$7")" \
+        "$(hex2dec "$8")"
+}
+
+# returns a compressed IPv6 address under the form recommended by RFC5952
+compress_ipv6() {
+    local ip
+    ip=$(expand_ipv6 "$1")
+
+    local blocks=${ip//[^0-9a-f]/ }
+    # shellcheck disable=SC2086
+    set $blocks
+
+    # compress leading zeros
+    ip=$(printf "%x:%x:%x:%x:%x:%x:%x:%x\n" \
+        "$(hex2dec "$1")" \
+        "$(hex2dec "$2")" \
+        "$(hex2dec "$3")" \
+        "$(hex2dec "$4")" \
+        "$(hex2dec "$5")" \
+        "$(hex2dec "$6")" \
+        "$(hex2dec "$7")" \
+        "$(hex2dec "$8")"
+    )
+
+    # prepend : for easier matching
+    ip=:$ip
+
+    # :: must compress the longest chain
+    local pattern
+    for pattern in :0:0:0:0:0:0:0:0 \
+            :0:0:0:0:0:0:0 \
+            :0:0:0:0:0:0 \
+            :0:0:0:0:0 \
+            :0:0:0:0 \
+            :0:0:0 \
+            :0:0; do
+        if [[ "$ip" =~ $pattern ]]; then
+            ip=${ip/$pattern/::}
+            # if the substitution occured before the end, we have :::
+            ip=${ip/:::/::}
+            break # only one substitution
+        fi
+    done
+
+    # remove prepending : if necessary
+    [[ "$ip" =~ ^:[^:] ]] && ip=${ip/#:/}
+
+    echo -n "$ip"
+}
+
+# extract the IPv6 routing prefix
+ipv6_prefix() {
+    local prefix
+    prefix=$(expand_ipv6 "$1")
+    local subnet=${2:-64}
+
+    local nibble=''
+
+    (( subnet > 64 )) && subnet=64
+
+    if (( subnet % 16 )); then
+	nibble=$(printf "%04x" "$(( 0x${prefix:(subnet/16)*5:4} & ~((1<<(16-subnet%16))-1) ))")
+    fi
+
+    compress_ipv6 "${prefix:0:($subnet/16)*5}${nibble}::"
+}
+
+# === End Include ===
 
 # State file format:
 #  dev <device> [ <mtu> [ <state> ] ]
@@ -83,6 +223,60 @@ read_addr_state() { # <filename>
   return 0
 }
 
+# State file format:
+#  route[6] <target> [ <route-flags> ]
+# <route-flags> = dev <dev> | via <ip> | proto <proto> | src <ip> |
+#    metric <metric> | from <net>
+ROUTES=()
+read_route_state() { # <filename>
+  local file=$1
+  [[ -f $file ]] || { verbose "State file $file not found"; return 0; }
+  verbose "Loading route state file $file"
+  ROUTES=()
+  local IFS=$'\n' line
+  while read -r line || [[ $line ]]; do
+    unset IFS
+    [[ "$line" =~ ^# ]] && continue
+    # shellcheck disable=SC2086
+    set -- $line
+    case $1 in
+      route|route6|groute|groute6) ROUTES+=("$*") ;;
+    esac
+  done < "$file"
+  return 0
+}
+
+# Monitor file format:
+#  ROUTE6: <ipv6 route line>
+#  ADDR6: <ipv6 addr line>
+#  ROUTE4: <ipv4 route line>
+#  ADDR4: <ipv4 addr line>
+#  SLEEP: <seconds:5>
+filter_monitor_file() { # <filename> <match> [ <dev> ]
+  local file=$1 match=$2 dev=${3-}
+  [[ -f $file ]] || { verbose "Monitor file $file not found"; return 0; }
+  verbose "Filtering monitor file $file with $match"
+  local IFS=$'\n' line type
+  while read -r line || [[ $line ]]; do
+    unset IFS
+    [[ $line =~ ^# ]] && continue
+    [[ $line =~ ^SLEEP:\  ]] && {
+      line=${line#*: }
+      sleep "${line:-5}"
+      continue
+    }
+    [[ $dev ]] && { [[ $line =~ \ dev\ $dev ]] || continue; }
+    [[ $line =~ ^$match ]] || continue
+    if [[ $match =~ ^"[^:]+" ]]; then
+      type=${line%%:*}; type=${type%4}; type=${type%6}
+      echo "[$type]${line#*: }"
+    else
+      echo "${line#*: }"
+    fi
+  done < "$file"
+  return 0
+}
+
 usage_addr() {
   local ip=${0##*/}
   err "Usage: $ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ]"
@@ -92,6 +286,32 @@ usage_addr() {
   err "SCOPE-ID := [ host | link | global | NUMBER ]"
   err "LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]"
   err "LFT := forever | SECONDS"
+  exit 255
+}
+
+usage_link() {
+  local ip=${0##*/}
+  err "Usage: $ip link show [ DEVICE ]"
+  exit 255
+}
+
+usage_route() {
+  local ip=${0##*/}
+  err "Usage: $ip route list SELECTOR"
+  err "       $ip route { add | del | replace } ROUTE"
+  err "SELECTOR := [ type TYPE ] [ scope SCOPE ]"
+  err "ROUTE := NODE_SPEC [ INFO_SPEC ]"
+  err "NODE_SPEC := [ TYPE ] PREFIX"
+  err "             [ scope SCOPE ] [ metric METRIC ]"
+  err "INFO_SPEC := { NH } OPTIONS FLAGS..."
+  err "NH := [ via ADDRESS ] [ dev STRING ]"
+  exit 255
+}
+
+usage_monitor() {
+  local ip=${0##*/}
+  err "Usage: $ip monitor [ OBJECTS ] [ dev DEVICE ]"
+  err "OBJECTS :=  address | route"
   exit 255
 }
 
@@ -142,6 +362,9 @@ addr_show() {
     fi
     [[ $DEV ]] && [[ $DEV != "$dev" ]] && continue
     type=$2 a=$3 valid=${4:-forever} pref=${5-forever} scope=${6-global}
+    [[ $valid =~ ^[0-9]+$ ]] && valid+=sec
+    [[ $pref =~ ^[0-9]+$ ]] && pref+=sec
+    [[ $LOCAL ]] && [[ ${LOCAL%/*} != "${a%/*}" ]] && continue
     [[ $SCOPE ]] && [[ $SCOPE != "$scope" ]] && continue
     shift 3; shift; shift; shift
     for filter in ${FILTER[@]+"${FILTER[@]}"}; do
@@ -151,6 +374,10 @@ addr_show() {
         continue 2
       fi
     done
+
+    # del just checks for existance
+    [[ $COMMAND =~ del ]] && return 1
+
     addr_show_dev
     if [[ $IPV4 ]] && [[ $type == addr ]]; then
       # poor-man broadcast hack
@@ -164,10 +391,212 @@ addr_show() {
   done
   # if we never set mtu, filtered device was never found
   [[ $DEV && ! $mtu ]] && fail 1 "Device \"$DEV\" does not exist."
+  return 0
 }
 
-OBJECT='' COMMAND=show IPV4=1 IPV6=1 DEV='' SCOPE='' IP4='' IP6=''
-VERBOSE='' VALID_LT='' PREF_LT='' FILTER=()
+link_show() {
+  local d dev num=0 mtu state istate qdisc show_dev='' IFS
+  for d in "${DEVS[@]}"; do
+    ((num++))
+    # shellcheck disable=SC2086
+    set -- $d
+    dev=$1
+    [[ $DEV ]] && [[ $DEV != "$dev" ]] && continue
+    mtu=${2:-1500}; state="${3:-BROADCAST,MULTICAST,UP,LOWER_UP}"
+    istate=UP; qdisc=fq_codel
+    [[ $dev == lo ]] && { istate=UNKNOWN; qdisc=noqueue; }
+    addr_show_dev
+  done
+  # if we never set mtu, filtered device was never found
+  [[ $DEV && ! $mtu ]] && fail 1 "Device \"$DEV\" does not exist."
+  return 0
+}
+
+route_show() {
+  local e r v mode type from via dev proto scope src metric pref
+  local dev_ok=''
+  # default is ipv4 only
+  [[ $IPV6 && $IPV4 ]] && IPV6=''
+  for e in "${ROUTES[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $e
+    v=$1; shift
+    [[ $1 ]] || continue
+    r=$1; shift
+    mode='' type=unicast from=default via='' dev='' proto=boot src='' pref=''
+    if [[ $GET_ROUTE ]]; then
+      [[ ${v#g} == "$v" ]] && continue
+    else
+      [[ ${v#g} == "$v" ]] || continue
+    fi
+    if [[ ${v#g} == route ]]; then
+      [[ $IPV4 ]] || continue
+      scope='link'
+      metric=0
+    elif [[ ${v#g} == route6 ]]; then
+      [[ $IPV6 ]] || continue
+      scope='global'
+      metric=1024
+      pref='medium'
+    fi
+    while [[ $1 ]]; do
+      case $mode in
+        '')
+          case $1 in
+            from|via|dev|proto|scope|src|metric|pref|type) ;;
+            *) fail 1 "Route file $IP_MOCK_ROUTES has unknown option '$1'" ;;
+          esac
+          ;;
+        from) from=$1 ;;
+        via) via=$1 ;;
+        dev) dev=$1 ;;
+        proto) proto=$1 ;;
+        scope) scope=$1 ;;
+        src) src=$1 ;;
+        metric) metric=$1 ;;
+        pref) pref=$1 ;;
+        type) type=$1 ;;
+        *) fail 1 "Route file $IP_MOCK_ROUTES invalid mode '$mode'" ;;
+      esac
+      [[ $mode ]] && mode='' || mode=$1
+      shift
+    done
+    [[ $DEV ]] && { [[ $DEV != "$dev" ]] && continue; dev=''; }
+    dev_ok=1
+    if [[ $GET_ROUTE ]]; then
+      [[ $ROUTE != "$r" && $r != default ]] && continue
+      r=$ROUTE # overwrite default
+    else
+      [[ $ROUTE ]] && [[ $ROUTE != "$r" ]] && continue
+    fi
+    [[ $TYPE ]] && [[ $TYPE != "$type" ]] && continue
+    [[ $FROM ]] && { [[ $FROM != "$from" ]] && continue; from=''; }
+    [[ $VIA ]] && { [[ $VIA != "$via" ]] && continue; via=''; }
+    [[ $PROTO ]] && { [[ $PROTO != "$proto" ]] && continue; proto=''; }
+    [[ $SCOPE ]] && { [[ $SCOPE != "global" ]] && continue; scope=''; }
+    [[ $SRC ]] && { [[ $SRC != "$src" ]] && continue; src=''; }
+    [[ $METRIC ]] && { [[ $METRIC != "$metric" ]] && continue; metric=''; }
+    # no match for pref
+
+    # del just checks for existance
+    [[ $COMMAND =~ del ]] && return 1
+
+    [[ $from == default ]] && from=''
+    [[ $DETAIL ]] || {
+      [[ $type == unicast ]] && type=''
+      [[ $proto == boot ]] && proto=''
+      [[ $scope == global ]] && proto=''
+      [[ $metric == 0 ]] && metric=''
+    }
+    echo "${type:+$type }$r${from:+ from $from}${via:+ via $via}${dev:+ dev $dev}${proto:+ proto $proto}${scope:+ scope $scope}${src:+ src $src}${metric:+ metric $metric}${pref:+ pref $pref}"
+    [[ $GET_ROUTE ]] && return
+  done
+  # if we never set mtu, filtered device was never found
+  [[ $DEV && ! $dev_ok ]] && fail 1 "Cannot find device \"$DEV\""
+}
+
+check_ip6_addr() { # returns !0 if bad format
+  # <ip6/plen>
+  local ip6=${1-} plen=''
+  [[ ${ip6} =~ / ]] && {
+    plen=${ip6#*/} ip6=${ip6%/*}
+    { [[ ${plen} =~ ^[0-9][0-9]{0,2}$ ]] && (( plen >= 0 && plen <= 128 )); } ||
+      return 1
+  }
+  [[ ${ip6} =~ :: ]] && {
+    [[ ${ip6} =~ ^:: ]] && ip6="0${ip6}"
+    [[ ${ip6} =~ ::$ ]] && ip6="${ip6}0"
+    local sub='::::::::' colons=${ip6//[^:]}
+    sub=${sub/"${colons}"}
+    [[ ${sub} ]] && ip6=${ip6/::/${sub//:/:0}:0}
+  }
+  [[ ${ip6} =~ ^(0?[0-9a-fA-F]{1,4}:){7}0?[0-9a-fA-F]{1,4}$ ]]
+}
+
+parse_addr() {
+  local a=$1
+  if [[ $IPV6 ]] && check_ip6_addr "$a" addr; then
+    ADDR=$(compress_ipv6 "$a"); IPV4=''
+  elif [[ $a =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|(/[0-9]+)?$)){4}$ ]] \
+         && [[ $IPV4 ]]; then
+    ADDR=$a; IPV6=''
+  else
+    local t="any valid"
+    [[ $IPV4 ]] || t="inet6"
+    [[ $IPV6 ]] || t="inet"
+    fail 1 "Error: $t address is expected rather than \"$a\""
+  fi
+}
+
+parse_prefix() {
+  local r=$1 plen=128
+  if [[ $IPV6 ]] && check_ip6_addr "$r"; then
+    [[ $r =~ / ]] && plen=${r#*/}
+    (( plen <= 64 )) && r=$(ipv6_prefix "$r" "$plen")
+    [[ $plen == 128 ]] && plen=''
+    PFX="$r${plen:+/$plen}"; IPV4=''
+    [[ $PFX == ::/0 ]] && PFX=default
+  elif [[ $r =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|(/[0-9]+)?$)){1,4}$ ]] \
+       && [[ $IPV4 ]]; then
+    PFX=$r; IPV6=''
+    # TODO normalize ipv4 prefix
+    [[ $PFX == 0/0 ]] && PFX=default
+  elif [[ $r == default ]]; then
+    PFX=$r
+  else
+    local t="any valid"
+    [[ $IPV4 ]] || t="inet6"
+    [[ $IPV6 ]] || t="inet"
+    fail 1 "Error: $t prefix is expected rather than \"$r\""
+  fi
+}
+
+parse_local() {
+  [[ $LOCAL ]] && {
+    fail 255 "Error: either \"local\" is duplicate, or \"$1\" is a garbage."
+  }
+  local ADDR=''
+  parse_addr "$1"
+  [[ ${ADDR%/*} == :: ]] && fail 2 "Error: ipv6: Invalid address."
+  LOCAL=$ADDR
+}
+
+parse_target() {
+  [[ $ROUTE ]] && {
+    fail 255 "Error: either \"to\" is duplicate, or \"$1\" is a garbage."
+  }
+  case $1 in
+    unicast|local|broadcast|multicast|throw|unreachable|prohibit|blackhole|nat)
+      TYPE=$1
+      return 0
+      ;;
+  esac
+  local PFX=''
+  parse_prefix "$1"
+  ROUTE=$PFX
+}
+
+parse_from() {
+  local PFX=''
+  parse_prefix "$1"
+  FROM=$PFX
+}
+
+parse_via() {
+  local ADDR=''
+  parse_addr "$1"
+  VIA=$ADDR
+}
+
+parse_dev() {
+  [[ $DEV ]] && \
+    fail 255 "Error: either \"dev\" is duplicate, or \"$1\" is a garbage."
+  DEV=$1
+}
+
+OBJECT='' COMMAND=show IPV4=1 IPV6=1 LOCAL=''
+DETAIL='' VERBOSE='' VALID_LT='' PREF_LT='' FILTER=()
+ROUTE='' TYPE='' FROM='' VIA='' DEV='' PROTO='' SCOPE='' SRC='' METRIC=''
 parse_args() {
   local state=object nomatch
   for arg in "$@"; do
@@ -175,7 +604,11 @@ parse_args() {
       object)
         case $arg in
           addr|address) OBJECT=addr; state=addr ;;
+          link) OBJECT="link"; state="link" ;;
+          route) OBJECT=route; state=route ;;
+          monitor) OBJECT=monitor; state=monitor ;;
           help) usage ;;
+          -d) DETAIL=1 ;;
           -6) IPV4='' ;;
           -4) IPV6='' ;;
           -v) VERBOSE=1 ;;
@@ -188,13 +621,44 @@ parse_args() {
         ;;
       addr)
         case $arg in
-          add|change|replace|del|delete) COMMAND=$arg; state=ifaddr ;;
-          show) COMMAND=$arg; state=options ;;
+          add|change|replace|del|delete) COMMAND=$arg; state=options ;;
+          show|list) COMMAND=show; state=options ;;
           help) usage_addr ;;
           *) fail 255 "Command \"$arg\" is unknown, try \"ip address help\"" ;;
         esac
         ;;
-      dev) DEV=$arg; state=options ;;
+      link)
+        case $arg in
+          show|list) COMMAND=show; state=options ;;
+          help) usage_link ;;
+          *) fail 255 "Command \"$arg\" is unknown, try \"ip link help\"" ;;
+        esac
+        ;;
+      route)
+        case $arg in
+          add|change|replace|del|delete) COMMAND=$arg; state=options ;;
+          show|list) COMMAND=show; state=options ;;
+          get) COMMAND="get"; state=options ;;
+          help) usage_route ;;
+          *) fail 255 "Command \"$arg\" is unknown, try \"ip route help\"" ;;
+        esac
+        ;;
+      monitor)
+        case $arg in
+          addr|address) COMMAND=address; state=options ;;
+          route) COMMAND=route; state=options ;;
+          all) COMMAND=all; state=options ;;
+          help) usage_monitor ;;
+          *) fail 255 "Argument \"$arg\" is unknown, try \"ip monitor help\"" ;;
+        esac
+        ;;
+      type) TYPE=$arg; state=options ;;
+      local) parse_local "$arg"; state=options ;;
+      to) parse_target "$arg"; state=options ;;
+      from) parse_from "$arg"; state=options ;;
+      via) parse_via "$arg"; state=options ;;
+      dev) parse_dev "$arg"; state=options ;;
+      proto) PROTO=$arg; state=options ;;
       scope)
         if [[ $arg =~ ^(host|link|global|[0-9]+)$ ]]; then
           SCOPE=$arg; state=options
@@ -202,6 +666,9 @@ parse_args() {
           fail 255 "Error: argument \"$arg\" is wrong: invalid scope value."
         fi
         ;;
+      src) SRC=$arg; state=options ;;
+      metric) METRIC=$arg; state=options ;;
+      expires) state=options ;;
       valid_lft|preferred_lft)
         if [[ $arg =~ ^([0-9]+)$ ]] || [[ $arg == forever ]]; then
           [[ $state == valid_lft ]] && VALID_LT=$arg || PREF_LT=$arg
@@ -210,20 +677,10 @@ parse_args() {
           fail 255 "Error: argument \"$arg\" is wrong: $state value"
         fi
         ;;
-      ifaddr)
-        if [[ $arg =~ ^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{1,4}(/[0-9]+)?$ ]]; then
-          IP6=$arg; IPV4=''
-        elif [[ $arg =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|(/[0-9]+)?$)){4}$ ]]; then
-          IP4=$arg; IPV6=''
-        else
-          fail 1 "Error: any valid prefix is expected rather than \"$arg\""
-        fi
-        state=options
-        ;;
       options)
         if [[ ${OBJECT} == addr ]]; then
           case $arg in
-            dev|scope|valid_lft|preferred_lft)
+            local|dev|scope|valid_lft|preferred_lft)
               state=$arg
               ;;
             *)
@@ -241,10 +698,46 @@ parse_args() {
               else
                 nomatch=1
               fi
-              if [[ $nomatch ]]; then
-                fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage."
-              fi
+              [[ $nomatch ]] && {
+                if [[ $COMMAND == show ]]; then
+                  if [[ $arg == to ]]; then
+                    state=local
+                  else
+                    parse_dev "$arg"
+                  fi
+                else
+                  parse_local "$arg"
+                fi
+              }
               ;;
+          esac
+        elif [[ ${OBJECT} == link ]]; then
+          case $arg in
+            dev)
+              state=$arg
+              ;;
+            *)
+              parse_dev "$arg"
+              ;;
+          esac
+        elif [[ ${OBJECT} == route ]]; then
+          case $arg in
+            type|to|from|via|dev|proto|scope|src|metric)
+              state=$arg
+              ;;
+            expires)
+              [[ $COMMAND == show ]] && parse_prefix "$arg"
+              state=$arg
+              ;;
+            *)
+              # check if target without "to"
+              parse_target "$arg"
+              ;;
+          esac
+        elif [[ ${OBJECT} == monitor ]]; then
+          case $arg in
+            dev) state=$arg ;;
+            *) fail 255 "Argument \"$arg\" is unknown, try \"ip monitor help\"" ;
           esac
         else
           fail 255 "Error: either \"local\" is duplicate, or \"$arg\" is a garbage."
@@ -255,14 +748,17 @@ parse_args() {
 
   case $OBJECT in
     addr)
-      case $COMMAND in
-        add|del|delete)
-          [[ $DEV ]] ||
-            fail 1 "Not enough information: \"dev\" argument is required."
-          [[ $IP6 || $IP4 ]] ||
-            fail 2 "RTNETLINK answers: Operation not supported"
-          ;;
-      esac
+      if [[ $COMMAND != show ]]; then
+        [[ $DEV ]] ||
+          fail 1 "Not enough information: \"dev\" argument is required."
+        [[ $LOCAL ]] || fail 2 "RTNETLINK answers: Operation not supported"
+      fi
+      ;;
+    route)
+      if [[ $COMMAND != show && $COMMAND != get ]]; then
+        [[ $ROUTE ]] || usage_route
+        [[ $DEV ]] || fail 2 "RTNETLINK answers: No such device"
+      fi
       ;;
   esac
 }
@@ -271,34 +767,78 @@ parse_args() {
 
 parse_args "$@"
 
+case $OBJECT in
+  addr|link) [[ $COMMAND != show ]] && mock_echo "$@" ;;
+  route) [[ ! $COMMAND =~ ^show|get$ ]] && mock_echo "$@" ;;
+esac
+
 [[ ${IP_MOCK_FAIL-} || ${IP_MOCK_OUTPUT-} ]] && {
-  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+  args=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
   fail "${IP_MOCK_FAIL:-0}" \
        "${IP_MOCK_OUTPUT+${IP_MOCK_OUTPUT/@ARGS@/${args}}}"
 }
 
 verbose "OBJECT=$OBJECT COMMAND=$COMMAND"
-verbose "IPV4=$IPV4 IP4=$IP4"
-verbose "IPV6=$IPV6 IP6=$IP6"
-verbose "VALID_LT=$VALID_LT PREF_LT=$PREF_LT"
-verbose "DEV=$DEV SCOPE=$SCOPE"
 
 case $OBJECT in
   addr)
+    verbose "IPV4=$IPV4 IPV6=$IPV6"
+    verbose "LOCAL=$LOCAL VALID_LT=$VALID_LT PREF_LT=$PREF_LT"
+    verbose "DEV=$DEV SCOPE=$SCOPE"
     read_addr_state "$IP_MOCK_ADDRS"
     case $COMMAND in
       add|change|replace|del|delete)
-        [[ ${MOCK_ECHO} ]] && {
-          out='ip' arg=''
-          for arg in "$@"; do out+=" '${arg}'"; done
-          printf '%s\n' "${out}"
+        [[ $COMMAND =~ del ]] && {
+          # returns 1 if addr found
+          t=ipv4
+          [[ $IPV6 ]] && t=ipv6
+          addr_show && fail 2 "Error: ${t}: Address not found."
         }
         ;;
-      show) addr_show;;
-      *) fail 1 "Command \"$COMMAND\" not implemented"
+      show) addr_show ;;
+      *) fail 1 "Command \"$COMMAND\" not implemented" ;;
     esac
     ;;
-  *) fail 1 "Object \"$OBJECT\" not implemented"
+  link)
+    verbose "DEV=$DEV"
+    read_addr_state "$IP_MOCK_ADDRS"
+    case $COMMAND in
+      show) link_show ;;
+      *) fail 1 "Command \"$COMMAND\" not implemented" ;;
+    esac
+    ;;
+  route)
+    verbose "IPV4=$IPV4 IPV6=$IPV6"
+    verbose "ROUTE=$ROUTE TYPE=$TYPE FROM=$FROM"
+    verbose "VIA=$VIA DEV=$DEV PROTO=$PROTO"
+    verbose "SCOPE=$SCOPE SRC=$SRC METRIC=$METRIC"
+    read_route_state "$IP_MOCK_ROUTES"
+    case $COMMAND in
+      add|replace|del|delete)
+        [[ $COMMAND =~ del ]] && {
+          route_show && fail 2 "RTNETLINK answers: No such process"
+        }
+        ;;
+      show) route_show ;;
+      # TODO could calc route, but for now require groute entries for tests
+      get) GET_ROUTE=1; route_show ;;
+      *) fail 1 "Command \"$COMMAND\" not implemented" ;;
+    esac
+    ;;
+  monitor)
+    verbose "IPV4=$IPV4 IPV6=$IPV6 DEV=$DEV"
+    case $COMMAND in
+      addr|address) match="ADDR" ;;
+      route) match="ROUTE" ;;
+      all) match="[^:]+" ;;
+      *) usage_monitor ;;
+    esac
+    [[ $IPV6 ]] || match+="4"
+    [[ $IPV4 ]] || match+="6"
+    filter_monitor_file "$IP_MOCK_MONITOR" "${match}" "$DEV"
+    ;;
+  '') usage ;;
+  *) fail 1 "Object \"$OBJECT\" not implemented" ;;
 esac
 
 exit 0
