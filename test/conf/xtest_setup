@@ -1,23 +1,11 @@
-# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
+# -*- mode: sh; sh-shell: bash; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: LGPL-3.0-or-later
 #
-# xtest_setup v1.2.1 - shtest suite in a box
+# Copyright (C) 2021-24 Scott Shambarger
+#
+# xtest_setup v1.2.2 - shtest suite in a box
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2021 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Instructions to use:
 #
@@ -192,7 +180,7 @@ xtest::no_env_tests() {
 xtest::_prerun() {
   local cmd clist=() IFS; unset IFS
   { read -r -a clist -d '' || :; } <<< "$(compgen -A function xtest::onexit || :)"
-  for cmd in ${clist[*]+"${clist[@]}"}; do
+  for cmd in ${clist[@]+"${clist[@]}"}; do
     shtest::add_onexit "${cmd}"
   done
   return 0
@@ -201,7 +189,7 @@ xtest::_prerun() {
 xtest::_postrun() {
   local cmd clist=() IFS; unset IFS
   { read -r -a clist -d '' || :; } <<< "$(compgen -A function xtest::onexit || :)"
-  for cmd in ${clist[*]+"${clist[@]}"}; do
+  for cmd in ${clist[@]+"${clist[@]}"}; do
     shtest::remove_onexit "${cmd}"
   done
   return 0

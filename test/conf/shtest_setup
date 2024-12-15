@@ -1,23 +1,11 @@
 # -*- mode: sh; sh-shell: bash; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: LGPL-3.0-or-later
 #
-# shtest v1.6.1 - Shell script testing functions
+# Copyright (C) 2021-24 Scott Shambarger
+#
+# shtest v1.7.0 - Shell script testing functions
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2021-22 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # === Public Function Reference ===
 #
@@ -39,7 +27,7 @@
 #
 #   shtest::add_onexit [ <cmd> ]
 #
-#     Adds function <cmd> that is called if script exists before
+#     Adds function <cmd> that is called if script exits before
 #     shtest::cleanup/reset is called.  Without <cmd>, echos
 #     list of onexit functions.  <cmd> arg is exit code.
 #
@@ -162,6 +150,13 @@
 #
 #     Re-initializes shtest for a new run, retains log/trace settings.
 #
+#   shtest::clean_env [ -strict | -loose ] [ <allowed-env-pat>... ]
+#
+#     Unsets all environment variables.  Useful bash variables remain.
+#     "-strict" removes bash env that lose meaning when unset.
+#     "-loose" leaves PATH, TERM and OS-type env.
+#     <allowed-env-pat> sh-patterns of variables to allow.
+#
 #   shtest::save_env <varname>
 #
 #     Store current shell variable names in <varname>.
@@ -268,7 +263,7 @@ shtest::_init_globals() {
   # 5 - PREFIX, 6 - TRACE, 7 - LAST_CHECK, 8 - MUTE, 9 - TOP_SUBSHELL
   # 10 - LOGFD, 11 - MULTI_TEST, 12 - ONEXIT_SUBSHELL, 13-DIFF
   _SHTEST_STATE=(0 0)
-  for (( i=2; i<=13; i++ )); do _SHTEST_STATE[${i}]=''; done
+  for (( i=2; i<=13; i++ )); do _SHTEST_STATE[i]=''; done
   _SHTEST_REG_FILES=() _SHTEST_FOCUS=() _SHTEST_FAILED=()
   _SHTEST_ONEXIT=() _SHTEST_TESTLIST=()
 
@@ -522,7 +517,7 @@ shtest::_array_to_string() { # <dest-var> <arr-name>
   local _i _t LC_ALL=C
   _i=$(declare 2>/dev/null -p -a "$2" || :)
   _t=a; [[ ${_i} =~ ^"declare -"[a-zB-Z]*A ]] && _t=A
-  _i=${_i#* $2}; _i=${_i#=}; eval "local -${_t} _ta=${_i:-()}"
+  _i=${_i#* "$2"}; _i=${_i#=}; eval "local -${_t} _ta=${_i:-()}"
   local _sa=("${!_ta[@]}") _s=''
   if [[ ${_t} == A ]]; then
     local _max _v1 _v2 _tmp
@@ -535,8 +530,8 @@ shtest::_array_to_string() { # <dest-var> <arr-name>
         # switch if necessary
         if [[ ${_v1} > ${_v2} ]]; then
           _tmp=${_v1}
-          _sa[${_i}]=${_v2}
-          _sa[$((${_i} + 1))]=${_tmp}
+          _sa[_i]=${_v2}
+          _sa[_i + 1]=${_tmp}
         fi
       done
     done
@@ -821,7 +816,7 @@ shtest::_handle_exit() { # <$?>
 
   # call onexits (may be subshel of reset)
   local _shtest_cmd
-  for _shtest_cmd in ${_SHTEST_ONEXIT[*]+"${_SHTEST_ONEXIT[@]}"}; do
+  for _shtest_cmd in ${_SHTEST_ONEXIT[@]+"${_SHTEST_ONEXIT[@]}"}; do
     "${_shtest_cmd}" "${1:-0}"
   done
 
@@ -832,7 +827,7 @@ shtest::_handle_exit() { # <$?>
 
   # call previous traps (if not subshell)
   (( BASH_SUBSHELL == 0 )) &&
-    [[ ${_SHTEST_STATE[4]} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
+    [[ ${_SHTEST_STATE[4]-} =~ trap\ --\ \'([^\047]*)\'.* ]] && {
     eval "${BASH_REMATCH[1]//\$?/\$1}" || exit; }
   return 0
 }
@@ -887,6 +882,39 @@ shtest::verbose() { # [ <level> ]
   _SHTEST_STATE[3]=${v}
 }
 
+shtest::clean_env() { # [ -strict | -loose ] [ <allowed-env-pat>... ]
+  local IFS _mode='' _vars _name _flags _allow
+  [[ ${1-} == "-strict" || ${1-} == "-loose" ]] && { _mode=$1; shift; }
+  { read -r -a _vars -d '' || :; } <<< "$(compgen -v)"
+  for _name in ${_vars[@]+"${_vars[@]}"}; do
+    case ${_name} in
+      BASH*|_SHTEST*|FUNCNAME|_mode|_vars|_name|_flags|_allow) continue;;
+    esac
+    [[ ${_mode} == "-strict" ]] || {
+      case ${_name} in
+        COMP_*|DIRSTACK|EPOCHREALTIME|GROUPS|HISTCMD) continue;;
+        LANG|LINENO|SHELL|SHLVL|PWD|PS4|RANDOM|SECONDS|SRANDOM) continue;;
+      esac
+    }
+    [[ ${_mode} == "-loose" ]] && {
+      case ${_name} in
+        HOSTNAME|HOSTTYPE|MACHTYPE|OSTYPE|PATH|TERM) continue;;
+      esac
+    }
+    for _allow in "$@"; do
+      # shellcheck disable=SC2254
+      case ${_name} in ${_allow}) continue 2;; esac
+    done
+    _flags=$(declare -p "${_name}")
+    _flags=${_flags#declare -}
+    _flags=${_flags%% *}
+    [[ ${_flags/r/} == "${_flags}" ]] || continue
+    unset "${_name}"
+  done
+  # baseline for consistent program output
+  export LANG=C
+}
+
 shtest::reset() {
   local i state=("${_SHTEST_STATE[@]-}")
   # remove focus mute
@@ -899,7 +927,7 @@ shtest::reset() {
     exec 88>&2
   else
     # restore logging
-    for i in 3 6 8 10; do _SHTEST_STATE[$i]=${state[$i]-}; done
+    for i in 3 6 8 10; do _SHTEST_STATE[i]=${state[i]-}; done
     # if toplevel, keep saved trap
     (( BASH_SUBSHELL == 0 )) && _SHTEST_STATE[4]=${state[4]}
   fi
