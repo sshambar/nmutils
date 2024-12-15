@@ -1,23 +1,11 @@
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: LGPL-3.0-or-later
+#
+# Copyright (C) 2014-2024 Scott Shambarger
 #
 # NMDDNS - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2014-2022 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Instructions for use:
 #
@@ -216,7 +204,7 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.1"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.3"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -247,7 +235,7 @@ NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.6.0"
+NMG_REQUIRED="1.7.0"
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
 
@@ -279,7 +267,7 @@ nmddns::_loaded() {
   fi
 
   # test required programs
-  nmg_need_progs "${NMDDNS_DIG}" "${NMDDNS_NSUPDATE}" || return
+  nmg_need_progs_env NMDDNS_DIG NMDDNS_NSUPDATE || return
 }
 
 # internal
@@ -318,7 +306,7 @@ nmddns::_update() {
 
   name="DDNS_RREC_${ddns_rrec}_LISTSEP"; sep=${!name:-}
 
-  [[ ${ddns_rrec} =~ ^A|AAAA$ ]] && sep=","
+  [[ ${ddns_rrec} =~ ^(A|AAAA)$ ]] && sep=","
 
   if [[ ${sep} ]]; then
     # shellcheck disable=SC2034
@@ -421,9 +409,9 @@ nmddns::_query_addrs() { # fails if <intf> empty or query_ips fails
   [[ ${intf} ]] || return
 
   # query addresses with properties
-  nmg::query_ips alist "" "${ver}p" "${intf}" || return
+  nmg::query_ips alist "nolog" "${ver}p" "${intf}" || return
 
-  for addrp in ${alist[*]+"${alist[@]}"}; do
+  for addrp in ${alist[@]+"${alist[@]}"}; do
     # strip /<subnet>
     addr=${addrp%%/*}
     if [[ ${ver} == 4 ]]; then
@@ -487,7 +475,7 @@ nmddns_update() {
     # set state if requested
     [[ ${state} ]] && { nmg_write "${state}" "${value}"$'\n' || :; }
 
-    if [[ ${rrec} =~ ^A|AAAA$ ]]; then
+    if [[ ${rrec} =~ ^(A|AAAA)$ ]]; then
 
       # check for !<interface> value
       if [[ ${value} =~ ^[!].+$ ]]; then
@@ -504,14 +492,14 @@ nmddns_update() {
         nmg::array anew "," "${value}"
       fi
       # strip any "/<prefix>"
-      for addr in ${anew[*]+"${anew[@]}"}; do avalue+=("${addr%%/*}"); done
+      for addr in ${anew[@]+"${anew[@]}"}; do avalue+=("${addr%%/*}"); done
       nmg::array_join value "," "${avalue[@]-}"
     fi
 
     # use DDNS_RREC_*_VALUE, or $value if not set/empty
     name="DDNS_RREC_${rrec}_VALUE"; new_value=${!name:-${value}}
 
-    if [[ ${rrec} =~ ^A|AAAA$ ]]; then
+    if [[ ${rrec} =~ ^(A|AAAA)$ ]]; then
       # SPECIAL CASE: if A or AAAA (without _VALUE override), make
       # sure new value is valid
       nmg::lowercase new_value "${new_value}"
@@ -520,7 +508,7 @@ nmddns_update() {
       if nmg::array_match_values avalue anew; then
         name="DDNS_RREC_${rrec}_PRIVATE"; priv_ok=${!name-}
         anew=()
-        for addr in ${avalue[*]+"${avalue[@]}"}; do
+        for addr in ${avalue[@]+"${avalue[@]}"}; do
           if [[ ${rrec} == A ]]; then
 	    nmg_check_ip4_addr "${addr}" "${priv_ok}" && anew+=("${addr}")
           else
@@ -567,18 +555,16 @@ nmddns::_daemon_helper() { # return 1 if helper unavail or daemonize fails
 
   # export helper action
   local -x NMDDNSH_ACTION=$1 NMDDNSH_CONFIG=$2 NMDDNSH_STATE=${3-}
-  # keep log tag
-  export NMG_TAG
 
   nmg_daemon "${NMDDNS_DHELPER}" || return
 }
 
 nmddns_spawn_update() {
-  # <ddns-file> <rrec> [<value> [<state-pat>]]
+  # <config-file> <rrec> [<value> [<state-pat>]]
   local config=${1-} rrec=${2-} name ddns_name
 
   [[ ${config} ]] || {
-    nmg_err "nmddns_spawn_update: <config> requires a value"
+    nmg_err "nmddns_spawn_update: <config-file> requires a value"
     return 1
   }
 
@@ -655,7 +641,7 @@ nmddns_spawn_update_all() {
   }
 
   [[ ${config} ]] || {
-    nmg_err "nmddns_spawn_update_all: <config> requires a value"
+    nmg_err "nmddns_spawn_update_all: <config-file> requires a value"
     return 1
   }
 

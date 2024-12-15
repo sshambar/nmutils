@@ -1,6 +1,7 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t; -*-
 # vim:set ft=sh sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Test suite for ddns-functions
 #
@@ -11,7 +12,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMDDNS_REQUIRED="1.5.0"
+NMDDNS_REQUIRED="1.5.3"
 
 xtest::group2::addr() {
 
@@ -22,50 +23,56 @@ xtest::group2::addr() {
   # Test A/AAAA ip query functions
 
   xwrap2 "0" nmddns::get_A_addrs avar "wan0"
-  xtest A1 t "returns true"
+  xret A1 t "returns true"
   atest A1a avar anull "sets var empty"
   ftest A1f "" "does not log"
 
   xwrap2 "1 priv" nmddns::get_A_addrs avar "eth0"
-  xtest A2 t "returns true"
+  xret A2 t "returns true"
   atest A2a avar anull "sets var empty"
   ftest A2f "" "does not log"
 
   xwrap2 "1 priv allowed" nmddns::get_A_addrs avar "eth0" 1
-  xtest A3 t "returns true"
+  xret A3 t "returns true"
   aref=("192.168.66.4")
   atest A3a avar aref "sets address"
   ftest A3f "" "does not log"
 
   xwrap2 "2 priv" nmddns::get_A_addrs avar "eth2"
-  xtest A4 t "returns true"
+  xret A4 t "returns true"
   atest A4a avar anull "sets var empty"
   ftest A4f "" "does not log"
 
   xwrap2 "2 priv allowed" nmddns::get_A_addrs avar "eth2" 1
-  xtest A5 t "returns true"
+  xret A5 t "returns true"
   aref=("10.1.10.12" "10.2.10.12")
   atest A5a avar aref "sets addresses"
   ftest A5f "" "does not log"
 
   xwrap2 "0" nmddns::get_AAAA_addrs avar "lo"
-  xtest A11 t "returns true"
+  xret A11 t "returns true"
   atest A11v avar anull "sets var empty"
   ftest A11f "" "does not log"
 
   xwrap2 "1 priv" nmddns::get_AAAA_addrs avar "br0"
-  xtest A12 t "returns true"
-  atest A12a avar anull "sets var empty"
+  xret A12 t "returns true"
+  aref=("2001:db8:100:0:32fb:93c5:6555:845a"
+	"2001:db8:200:0:32fb:93c5:6555:845a"
+	"2001:db8:200:4:32fb:93c5:6555:845a")
+  atest A12a avar aref "sets var public address"
   ftest A12f "" "does not log"
 
   xwrap2 "1 priv allowed" nmddns::get_AAAA_addrs avar "br0" 1
-  xtest A13 t "returns true"
-  aref=("fdc0:4455:b240::1")
+  xret A13 t "returns true"
+  aref=("fdc0:4455:b240::1"
+	"2001:db8:100:0:32fb:93c5:6555:845a"
+	"2001:db8:200:0:32fb:93c5:6555:845a"
+	"2001:db8:200:4:32fb:93c5:6555:845a")
   atest A13a avar aref "sets address"
   ftest A13f "" "does not log"
 
   xwrap2 "2 pub" nmddns::get_AAAA_addrs avar "eth0"
-  xtest A14 t "returns true"
+  xret A14 t "returns true"
   aref=("2001:db8:871a:28c1::1" "2001:db8:4860:4860::8888")
   atest A14a avar aref  "sets addresses"
   ftest A14f "" "does not log"
@@ -97,10 +104,10 @@ xtest::group4::ddns() {
   DDNS_ZONE=example.test DDNS_RREC_A_NAME=www.example.test
 
   xwrap2 "<remove A>" nmddns_update A
-  xtest D1 t "returns true"
+  xret D1 t "returns true"
   xread_value out <<-EOF
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -111,7 +118,7 @@ xtest::group4::ddns() {
   export DIG_MOCK_FAIL=5
 
   xwrap2 "<dig fail 5>" nmddns_update A
-  xtest D2 25 "returns 25"
+  xret D2 25 "returns 25"
   xread_value out <<-EOF
 	ERR: FAIL(5) ${NMDDNS_DIG} @127.0.0.1 +short +retry=2 +time=3\
  +time=1 +retry=2 A www.example.test
@@ -120,23 +127,29 @@ xtest::group4::ddns() {
   ftest D2f "$out" "logs error"
   unset DIG_MOCK_FAIL
 
-  export NSUPDATE_MOCK_FAIL=5
+  local -x DUMMY_MOCK_FAIL_nsupdate_mock=5
 
   xwrap2 "<nsupdate fail 5>" nmddns_update A
-  xtest D3 5 "returns 5"
+  xret D3 5 "returns 5"
   xread_value out <<-EOF
 	Removing www.example.test A
+	nsupdate '-t' '10'
+	server 127.0.0.1
+	zone example.test
+	update delete www.example.test A
+	send
 	ERR: FAIL(5) ${NMDDNS_NSUPDATE} -t 10
 	ERR: DNS update to server 127.0.0.1 failed for www.example.test A
 	EOF
   ftest D3f "$out" "logs error"
-  unset NSUPDATE_MOCK_FAIL
+
+  unset DUMMY_MOCK_FAIL_nsupdate_mock
 
   xwrap2 "A <private>" nmddns_update A 192.168.55.1
-  xtest D4 t "returns true"
+  xret D4 t "returns true"
   xread_value out <<-EOF
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -147,10 +160,10 @@ xtest::group4::ddns() {
   DDNS_RREC_A_FALLBACK=203.0.113.8
 
   xwrap2 "A <private/FALLBACK>" nmddns_update A 192.168.55.1/24
-  xtest D5 t "returns true"
+  xret D5 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.8
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -166,10 +179,10 @@ xtest::group4::ddns() {
   xrm "$xstate"
 
   xwrap2 "A <private/PRIVATE=1>" nmddns_update A 192.168.55.1/24 "$xpat"
-  xtest D6 t "returns true"
+  xret D6 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test A to 192.168.55.1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -186,11 +199,11 @@ xtest::group4::ddns() {
 
   # pass bad pattern to test error log
   xwrap2 "<bad state-pat>" nmddns_update A "" "$xstate"
-  xtest D7 t "returns true"
+  xret D7 t "returns true"
   xread_value out <<-EOF
 	ERR: nmddns_update: <state-pat> must contain '@RREC@'
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -202,29 +215,29 @@ xtest::group4::ddns() {
   xrm "$xstate"
 
   xwrap nmddns_update
-  xtest D8 f "(<no args>) returns false"
+  xret D8 f "(<no args>) returns false"
   ftest D8f "ERR: nmddns_update: missing <rrec>" "logs error"
 
   unset DDNS_ZONE
 
   xwrap2 "A <unset ZONE>" nmddns_update A
-  xtest D9 5 "returns 5"
+  xret D9 5 "returns 5"
   ftest D9f "ERR: Missing required DDNS_ZONE config" "logs error"
 
   unset DDNS_RREC_A_NAME
 
   xwrap2 "A <unset NAME>" nmddns_update A
-  xtest D10 t "returns true"
+  xret D10 t "returns true"
   ftest D10f "" "does not log"
 
   DDNS_ZONE=example.test DDNS_RREC_A_NAME=www.example.test
   DDNS_RREC_A_VALUE="*"
 
   xwrap2 "A <VALUE=*>" nmddns_update A 203.0.113.10
-  xtest D11 t "returns true"
+  xret D11 t "returns true"
   xread_value out <<-EOF
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -235,10 +248,10 @@ xtest::group4::ddns() {
   unset DDNS_RREC_A_VALUE
 
   xwrap2 "A <pub>" nmddns_update A 203.0.113.10
-  xtest D12 t "returns true"
+  xret D12 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.10
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -248,10 +261,10 @@ xtest::group4::ddns() {
   ftest D12f "$out" "logs and adds A"
 
   xwrap2 "A <2 pub>" nmddns_update A "203.0.113.10,203.0.113.20"
-  xtest D13 t "returns true"
+  xret D13 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test A to 203.0.113.10,203.0.113.20
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -262,7 +275,7 @@ xtest::group4::ddns() {
   ftest D13f "$out" "logs and adds both A records"
 
   xwrap2 "A <2 match>" nmddns_update A "203.0.113.4,192.0.2.8"
-  xtest D14 t "returns true"
+  xret D14 t "returns true"
   ftest D14f "" "does not log"
 
   DDNS_RREC_TXT_NAME=mail.example.test
@@ -270,10 +283,10 @@ xtest::group4::ddns() {
 
   xwrap2 "TXT <2 new vals>" nmddns_update TXT \
          "\"some value\":\"another value\""
-  xtest D15 t "returns true"
+  xret D15 t "returns true"
   xread_value out <<-EOF
 	Setting mail.example.test TXT to "some value":"another value"
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete mail.example.test TXT
@@ -285,7 +298,7 @@ xtest::group4::ddns() {
 
   xwrap2 "TXT <2 old vals>" nmddns_update TXT \
          "\"some value\":\"v=spf1 mx ~all\""
-  xtest D16 t "returns true"
+  xret D16 t "returns true"
   ftest D16f "" "does not log"
 
   xstate=${xpat//@RREC@/A}
@@ -297,10 +310,10 @@ xtest::group4::ddns() {
   # ip-mock has 10.1.10.12,10.2.10.12 on eth2
 
   xwrap2 "A <eth2>" nmddns_update A "!eth2" "$xpat"
-  xtest D17 t "returns true"
+  xret D17 t "returns true"
   xread_value out <<-EOF
 	Setting www.example.test A to 10.1.10.12,10.2.10.12
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -316,40 +329,27 @@ xtest::group4::ddns() {
   xstate=${xpat//@RREC@/AAAA}
   xrm "$xstate"
 
-  # this sleeps
-  sleep() {
-    # override ip-mock results
-    nmg_info "resolving DAD"
-    export IP_MOCK_OUTPUT="inet6 2001:db8:1::1/64 scope global valid_lft forever preferred_lft forever"
-  }
-
   # ip-mock has 2001:db8:1::1(tentative) on eth2
   xwrap2 "AAAA <eth2 tentative>" nmddns_update AAAA "!eth2" "$xpat"
-  xtest D18 t "returns true"
+  xret D18 t "returns true"
   xread_value out <<-EOF
-	resolving DAD
-	Setting www.example.test AAAA to 2001:db8:1::1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	Removing www.example.test AAAA
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test AAAA
-	update add www.example.test 600 AAAA 2001:db8:1::1
 	send
 	EOF
   ftest D18f "$out" "logs and removes AAAA records"
   shtest::check_file D18s "$xstate" "!eth2" "generates state file (intf)"
-
-  unset IP_MOCK_OUTPUT
-  unset -f sleep
-
   xrm "$xstate"
 
   # ip-mock has 2001:db8:5::1(dadfailed) on eth3
   xwrap2 "AAAA <eth3 dadfail>" nmddns_update AAAA "!eth3" "$xpat"
-  xtest D19 t "returns true"
+  xret D19 t "returns true"
   xread_value out <<-EOF
 	Removing www.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test AAAA
@@ -371,24 +371,24 @@ xtest::group4::ddns() {
   DDNS_TTL=300
 
   xwrap2 "<up multi>" nmddns_update_all up 203.0.113.8 2001:db8:1000:2000::1/64
-  xtest D21 t "returns true"
+  xret D21 t "returns true"
   xread_value out <<-EOF
 	Setting ipv6.example.test AAAA to 2001:db8:1000:2000::1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete ipv6.example.test AAAA
 	update add ipv6.example.test 300 AAAA 2001:db8:1000:2000::1
 	send
 	Setting www.example.test A to 203.0.113.4
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
 	update add www.example.test 300 A 203.0.113.4
 	send
 	Setting www.example.test MX to 5 mx.example.test.
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test MX
@@ -400,22 +400,22 @@ xtest::group4::ddns() {
   DDNS_NSUPDATE_TIMEOUT=5
 
   xwrap2 "<down multi>" nmddns_update_all down
-  xtest D22 t "returns true"
+  xret D22 t "returns true"
   xread_value out <<-EOF
 	Removing ipv6.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '5'
+	nsupdate '-t' '5'
 	server 127.0.0.1
 	zone example.test
 	update delete ipv6.example.test AAAA
 	send
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '5'
+	nsupdate '-t' '5'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
 	send
 	Setting www.example.test MX to 10 backup.example.test.
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '5'
+	nsupdate '-t' '5'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test MX
@@ -432,7 +432,7 @@ xtest::group4::ddns() {
   xrm "$XNOFILE"
 
   xwrap2 "<no conf>" nmddns_spawn_update "$XNOFILE" "A"
-  xtest D31 t "returns true"
+  xret D31 t "returns true"
   ftest D31f "" "does not log"
 
   cnf="$TEST_CONF/test-ddns.conf"
@@ -443,7 +443,7 @@ xtest::group4::ddns() {
   printf "" >>"$xstate"
 
   xwrap2 "<no rrec>" nmddns_spawn_update "$cnf" "" "" "$xpat"
-  xtest D32 f "returns false"
+  xret D32 f "returns false"
   ftest D32f "ERR: nmddns_spawn_update: <rrec> must be a RREC name" \
         "logs error"
   [[ -f $xstate ]]
@@ -452,13 +452,13 @@ xtest::group4::ddns() {
   printf "" >>"$xstate"
 
   xwrap2 "<remove A, no helper>" nmddns_spawn_update "$cnf" A "" "$xpat"
-  xtest D33 t "returns true"
+  xret D33 t "returns true"
   [[ -e $xstate ]]
   xtest D33s f "removes state file"
   xrm "$xstate"
   xread_value out <<-EOF
 	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -479,7 +479,7 @@ xtest::group4::ddns() {
   NMDDNS_DHELPER=$XFILE
 
   xwrap2 "<remove A, helper>" nmddns_spawn_update "$cnf" A "" "$xpat"
-  xtest D34 t "returns true"
+  xret D34 t "returns true"
   ftest D34f "" "does not log"
   shtest::last_check_ok && wait $!
   shtest::check_file D34o "$xstate" "action=update" "runs helper"
@@ -490,10 +490,10 @@ xtest::group4::ddns() {
   unset NMDDNS_DHELPER
 
   xwrap2 "up" nmddns_spawn_update_all up "$cnf"
-  xtest D41 t "returns true"
+  xret D41 t "returns true"
   xread_value out <<-EOF
   	Removing www.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete www.example.test A
@@ -522,7 +522,7 @@ xtest::group5::helper() {
   # Spawns real helper in various modes
 
   xwrap nmg_need_progs "${NMDDNS_DHELPER}"
-  xtest H0 t "${NMDDNS_DHELPER} is runnable"
+  xret H0 t "${NMDDNS_DHELPER} is runnable"
   shtest::last_check_ok || return 0
 
   local cnf="$TEST_CONF/testweb-ddns.conf"
@@ -533,19 +533,19 @@ xtest::group5::helper() {
   xwrap2 "up <multi-addrs>" nmddns_spawn_update_all up "$cnf" \
 	 "203.0.113.55,203.0.113.56,192.168.4.1" \
 	 "fdc0:4455:8700::1,2001:db8:8700:2000::1" "$xpat"
-  xtest H1 t "returns true"
+  xret H1 t "returns true"
   # wait for background process to finish
   shtest::last_check_ok && wait $!
   xread_value out <<-EOF
 	Setting web.example.test AAAA to 2001:db8:8700:2000::1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test AAAA
 	update add web.example.test 600 AAAA 2001:db8:8700:2000::1
 	send
 	Setting web.example.test A to 203.0.113.55,203.0.113.56
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test A
@@ -553,7 +553,7 @@ xtest::group5::helper() {
 	update add web.example.test 600 A 203.0.113.56
 	send
 	Setting web.example.test TXT to replacement txt
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test TXT
@@ -567,23 +567,23 @@ xtest::group5::helper() {
 		     "creates AAAA state file"
 
   xwrap2 "up <no addrs>" nmddns_spawn_update_all up "$cnf" "" "" "$xpat"
-  xtest H2 t "returns true"
+  xret H2 t "returns true"
   shtest::last_check_ok && wait $!
   xread_value out <<-EOF
 	Removing web.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test AAAA
 	send
 	Removing web.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test A
 	send
 	Setting web.example.test TXT to replacement txt
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test TXT
@@ -600,23 +600,23 @@ xtest::group5::helper() {
   echo "2001:db8:8700:2000::1" >"$state2"
 
   xwrap2 "down" nmddns_spawn_update_all down "$cnf" "" "" "$xpat"
-  xtest H3 t "returns true"
+  xret H3 t "returns true"
   shtest::last_check_ok && wait $!
   xread_value out <<-EOF
 	Removing web.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test AAAA
 	send
 	Removing web.example.test A
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test A
 	send
 	Removing web.example.test TXT
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test TXT
@@ -632,12 +632,12 @@ xtest::group5::helper() {
 
   xwrap2 "up <multi-addrs>" nmddns_spawn_update "$cnf" A \
 	 "203.0.113.75,203.0.113.76" "$xpat"
-  xtest H11 t "returns true"
+  xret H11 t "returns true"
   # wait for background process to finish
   shtest::last_check_ok && wait $!
   xread_value out <<-EOF
 	Setting web.example.test A to 203.0.113.75,203.0.113.76
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test A
@@ -650,12 +650,12 @@ xtest::group5::helper() {
 		     "creates A state file"
 
   xwrap2 "up <multi-addrs>" nmddns_spawn_update "$cnf" TXT "new value" "$xpat"
-  xtest H12 t "returns true"
+  xret H12 t "returns true"
   # wait for background process to finish
   shtest::last_check_ok && wait $!
   xread_value out <<-EOF
 	Setting web.example.test TXT to replacement txt
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '10'
+	nsupdate '-t' '10'
 	server 127.0.0.1
 	zone example.test
 	update delete web.example.test TXT
@@ -676,14 +676,15 @@ test_version() {
 
   shtest::whitelist source
 
-  (source 2>/dev/null "${NMDDNS}") &&
-    xtest::fail "  FATAL: ${NMDDNS} loaded when NMG_REQUIRED=${NMG_REQUIRED}"
+  (source 2>/dev/null "${TEST_FILE}") &&
+    xtest::fail "  FATAL: ${TEST_FILE} loaded when\
+ NMG_REQUIRED=${NMG_REQUIRED}"
 
   unset NMG_REQUIRED
   local NMDDNS_REQUIRED="99.0.0"
 
-  (source 2>/dev/null "${NMDDNS}") &&
-    xtest::fail "FATAL: ${NMDDNS} loaded when\
+  (source 2>/dev/null "${TEST_FILE}") &&
+    xtest::fail "FATAL: ${TEST_FILE} loaded when\
  NMDDNS_REQUIRED=${NMDDNS_REQUIRED}"
 
   shtest::reset_state
@@ -697,9 +698,9 @@ xtest::onexit() {
 
 xmain() { # <args>
   local XNOFILE="$TEST_OUT/no-file" XFILE="$TEST_OUT/ddns file"
-  local NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
+  local TEST_FILE="${TEST_NMUTILS}/ddns-functions"
 
-  xload_script "${NMDDNS}"
+  xload_script "${TEST_FILE}"
 
   test_version
 
