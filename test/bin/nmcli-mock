@@ -1,33 +1,17 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Copyright (C) 2021-24 Scott Shambarger
 #
 # nmcli-mock - nmcli command wrapper/replacement for testing
 # Author: Scott Shambarger <devel@shambarger.net>
-#
-# Copyright (C) 2021 Scott Shambarger
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # USAGE
 #
 # Values returned are from the datafile defined in NMCLI_MOCK_VALUES
 # (default "conf/nmcli-mock-values").  See below for format of file.
-#
-# Individual values may be overridden by setting:
-#   NMCLI_MOCK_FORCE_<name>=[ <value> ] (<name> should have '.','-' as '_')
-# Primary keys not force-able (GENERAL.DEVICE, connection.uuid, connection.id)
 #
 # All output formats of original nmcli command are supported, including
 # terse, tabular, and multiline
@@ -42,7 +26,25 @@
 #   nmcli dev show [ <DEVICE> ]
 #   nmcli con show [ <CONNECTION> ]
 #
-VERSION=0.3.1
+# Environment values:
+#
+# NMCLI_MOCK_FAIL (optional) - !0 fail code
+#
+# NMCLI_MOCK_OUTPUT (optional) - echo this:
+#     "@ARGS@" replaced by arguments
+#
+# MOCK_ECHO (optional) - output quoted args for all commands except "show"
+#
+# MOCK_ECHO_FD (optional) - MOCK_ECHO to this file descriptor
+#
+# NMCLI_MOCK_SAVE (optional) - file to save edits too
+#    NOTE: currently only connection full value replacements supported
+#
+# Individual values may be overridden by setting:
+#   NMCLI_MOCK_FORCE_<name>=[ <value> ] (<name> should have '.','-' as '_')
+# Primary keys not force-able (GENERAL.DEVICE, connection.uuid, connection.id)
+#
+VERSION=0.5.0
 
 # app in not case sensitive
 shopt -s nocasematch
@@ -115,20 +117,19 @@ fail_arg() {
 
 pre_match() {
   # <arg> <full-word>
-  local i
-  [[ $1 ]] || return 1
-  (( ${#1} > ${#2} )) && return 1
-  for (( i=0; i<${#1}; i++)); do
-    [[ ${1:$i:1} == "${2:$i:1}" ]] || return 1
-  done
-  return 0
+  [[ ${1-} && ${2-} ]] || return 1
+  [[ $2 =~ ^"$1" ]]
 }
 
-mock_cmd() {
+mock_echo() {
   # echo commands if requested
-  args='' arg=''
-  for arg in "${ORIG_ARGS[@]}"; do args+=" '${arg}'"; done
-  [[ ${MOCK_ECHO} ]] && echo "nmcli${args}"
+  [[ ${MOCK_ECHO-} ]] || return 0
+  local fd=1 out='nmcli' arg
+  for arg in "${ORIG_ARGS[@]}"; do out+=" '${arg}'"; done
+  [[ ${MOCK_ECHO_FD-} ]] && {
+    printf 2>/dev/null -v fd "%d" "${MOCK_ECHO_FD}" || fd=1
+  }
+  printf >&"$fd" "%s\n" "${out}"
 }
 
 CONN_STATUS=()
@@ -136,6 +137,24 @@ CONNS=()
 DEV_STATUS=()
 DEVS=()
 GENERAL=()
+
+load_conn_edits() {
+  [[ ${NMCLI_MOCK_SAVE-} ]] || return 0
+  [[ -r ${NMCLI_MOCK_SAVE} ]] || return 0
+  local line t v
+  while read -r line || [[ ${line} ]]; do
+    t=${line%%=*} v=${line#*=}
+    printf -v "NMCLI_SAVED_$t" "%s" "$v"
+  done < "${NMCLI_MOCK_SAVE}"
+}
+
+make_var_tag() {
+  # <ret> <value>
+  local _v=${2//_/} # remove _
+  # map others to _
+  while [[ $_v =~ ([^a-zA-Z0-9_]) ]]; do _v=${_v//${BASH_REMATCH[1]}/_}; done
+  printf -v "$1" '%s' "${_v}"
+}
 
 mode_assign() {
   # <mode> <details>
@@ -181,23 +200,30 @@ load_values() {
   return 0
 }
 
+# TODO add support for "+"/"-" modifications to value
 check_force_value() { # sets "v" if override
-  # <name>
+  # <tag> <name>
+  local n=${2//./_} name
   # don't allow force on primary keys
-  case $1 in
-    GENERAL.DEVICE|connection.uuid|connection.id) return 0 ;;
+  case $n in
+    GENERAL_DEVICE|connection_uuid|connection_id) return 0 ;;
   esac
-  # map ./- to _
-  local name="NMCLI_MOCK_FORCE_${1//./_}"
-  name=${name//-/_}
+  n=${n//-/_}
+  # edits override forced
+  name="NMCLI_SAVED_${1}_$n"
+  [[ ${!name+set} ]] && {
+    printf -v v '%s' "${!name}"
+    return 0
+  }
+  name="NMCLI_MOCK_FORCE_$n"
   [[ ${!name+set} ]] && printf -v v '%s' "${!name}"
   return 0
 }
 
 TABLE_BREAK=''
 print_values() {
-  # <names> <values>...
-  local names=$1; shift
+  # <saved-tag> <names> <values>...
+  local tag=$1 names=$2; shift 2
   [[ ${names} ]] || return 0
   local i j v anames=() avals=() asize=() fmt='' name
   { read -r -a anames -d '' || :; } <<< "${names}"
@@ -208,7 +234,7 @@ print_values() {
     for values in "$@"; do
       i=0
       while read -r v; do
-        check_force_value "${anames[$i]}"
+        check_force_value "${tag}" "${anames[$i]}"
         [[ $v || ${TERSE} ]] || v="--"
         # shellcheck disable=SC2059
         printf "${fmt}\n" "${anames[$i]}:" "$v"
@@ -221,7 +247,7 @@ print_values() {
     for values in "$@"; do
       i=0
       while read -r v; do
-        check_force_value "${anames[$i]}"
+        check_force_value "${tag}" "${anames[$i]}"
         [[ ${ESCAPE} ]] && v=${v//:/\\:}
         fmt+="${fmt:+:}%s" avals+=("$v")
         ((i++)) || :
@@ -234,29 +260,29 @@ print_values() {
   [[ ${TABLE_BREAK} ]] && echo; TABLE_BREAK=1
   for ((i=0; i<${#anames[*]}; i++)); do
     name=${anames[$i]#*.}
-    anames[$i]=${name} asize[$i]=${#name}
+    anames[i]=${name} asize[i]=${#name}
   done
   for values in "$@"; do
     avals=() i=0
     while read -r v; do
-      check_force_value "${anames[$i]}"
+      check_force_value "${tag}" "${anames[$i]}"
       v=${v:---}
       avals+=("$v")
       if (( ${#asize[*]} > i )); then
-        (( ${#v} > ${asize[$i]} )) && asize[$i]=${#v}
+        (( ${#v} > asize[i] )) && asize[i]=${#v}
       else
-        asize[$i]=${#v}
+        asize[i]=${#v}
       fi
       ((i++)) || :
     done <<< "${values}"
   done
-  for ((j=0; j<i; j++)); do fmt+="${fmt:+  }%-${asize[$j]}s"; done
+  for ((j=0; j<i; j++)); do fmt+="${fmt:+  }%-${asize[j]}s"; done
   # shellcheck disable=SC2059
   [[ ${#anames[*]} != 0 ]] && printf "${fmt}\n" "${anames[@]}"
   for values in "$@"; do
     avals=() i=0
     while read -r v; do
-      check_force_value "${anames[$i]}"
+      check_force_value "${tag}" "${anames[i]}"
       avals+=("${v:---}")
       ((i++)) || :
     done <<< "${values}"
@@ -267,8 +293,11 @@ print_values() {
 
 print_section_values() {
   # <match> <array-name>...
-  local match=$1 src="$2[@]" entry label value field output=''
+  local match=$1 src="$2[@]" tag='' entry label value field output=''
   local rc=1 IFS=$'\n'
+
+  # tag for saved values
+  [[ ${match%%:*} == "connection.id" ]] && make_var_tag tag "${match#*:}"
 
   shift 2
   for entry in "${!src}"; do
@@ -279,7 +308,7 @@ print_section_values() {
       label=${1%%:*}
       value=${1:${#label}:${#1}}; value=${value#:}
       if [[ ${label%%.*} != "${table}" ]]; then
-        print_values "${names}" "${values}"
+        print_values "${tag}" "${names}" "${values}"
         table='' names='' values=''
       fi
       # shellcheck disable=SC2053
@@ -335,7 +364,7 @@ print_section_values() {
       fi
       shift
     done
-    print_values "${names}" "${values}"
+    print_values "${tag}" "${names}" "${values}"
   done
   return ${rc}
 }
@@ -343,7 +372,7 @@ print_section_values() {
 print_field_values() {
   # <array-name> <fields>
   local src="$1[@]"
-  local i field output match label value entry items anames avals
+  local i field output label value entry items anames avals
 
   shift
   local afields=("$@") names='' avalues=() IFS=$'\n'
@@ -355,7 +384,7 @@ print_field_values() {
     set -- ${entry}
     anames=() avals=()
     while [[ ${1-} ]]; do
-      match='' label=${1%%:*}
+      label=${1%%:*}
       value=${1:${#label}:${#1}}; value=${value#:}
       for field in "${afields[@]-}"; do
         if [[ -z ${field} || ${label} == "${field}" ]]; then
@@ -391,11 +420,11 @@ print_field_values() {
     if [[ ${MODE} == tabular && -z ${TERSE} ]]; then
       avalues+=("${items}")
     else
-      print_values "${names}" "${items}"
+      print_values "" "${names}" "${items}"
       names=''
     fi
   done
-  print_values "${names}" "${avalues[@]-}"
+  print_values "" "${names}" "${avalues[@]-}"
 }
 
 set_fields() { # sets fields
@@ -438,7 +467,7 @@ do_general() {
 
   for cmd in hostname permissions logging reload; do
     if pre_match "${req}" "${cmd}"; then
-      mock_cmd
+      mock_echo
       return 0
     fi
   done
@@ -504,6 +533,7 @@ do_connection() {
   local c cmd req=${1:-show}
 
   if pre_match "${req}" "show"; then
+    load_conn_edits
     if [[ ${2-} ]]; then
       shift
       load_values "${NMCLI_MOCK_VALUES}"
@@ -516,10 +546,38 @@ do_connection() {
 
   for cmd in up down modify add edit clone delete monitor reload \
                 load import export; do
-    if pre_match "${req}" "${cmd}"; then
-      mock_cmd
-      return 0
-    fi
+    pre_match "${req}" "${cmd}" || continue
+    mock_echo
+
+    [[ ${cmd} == modify && ${NMCLI_MOCK_SAVE-} ]] && {
+      shift
+      local conn='' opt='' mods=()
+      while [[ ${1+set} ]]; do
+        # ignore flags
+        [[ $1 =~ ^--.+ ]] && { shift; continue; }
+        [[ $conn ]] || { conn=$1; shift; continue; }
+        if [[ $opt ]]; then
+          opt=${opt//./_}; opt=${opt//-/_}
+          mods+=("${opt}=$1")
+          opt=''
+        else
+          opt=$1
+        fi
+        shift
+      done
+      [[ ${#mods[@]} != 0 ]] && {
+        [[ ${#conn} == 36 ]] && {
+          load_values "${NMCLI_MOCK_VALUES}"
+          find_conn_id conn "$conn"
+          [[ $conn == "-" ]] && return 0
+        }
+        make_var_tag conn "$conn"
+        for opt in "${mods[@]}"; do
+          echo "${conn}_${opt}" >> "${NMCLI_MOCK_SAVE}"
+        done
+      }
+    }
+    return 0
   done
 
   fail_arg "${req}"
@@ -571,7 +629,7 @@ do_device() {
   for cmd in status show set connect reapply modify disconnect delete \
                 monitor wifi lldp; do
     if pre_match "${req}" "${cmd}"; then
-      mock_cmd
+      mock_echo
       return 0
     fi
   done
@@ -594,7 +652,7 @@ do_summary() {
     while [[ ${1-} ]]; do
       label=${1%%:*}
       v=${1:${#label}:${#1}}; v=${v#:}
-      check_force_value "${label}"
+      check_force_value "" "${label}"
       case ${label} in
         GENERAL.DEVICE) dev=$v ;;
         GENERAL.CONNECTION) conn=$v ;;
@@ -638,16 +696,16 @@ do_summary() {
     printf "%s, %s, mtu %s\n" "${mac}" "${soft}" "${mtu}"
     if [[ ${conn} ]]; then
       [[ ${def4} || ${def6} ]] && printf '\t%s\n' "${def4}${def4:+, }${def6}"
-      for v in ${inet4[*]+"${inet4[@]}"}; do
+      for v in ${inet4[@]+"${inet4[@]}"}; do
         printf "\tinet4 %s\n" "$v"
       done
-      for v in ${route4[*]+"${route4[@]}"}; do
+      for v in ${route4[@]+"${route4[@]}"}; do
         printf "\troute4 %s\n" "$v"
       done
-      for v in ${inet6[*]+"${inet6[@]}"}; do
+      for v in ${inet6[@]+"${inet6[@]}"}; do
         printf "\tinet6 %s\n" "$v"
       done
-      for v in ${route6[*]+"${route6[@]}"}; do
+      for v in ${route6[@]+"${route6[@]}"}; do
         printf "\troute6 %s\n" "$v"
       done
     fi
@@ -658,12 +716,13 @@ do_summary() {
     for entry in "${CONNS[@]}"; do
       # shellcheck disable=SC2086
       set -- ${entry}
-      local dev='' servers='' dom=''
+      local dev='' servers='' dom='' tag=''
       while [[ ${1-} ]]; do
         label=${1%%:*}
         v=${1:${#label}:${#1}}; v=${v#:}
-        check_force_value "${label}"
+        check_force_value "${tag}" "${label}"
         case ${label} in
+          connection.id) make_var_tag tag "$v" ;;
           connection.interface-name) dev=$v ;;
           "ipv${version}.dns") [[ $v ]] && servers+=" $v" ;;
           "ipv${version}.dns-search") [[ $v ]] && dom+=" $v" ;;
@@ -685,7 +744,7 @@ do_summary() {
 }
 
 [[ ${NMCLI_MOCK_FAIL-} || ${NMCLI_MOCK_OUTPUT-} ]] && {
-  args='' arg=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
+  args=''; for arg in "$@"; do args+="${args:+ }'${arg}'"; done
   fail "${NMCLI_MOCK_FAIL:-0}" \
        "${NMCLI_MOCK_OUTPUT+${NMCLI_MOCK_OUTPUT/@ARGS@/${args}}}"
 }
