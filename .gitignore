@@ -1,8 +1,11 @@
 *~
 .*.sw?
 *.bak
+*.tgz
+*.tar.gz
 /test/run/
 /test/results/
 /selinux/nmutils.if
 /selinux/nmutils.pp*
 /selinux/tmp/
+/build/

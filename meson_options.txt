@@ -1,0 +1,10 @@
+option('unitdir', type: 'string', value: 'auto',
+       description: 'Directory for systemd service files, or "" to disable')
+option('runstatedir', type: 'string', value: '/run',
+       description: 'Directory for transient runtime state')
+option('selinuxtype', type: 'string', value: 'auto',
+       description: 'SELinux policy type (eg. targeted,mls...), or "" to disable')
+option('nmlibdir', type: 'string', value: '/usr/lib',
+       description: 'NetworkManager system libdir')
+option('pkg', type: 'boolean', value: false,
+       description: 'Patch paths for packaged install')
