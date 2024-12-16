@@ -1,3 +1,9 @@
+Overview of changes in nmutils-20241216
+=======================================
+
+- SELinux patch for dhclient pid file
+- Correct make dist
+
 Overview of changes in nmutils-20241215
 =======================================
 

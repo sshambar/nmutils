@@ -129,6 +129,9 @@ fi
 %endif
 
 %changelog
+* Mon Dec 16 2024 Scott Shambarger <devel at shambarger.net> 20241216-1
+- Release 20241216
+
 * Thu Nov 28 2024 Scott Shambarger <devel at shambarger.net> 20241126-1
 - Updated for meson build
 - Config for package now in /etc/nmutils

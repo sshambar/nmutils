@@ -3,6 +3,7 @@
 *.bak
 *.tgz
 *.tar.gz
+*.rpm
 /test/run/
 /test/results/
 /selinux/nmutils.if

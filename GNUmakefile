@@ -95,9 +95,9 @@ uninstall: build
 .PHONY: dist
 dist: clean
 	$(VB)if [ -n "$$($(TAR) --version | grep GNU)" ]; then \
-	 $(TAR) czf "$(DIST)" --exclude "$(DIST)" --transform "s/^[.]/$(DISTDIR)/" ./*; \
+	 $(TAR) czf "$(DIST)" --exclude "$(DIST)" --transform "s/^[.]/$(DISTDIR)/S" ./* ./.gitignore; \
 	else \
-	 $(TAR) czf "$(DIST)" --exclude "$(DIST)" -s "/^[.]/$(DISTDIR)/" ./*; \
+	 $(TAR) czf "$(DIST)" --exclude "$(DIST)" -s "/^[.]/$(DISTDIR)/S" ./* ./.gitignore; \
 	fi
 	@echo "Source tar created: $(DIST)"
 
