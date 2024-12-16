@@ -1,0 +1,201 @@
+#!/bin/bash
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
+# vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Copyright (C) 2024 Scott Shambarger
+#
+# 96-interface-action v1.0.0 - service restart on interface change
+# Author: Scott Shambarger <devel@shambarger.net>
+#
+# Instructions for use:
+#
+#   Put this script in /etc/NetworkManager/dispatcher.d (or wherever
+#   your distro has these files).
+#
+#   Create a configuration file NMCONF/ifa##-<service>-<interface>.conf
+#   where ## is a 2-digit ordering number, <service> is the target
+#   systemd service, and <interface> is the interface to act upon.
+#
+#   The following may be used below for <action>:
+#
+#     UP       - on interface up
+#     DOWN     - on interface down
+#     PRE_DOWN - before interface down (blocks interface down)
+#     CHANGE   - any DHCP IPv4 address change
+#     CHANGE6  - any DHCP IPv6 address change
+#
+# Required:
+#
+#   NMUTILS/general-functions - shared functions (see docs in file)
+#   systemctl - used to manage <service>
+#
+# Config options are:
+#
+#   IGNORE_ENABLED - Any value causes any RESTART_* or "on" commands to
+#     ignore whether service is enabled.
+#
+#   CMD_<action>=<command> - contains the systemctl unit-command for <service>
+#     applied in response to interface <action>.  Additionally, the following
+#     aliases may be used for <command>:
+#
+#        on   - reload-or-restart
+#        off  - stop
+#        noop - <no action>
+#
+#   STATE_FILE=<filename> - file created containing value of RESTART_<action>
+#     before service command, and removed if STOP_<action> has value
+#     (may be used for conditional multi-interface service starts on boot).
+#
+#   RESTART_<action>=<data> - contents of STATE_FILE created on <action>.
+#     Additionally, if CMD_<action> is unset/empty, the default service
+#     command "on" is applied (use "noop" for no action)
+#
+#   STOP_<action>=<anything> - Any value causes STATE_FILE to be
+#     removed on <action>.  Additionally, if CMD_<action> is unset/empty,
+#     the default service command "off" is applied ("noop" for no action).
+#
+# shellcheck disable=SC1090,SC2317
+interface=${1-}
+action=${2-}
+
+# set NMUTILS early, and allow environment to override
+NMUTILS=${NMUTILS:-/etc/nmutils}
+SYSTEMCTL=${SYSTEMCTL:-systemctl}
+
+########## SCRIPT START
+
+NMG_TAG=${NMG_TAG-nm-ifa}
+NMG_REQUIRED="1.7.0"
+
+# load general-functions
+NMG=${NMG:-${NMUTILS}/general-functions}
+{ [[ -r ${NMG} ]] && . "${NMG}"; } || {
+  echo 1>&2 "Unable to load $NMG" && exit 2; }
+
+[[ ${NMG_VERSION} ]] || {
+  nmg_err "${0##*/} requires NMG ${NMG_REQUIRED}"; exit 2; }
+
+# IFA_CONFIG_PAT must include @ORDER@, @SERVICE@ and @INTERFACE@
+IFA_CONFIG_PAT="${IFA_CONFIG_PAT:-${NMCONF}/ifa@ORDER@-@SERVICE@-@INTERFACE@.conf}"
+
+svc_action() {
+  # <command> <restart-value> <stop-value>
+  local command=$1 restart=$2 stop=$3 type
+
+  # create any restart file
+  [[ ${STATE_FILE-} ]] && {
+    if [[ ${restart} ]]; then
+      nmg_write "${STATE_FILE}" "${restart}"
+    elif [[ ${stop} ]]; then
+      [[ -f ${STATE_FILE} ]] && nmg_remove "${STATE_FILE}"
+    fi
+  }
+
+  [[ ${command} ]] || {
+    # get default command
+    if [[ ${restart} ]]; then
+      command=on
+    elif [[ ${stop} ]]; then
+      command=off
+    fi
+  }
+
+  # map aliases
+  case ${command} in
+    ''|noop) return 0 ;;
+    on) command=reload-or-restart ;;
+    off) command=stop ;;
+  esac
+
+  case ${command} in
+    start|reload|restart|try-restart|reload-or-restart|try-reload-or-restart)
+      if [[ ${IGNORE_ENABLED-} ]]; then
+        nmg::saferun type "nolog" "${SYSTEMCTL}" show --property Type \
+                     "${SVC_UNIT}" || :
+        [[ ${type#Type=} ]] || return 0
+      else
+        nmg::saferun "" "nolog" "${SYSTEMCTL}" -q is-enabled "${SVC_UNIT}" ||
+          return 0
+      fi
+      ;;
+    stop)
+      nmg::saferun "" "nolog" "${SYSTEMCTL}" -q is-active "${SVC_UNIT}" ||
+        return 0
+      ;;
+  esac
+
+  nmg_info "Interface ${interface} ${action}: ${command} ${SVC_UNIT}"
+
+  nmg_cmd "${SYSTEMCTL}" "${command}" "${SVC_UNIT}" || :
+}
+
+read_ifa_config() {
+  # <file>
+  local file=$1
+
+  unset CMD_UP CMD_DOWN CMD_PRE_DOWN CMD_CHANGE CMD_CHANGE6
+  unset RESTART_UP RESTART_DOWN RESTART_PRE_DOWN RESTART_CHANGE RESTART_CHANGE6
+  unset STOP_UP STOP_DOWN STOP_PRE_DOWN STOP_CHANGE STOP_CHANGE6
+  unset STATE_FILE IGNORE_ENABLED
+
+  nmg_read_config "${file}"
+}
+
+handle_config() {
+  read_ifa_config "${SVC_CONFIG}" || return 0
+
+  nmg_need_progs_env SYSTEMCTL || return 0
+
+  case "${action}" in
+    up)
+      svc_action "${CMD_UP-}" "${RESTART_UP-}" "${STOP_UP-}"
+      ;;
+    down)
+      svc_action "${CMD_DOWN-}" "${RESTART_DOWN-}" "${STOP_DOWN-}"
+      ;;
+    pre-down)
+      svc_action "${CMD_PRE_DOWN-}" "${RESTART_PRE_DOWN-}" "${STOP_PRE_DOWN-}"
+      ;;
+    dhcp4-change)
+      svc_action "${CMD_CHANGE-}" "${RESTART_CHANGE-}" "${STOP_CHANGE-}"
+      ;;
+    dhcp6-change)
+      svc_action "${CMD_CHANGE6-}" "${RESTART_CHANGE6-}" "${STOP_CHANGE6-}"
+      ;;
+  esac
+}
+
+handle_ifd() {
+  SVC_CONFIG="${NMCONF}/${IFD_CONFIG}"
+  SVC_UNIT=${IFD_UNIT}
+  handle_config
+}
+
+handle_match() {
+  # <file> ##-<service>
+  local SVC_CONFIG=$1 service=$2
+
+  # check dispatcher name format for ##-ifd-service
+  [[ ${service} =~ ^[0-9][0-9]-(.+)$ ]] || {
+    nmg_err "Invalid interface-action config name: ${SVC_CONFIG}" && return 0
+  }
+  # used in svc_action
+  local SVC_UNIT=${service#*-}
+
+  handle_config
+}
+
+handle_action() {
+  nmg::foreach_filematch "${IFA_CONFIG_PAT//@INTERFACE@/${interface}}" \
+                         "@ORDER@-@SERVICE@" handle_match "${interface}"
+}
+
+if [[ ${IFD_CONFIG} && ${IFD_UNIT} ]]; then
+  # dispatcher_action sourced us
+  handle_ifd
+elif [[ ${interface} && ${action} ]]; then
+  handle_action
+fi
+
+exit 0

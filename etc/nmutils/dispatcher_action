@@ -1,26 +1,20 @@
-#!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: nil; -*-
 # vim:set ft=sh et sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# dispatcher_action v1.3.0 - service restart on interface change
+# Copyright (C) 2015-2024 Scott Shambarger
+#
+# dispatcher_action v1.4.0 - service restart on interface change
 # Author: Scott Shambarger <devel@shambarger.net>
 #
-# Copyright (C) 2015-2022 Scott Shambarger
+# This file supports the same functions as 96-interface-action, but allows
+# re-ordering the action relative to other dispatchers.  However, it requires
+# an extra config step.
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
+# The extra step is creating a file named
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+#   /etc/NetworkManager/dispatcher.d/##-ifd-<service>
 #
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-# Create a file named /etc/NetworkManager/dispatcher.d/<##>-ifd-<service>
 # (or wherever your distro has these files) where <##> is a 2-digit
 # number, and <service> is a systemd service name.  The file should be
 # executable and contain the following:
@@ -30,81 +24,37 @@
 # . /etc/nmutils/dispatcher_action
 # --- end
 #
-# This dispatcher will then restart or stop <service> based on interface
-# availability (ie, if daemon has a UDP listener)
+# The configuration settings are documented in 96-interface-action, but
+# those settings are should instead be placed in:
 #
-# Config file required for operation:
-#   /etc/nmutils/conf/ifd-<service>-<interface>.conf (config)
+#   /etc/nmutils/conf/ifd-<service>-<interface>.conf
 #
-# Config options are:
+# NOTE: If any PRE_DOWN actions are used, the ##-ifd-<service> script
+#       should be symlinked to the pre-down.d directory.
 #
-#   RESTART_UP, RESTART_DOWN, RESTART_CHANGE, RESTART_CHANGE6 -
-#     Non-empty values restart service on interface "up", "down" or
-#     ipv4 or ipv6 address changes (respectively).  Only active services
-#     are restarted.
-#
-#   STOP_UP, STOP_DOWN, STOP_CHANGE -
-#     Stops the service on the based on the new interface state.
-#
-#   STATE_FILE - if not empty, writes RESTART_UP/CHANGE/DOWN value to a file
-#     with this name before restarting the service, or removes the file
-#     if STOP_UP/DOWN/CHANGE is set (may be used for conditional service
-#     starts on boot)
-#
-interface=$1
-action=$2
-
-# set NMUTILS early, and allow environment to override
-NMUTILS=${NMUTILS:-/etc/nmutils}
+# shellcheck shell=bash disable=SC1090
+interface=${1-}
+action=${2-}
 
 ########## SCRIPT START
 
 # anything for us to do?
 [[ ${interface} && ${action} ]] || exit 0
 
-# load general-functions
-NMG=${NMG:-${NMUTILS}/general-functions}
-{ [[ -r ${NMG} ]] && . "${NMG}"; } || {
-  echo 1>&2 "Unable to load $NMG" && exit 2; }
-
 # check dispatcher name format for ##-ifd-service
-SVC_UNIT=$0
-[[ ${SVC_UNIT} =~ ^.*[0-9][0-9]-ifd-([^/]+)$ ]] || {
-  nmg_err "Invalid command name: ${SVC_UNIT}" && exit 3
+base_name=${0##*/}
+[[ ${base_name} =~ ^[0-9][0-9]-ifd-([^/]+)$ ]] || {
+  echo >&2 "Invalid command name: ${base_name}" && exit 3
 }
-SVC_UNIT=${BASH_REMATCH[1]}
+IFD_UNIT=${BASH_REMATCH[1]}
 
-SVC_CONFIG="${NMCONF}/ifd-${SVC_UNIT}-${interface}.conf"
+# shellcheck disable=SC2034
+IFD_CONFIG="ifd-${IFD_UNIT}-${interface}.conf"
 
-# see if we're configured for this interface
-nmg_read_config "${SVC_CONFIG}" || exit 0
-
-function svc_action() {
-  # <restart-value> <stop-value>
-  local restart=$1 stop=$2
-  if [[ ${restart} ]]; then
-    [[ ${STATE_FILE} ]] && nmg_write "${STATE_FILE}" "${restart}"
-    /usr/bin/systemctl 2>/dev/null -q is-enabled "${SVC_UNIT}" || return 0
-    /usr/bin/systemctl reload-or-restart "${SVC_UNIT}"
-  elif [[ ${stop} ]]; then
-    [[ ${STATE_FILE} ]] && nmg_remove "${STATE_FILE}"
-    /usr/bin/systemctl stop "${SVC_UNIT}"
-  fi
+NMG_TAG=${NMG_TAG-nm-ifd}
+IFA_FILE="/etc/NetworkManager/dispatcher.d/96-interface-action"
+{ [[ -r "${IFA_FILE}" ]] && . "${IFA_FILE}"; } || {
+  echo >&2 "Unable to load ${IFA_FILE}" && exit 2
 }
-
-case "${action}" in
-  up)
-    svc_action "${RESTART_UP}" "${STOP_UP}"
-    ;;
-  down)
-    svc_action "${RESTART_DOWN}" "${STOP_DOWN}"
-    ;;
-  dhcp4-change)
-    svc_action "${RESTART_CHANGE}" "${STOP_CHANGE}"
-    ;;
-  dhcp6-change)
-    svc_action "${RESTART_CHANGE6}" "${STOP_CHANGE6}"
-    ;;
-esac
 
 exit 0
