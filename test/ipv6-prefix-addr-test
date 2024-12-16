@@ -1,0 +1,473 @@
+#!/bin/bash
+# -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t -*-
+# vim:set ft=sh sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Test suite for 08-ipv6-prefix
+#   - tests address/prefix functions
+#
+# shellcheck disable=SC2034,SC1090,SC2123
+
+NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
+{ [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
+  { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
+
+xtest_settime() {
+  # <new-time>
+  EPOCHREALTIME=${1-}
+}
+
+# checks each environment <var> contains $RUNDIR
+xtest_check_statevars() {
+  # <test-id> <var>...
+  local id=$1 var
+  shift
+  for var in "$@"; do
+    [[ ${!var-} ]] || shtest::fatal "Test $id: variable $var missing value"
+    [[ ${!var} =~ $RUNDIR ]] ||
+      shtest::fatal "Test $id: variable $var missing \$RUNDIR"
+  done
+  xret "$id" t "checking STATE_PAT variables"
+}
+
+xtest::group1::life() {
+
+  shtest::title "Lifetime Function Tests (life group)"
+
+  local var base_time
+
+  base_time=1234567
+  xtest_settime "${base_time}"
+
+  var='bogus'
+
+  xwrap2 "0" ipv6_calc_life var "0" "${base_time}"
+  xret S1 t "returns true"
+  vtest S1v "0" "sets retvar to 0"
+  ftest S1f "" "should not log"
+
+  xwrap2 "<max-int> 0" ipv6_calc_life var 4294967295 "0"
+  xret S2 t "returns true"
+  vtest S2v "forever" "sets retvar to forever"
+
+  xwrap2 "0 <max-int>" ipv6_calc_life var "0" "4294967295"
+  xret S3 1 "returns 1"
+  ftest S3f "" "should not log"
+
+  xtest_settime $((base_time + 100))
+
+  xwrap2 "300 <time-100>" ipv6_calc_life var "300" "${base_time}"
+  xret S4 t "returns true"
+  vtest S4v "200" "should return 200"
+
+  xwrap2 "50 <time-100>" ipv6_calc_life var "50" "${base_time}"
+  xret S5 t "returns true"
+  vtest S5v "0" "should return 0"
+
+  xtest_settime
+  # shellcheck disable=SC2317
+  test_fail() { return 1; }
+  local NMG_DATE=test_fail
+
+  xwrap2 "<failed-time>" ipv6_calc_life var "0" "0"
+  xret S6 1 "returns 1"
+
+  return 0
+}
+
+xtest::onexit::prefix() {
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-addr"
+}
+
+xtest::group1::prefix() {
+
+  shtest::title "Prefix Function Tests (prefix group)"
+
+  local aref=() Lans=() Reserved=() Assigned=() out var var2
+
+  xwrap2 "0/64 0/64" ipv6_site_overlap 0 64 0/64
+  xret P1 t "returns true"
+  ftest P1f "" "no output"
+  xwrap2 "2/64 1/63" ipv6_site_overlap 2 64 1/63
+  xret P2 t "returns true"
+  xwrap2 "1/64 1/64" ipv6_site_overlap 1 64 1/63
+  xret P3 f "returns false"
+  xwrap2 "2/64 1/63" ipv6_site_overlap 2 64 1/63
+  xret P4 t "returns true"
+  xwrap2 "4/64 1/62" ipv6_site_overlap 4 64 1/62
+  xret P5 t "returns true"
+  xwrap2 "7/64 1/62" ipv6_site_overlap 7 64 1/62
+  xret P6 t "returns true"
+  xwrap2 "7/64 4/62" ipv6_site_overlap 7 64 4/62
+  xret P7 f "returns false"
+
+  xwrap2 "br0 56" ipv6_lan_node_load_config "br0" "56"
+  xret P21 t "returns true"
+  ftest P21f "" "does not log"
+  aref=("br0 63 auto 0")
+  atest P21l Lans aref "sets Lans"
+  aref=("0/63")
+  atest P21r Reserved aref "sets Reserved"
+
+  xwrap2 "br1 56" ipv6_lan_node_load_config "br1" "56"
+  xret P22 t "returns true"
+  ftest P22f "" "does not log"
+  aref=("br0 63 auto 0" "br1 64 auto 2")
+  atest P22l Lans aref "adds to Lans"
+  aref=("0/63" "2/64")
+  atest P22r Reserved aref "adds to Reserved"
+
+  Lans=() Reserved=()
+  xwrap2 "br0 64" ipv6_lan_node_load_config "br0" "64"
+  xret P23 t "returns true"
+  ftest P23f "br0 not configured, LAN_PREFIX_LEN 63 < available 64" \
+        "log info"
+  aref=("br0")
+  atest P23l Lans aref "sets Lans"
+  aref=()
+  atest P23r Reserved aref "doesn't set Reserved"
+
+  # create temp config file
+  local LAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@LAN@-from-@WAN@.conf-addr"
+  local cfile=${LAN_CONFIG_PAT/@LAN@-from-@WAN@/brx-from-${interface}}
+  xrm "$cfile"
+  echo "LAN_SITE=bogus" > "$cfile"
+
+  Lans=() Reserved=()
+
+  xwrap2 "<bad-site>" ipv6_lan_node_load_config "brx" "64"
+  xret P24 t "returns true"
+  xread_value out <<-EOF
+	ERR: nmg::2dec: invalid <value> '0xbogus'
+	ERR: brx config error, invalid LAN_SITE 'bogus'
+	EOF
+  ftest P24f "$out" "log error"
+  aref=("brx")
+  atest P24l Lans aref "sets Lans"
+  aref=()
+  atest P24r Reserved aref "doesn't set Reserved"
+
+  echo "LAN_PREFIX_LEN=0" > "$cfile"
+  Lans=() Reserved=()
+
+  xwrap2 "<bad-plen>" ipv6_lan_node_load_config "brx" "64"
+  xret P25 t "returns true"
+  ftest P25f "ERR: brx config error, invalid LAN_PREFIX_LEN '0'" "log error"
+  aref=("brx")
+  atest P25l Lans aref "sets Lans"
+  aref=()
+  atest P25r Reserved aref "doesn't set Reserved"
+
+  echo "LAN_PREFIX_LEN=128" > "$cfile"
+  Lans=() Reserved=()
+
+  xwrap2 "<128 plen>" ipv6_lan_node_load_config "brx" "64"
+  xret P26 t "returns true"
+  ftest P26f "" "does not log"
+  aref=("brx 128 auto 0")
+  atest P26l Lans aref "sets Lans"
+  aref=()
+  atest P26r Reserved aref "doesn't set Reserved"
+
+  echo "LAN_PREFIX_LEN=63"$'\n'"LAN_SITE=7" > "$cfile"
+  Lans=() Reserved=()
+
+  xwrap2 "<site 7> 61" ipv6_lan_node_load_config "brx" "61"
+  xret P27 t "returns true"
+  ftest P27f "" "does not log"
+  aref=("brx 63 auto 3")
+  atest P27l Lans aref "sets Lans (site 3)"
+  aref=("3/63")
+  atest P27r Reserved aref "sets Reserved"
+
+  Lans=() Reserved=()
+
+  xwrap2 "<site 7> 63" ipv6_lan_node_load_config "brx" "63"
+  xret P28 t "returns true"
+  ftest P28f "" "does not log"
+  aref=("brx 63 auto 0")
+  atest P28l Lans aref "sets Lans (site 0)"
+  aref=("0/63")
+  atest P28r Reserved aref "sets Reserved"
+
+  var="bogus"
+  xwrap2 "64 64 0/64" ipv6_find_freesite var 64 64 "0/64"
+  xret P31 f "returns false"
+  ftest P31f "" "does not log"
+  vtest P31v "bogus" "does not set retvar"
+
+  xwrap2 "64 64" ipv6_find_freesite var 64 64
+  xret P32 t "returns true"
+  vtest P32v "0" "sets retvar 0"
+
+  xwrap2 "62 64 <2-63>" ipv6_find_freesite var 62 64 "0/63" "1/63"
+  xret P33 f "returns false"
+
+  xwrap2 "62 64 <1 63>" ipv6_find_freesite var 62 64 "0/63"
+  xret P34 t "returns true"
+  vtest P34v "2" "sets retvar 2"
+
+  xwrap2 "62 64 <'1' free>" ipv6_find_freesite var 62 64 "1/63" "0/64"
+  xret P35 t "returns true"
+  vtest P35v "1" "sets retvar 1"
+
+  xwrap2 "62 64 <'3' free>" ipv6_find_freesite var 62 64 "0/63" "2/64"
+  xret P36 t "returns true"
+  vtest P36v "3" "sets retvar 3"
+
+  xwrap2 "64 64 <empty>" ipv6_find_freesite var 64 64 "" ""
+  xret P37 t "returns true"
+  vtest P37v "0" "sets retvar 0"
+
+  Assigned=() Reserved=("0/63")
+
+  xwrap2 "62 64 <0/63 reserved>" ipv6_find_autosite var 62 64
+  xret P41 t "returns true"
+  vtest P41v "2" "sets retvar 2 (avoids reserved)"
+
+  Assigned=("0/63" "2/64") Reserved=("3/64")
+
+  xwrap2 "62 64 <0/63 2/64 used, 3/64 reserved>" ipv6_find_autosite var 62 64
+  xret P42 t "returns true"
+  vtest P42v "3" "sets retvar 3 (uses reserved)"
+
+  Assigned=() Reserved=()
+
+  xwrap2 "62 63" ipv6_find_autosite var 62 63
+  xret P43 t "returns true"
+  vtest P43v "0" "sets retvar 0"
+
+  Assigned=("0/63") Reserved=() var="bogus"
+
+  xwrap2 "63 64 <used 63>" ipv6_find_autosite var 63 64
+  xret P44 f "returns false"
+  vtest P44v "bogus" "does not set retvar"
+  ftest P44f "" "does not log"
+
+  Assigned=("2/64") Reserved=("0/63") var='' var2=''
+
+  xwrap2 "<reserved 0/63>" ipv6_lan_node_calc var var2 \
+	 "2001:db8:33::/63" br0 63 auto 0
+  xret P51 t "returns true"
+  vtest P51v "2001:db8:33::32fb:93c5:6555:845a/63" "sets address"
+  ltest P51s "var2" "0/63" "sets site 0/63"
+  ftest P51f "" "does not log"
+  aref=("2/64" "0/63")
+  atest P51a Assigned aref "appends to Assigned"
+
+  Assigned=("0/63" "2/64") Reserved=("0/63" "1/63") var='orig' var2='orig'
+
+  xwrap2 "<unavail pfx>" ipv6_lan_node_calc var var2 \
+	 "2001:db8:33::/63" br0 63 auto 1
+  xret P52 t "returns true"
+  vtest P52v "" "clears addr"
+  ltest P52s "var2" "" "clears site"
+  ftest P52f "br0 cannot be configured, no /63 prefixes available" "logs info"
+
+  Assigned=("1/63") Reserved=("1/63" "2/64") var='' var2=''
+
+  xwrap2 "<unavail reserved 2/64>" ipv6_lan_node_calc var var2 \
+	 "2001:db8:33::/63" br0 64 auto 2
+  xret P53 t "returns true"
+  vtest P53v "2001:db8:33::32fb:93c5:6555:845a/64" "set address"
+  ltest P53s "var2" "0/64" "sets site 0/64"
+  ftest P53f "" "does not log"
+
+  Assigned=("0/63") Reserved=("0/63" "2/64") var='' var2=''
+
+  xwrap2 "<autosite>" ipv6_lan_node_calc var var2 \
+	 "2001:db8:33::/62" br0 64 auto auto
+  xret P54 t "returns true"
+  vtest P54v "2001:db8:33:3:32fb:93c5:6555:845a/64" "set address"
+  ltest P54s "var2" "3/64" "sets site 3/64"
+  ftest P54f "" "does not log"
+
+  Assigned=("0/63" "3/64") Reserved=("0/63" "2/64") var='' var2=''
+
+  xwrap2 "<autosite, only reserved>" ipv6_lan_node_calc var var2 \
+	 "2001:db8:33::/62" br0 64 auto auto
+  xret P55 t "returns true"
+  vtest P55v "2001:db8:33:2:32fb:93c5:6555:845a/64" "set retvar to reserved"
+  ltest P55s "var2" "2/64" "sets site 2/64"
+  ftest P55f "" "does not log"
+
+  Assigned=("0/63" "3/64" "2/64") var="orig" var2="orig"
+
+  xwrap2 "<autosite, unavail>" ipv6_lan_node_calc var var2 \
+	  "2001:db8:33::/62" br0 64 auto auto
+  xret P56 t "returns true"
+  vtest P56v "" "clears address"
+  ltest P56s "var2" "" "clears site"
+  ftest P56f "br0 cannot be configured, no /64 prefixes available" "logs info"
+
+  #
+  # TEST: exclude 0/64, host_site 1
+  #
+  Assigned=("0/64" "1/64" "3/64") Reserved=("2/64") var="orig" var2="orig"
+  local Exclude="0/64"
+
+  xwrap2 "<host exclude/64>" ipv6_lan_node_calc var var2 \
+	  "2001:db8:33::/62" br0 128 auto 1
+  xret P60 t "returns true"
+  vtest P60v "2001:db8:33:1::1c48/128" "sets address"
+  ltest P60s "var2" "1/128" "sets site"
+  ftest P60f "" "does not log"
+
+  #
+  # TEST: prefix/64 exclude 1/65, host_site 0
+  #
+  Assigned=("0/65") Reserved=("2/64") var="orig" var2="orig"
+  local Exclude="0/65"
+
+  xwrap2 "<host exclude 0/65>" ipv6_lan_node_calc var var2 \
+	  "2001:db8:33::/64" br0 128 auto 0
+  xret P61 t "returns true"
+  vtest P61v "2001:db8:33:0:8000::1c48/128" "sets address avoiding exclude"
+  ltest P61s "var2" "0/128" "sets site"
+  ftest P61f "" "does not log"
+
+  #
+  # TEST: prefix/64 exclude 1/65, host_site 0
+  #
+  Assigned=("1/65") Reserved=("2/64") var="orig" var2="orig"
+  local Exclude="1/65"
+
+  xwrap2 "<host exclude 1/65>" ipv6_lan_node_calc var var2 \
+	  "2001:db8:33::/64" br0 128 auto 0
+  xret P62 t "returns true"
+  vtest P62v "2001:db8:33::1c48/128" "sets address avoiding exclude"
+  ltest P62s "var2" "0/128" "sets site"
+  ftest P62f "" "does not log"
+
+  xtest::onexit::prefix
+  ipv6_lan_clear_config
+}
+
+xtest::onexit::addr() {
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-addr"
+}
+
+xtest::group2::addr() {
+
+  shtest::title "LAN Address Tests (addr group)"
+
+  xtest_check_statevars A0 LAN_STATE_PAT
+
+  # rename for easy cleanup
+  local LAN_STATE_PAT="${LAN_STATE_PAT}-addr"
+  local FORWARDING_PAT="$RUNDIR/forwarding-@NODE@-addr"
+
+  local state1 sfile1
+  sfile1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-1122-wan0}
+  state1=${FORWARDING_PAT/@NODE@/br0}
+
+  # test variables
+  local out state Forwarding=1
+
+  # reset
+  xtest::onexit::addr
+
+  printf '' >"$state1"
+
+  ipv6_init_globals
+
+  xwrap2 "<addr>" ipv6_lan_add_addr br0 "inet6:2001:db8:100::1/64" "$state1"
+  xret A1 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:100::1/64 to br0
+	ip '-6' 'addr' 'add' '2001:db8:100::1/64' 'dev' 'br0'
+	EOF
+  ftest A1f "$out" "adds address"
+  shtest::check_file A1w "$state1" "1" "writes 1 to forwarding file"
+  ltest A1r "RADVD_TRIGGER" "1" "Sets RADVD_TRIGGER"
+
+  # cleanup
+  Forwarding=0
+  xtest::onexit::addr
+
+  xtest_settime 3060
+
+  xread_value state <<-EOF
+	inet6:2001:db8:100::1/64
+	valid-life:240
+	pref-life:120
+	life-start:3000
+	EOF
+  echo "$state" > "$sfile1"
+
+  ipv6_init_globals
+
+  xwrap2 "<addr> <lifetimes set>" ipv6_lan_add_addr br0 "$state" "$sfile1"
+  xret A2 t "returns true"
+  xread_value out <<-EOF
+	Adding 2001:db8:100::1/64 to br0
+	ip '-6' 'addr' 'replace' '2001:db8:100::1/64' 'dev' 'br0'\
+ 'valid_lft' '180' 'preferred_lft' '60'
+	EOF
+  ftest A2f "$out" "adds address with lifetimes"
+  shtest::check_file A2w "$sfile1" "$state" "keeps state file"
+  ltest A2r "RADVD_TRIGGER" "1" "Sets RADVD_TRIGGER"
+
+  xtest_settime 3300
+
+  ipv6_init_globals
+
+  xwrap2 "<addr> <expired lifetimes>" ipv6_lan_add_addr br0 "$state" "$sfile1"
+  xret A3 f "returns false"
+  ftest A3f "" "does not add address"
+  ltest A3r "RADVD_TRIGGER" "" "Does not set RADVD_TRIGGER"
+  [[ -e $sfile1 ]]
+  xtest A3w f "removes state file"
+
+  xcat > "$sfile1" <<-EOF
+	inet6:fdc0:4455:b240::1/64
+	valid-life:240
+	pref-life:120
+	life-start:3000
+	EOF
+
+  ipv6_init_globals
+
+  xwrap2 "<addr>" ipv6_lan_node_remove "$sfile1" br0
+  xret A11 t "returns true"
+  xread_value out <<-EOF
+	Removing fdc0:4455:b240::1/64 from br0
+	ip '-6' 'addr' 'del' 'fdc0:4455:b240::1/64' 'dev' 'br0'
+	EOF
+  ftest A11f "$out" "removes address"
+  ltest A11r "RADVD_TRIGGER" "1" "Sets RADVD_TRIGGER"
+  [[ -e $sfile1 ]]
+  xtest A11w f "removes state file"
+
+  xwrap2 "br0" ipv6_lan_read_config br0
+  xret A21 t "returns true"
+  ltest A21a "LAN_SITE" "ab80" "sets LAN_SITE"
+  ltest A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
+  ltest A21c "LAN_NODE" "auto" "uses defaults"
+
+  ipv6_lan_clear_config
+  xtest::onexit::addr
+}
+
+xmain() {
+
+  # don't mimic cmdline
+  unset LOGNAME
+
+  local TEST_FILE="${TEST_NMDIR}/08-ipv6-prefix"
+  xload_script "${TEST_FILE}"
+
+  # load wan config
+  local interface=wan0
+
+  xtest::run_tests "ipv6-prefix-addr-test Summary" "$@"
+  local rc=$?
+
+  nmddns_cleanup
+
+  return $rc
+}
+
+xstart "$@"

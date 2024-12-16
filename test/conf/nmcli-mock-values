@@ -169,19 +169,19 @@ ipv4.may-fail:no
 ipv4.dad-timeout:-1
 ipv4.dhcp-vendor-class-identifier:
 ipv4.dhcp-reject-servers:
-ipv6.method:auto
+ipv6.method:manual
 ipv6.dns:
 ipv6.dns-search:
 ipv6.dns-options:
 ipv6.dns-priority:0
-ipv6.addresses:
+ipv6.addresses:2001:db8:871a:28c1::1/128
 ipv6.gateway:
 ipv6.routes:
 ipv6.route-metric:-1
 ipv6.route-table:0
 ipv6.routing-rules:
 ipv6.ignore-auto-routes:no
-ipv6.ignore-auto-dns:yes
+ipv6.ignore-auto-dns:no
 ipv6.never-default:no
 ipv6.may-fail:no
 ipv6.ip6-privacy:-1
@@ -247,16 +247,12 @@ DHCP4.OPTION[28]:requested_time_offset = 1
 DHCP4.OPTION[29]:requested_wpad = 1
 DHCP4.OPTION[30]:routers = 192.168.66.1
 DHCP4.OPTION[31]:subnet_mask = 255.255.254.0
-IP6.ADDRESS[1]:2001:db8:871a:28c1::1/64
-IP6.ADDRESS[2]:2001:db8:4860:4860::8888/64
-IP6.ADDRESS[3]:fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64
-IP6.ADDRESS[4]:fe80::a00:27ff:fe1b:ff9a/64
+IP6.ADDRESS[1]:2001:db8:871a:28c1::1/128
+IP6.ADDRESS[2]:fe80::a00:27ff:fe1b:ff9a/64
 IP6.GATEWAY:fe80::201:5cff:e5d1:d155
 IP6.ROUTE[1]:dst = ::/0, nh = fe80::201:5cff:e5d1:d155, mt = 100
-IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/64, nh = ::, mt = 100
-IP6.ROUTE[3]:dst = 2001:db8:4860:4860::8888/64, nh = ::, mt = 100
-IP6.ROUTE[4]:dst = fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64, nh = ::, mt = 100
-IP6.ROUTE[5]:dst = fe80::/64, nh = ::, mt = 100
+IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/128, nh = ::, mt = 100
+IP6.ROUTE[3]:dst = fe80::/64, nh = ::, mt = 100
 DHCP6.OPTION[1]:dad_wait_time = 0
 DHCP6.OPTION[2]:dhcp6_client_id = 0:1:0:1:1e:b:5:36:ee:df:b9:71:ac:d8
 DHCP6.OPTION[3]:dhcp6_name_servers = 2001:db8:feed::1 2001:db8:feed::2
@@ -701,7 +697,7 @@ ipv6.dns:
 ipv6.dns-search:
 ipv6.dns-options:
 ipv6.dns-priority:0
-ipv6.addresses:2001:db8:800::2/64
+ipv6.addresses:2001:db8:800::2/128
 ipv6.gateway:
 ipv6.routes:
 ipv6.route-metric:-1
@@ -1056,16 +1052,12 @@ DHCP4.OPTION[28]:requested_time_offset = 1
 DHCP4.OPTION[29]:requested_wpad = 1
 DHCP4.OPTION[30]:routers = 192.168.66.1
 DHCP4.OPTION[31]:subnet_mask = 255.255.254.0
-IP6.ADDRESS[1]:2001:db8:871a:28c1::1/64
-IP6.ADDRESS[2]:2001:db8:4860:4860::8888/64
-IP6.ADDRESS[3]:fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64
-IP6.ADDRESS[4]:fe80::a00:27ff:fe1b:ff9a/64
+IP6.ADDRESS[1]:2001:db8:871a:28c1::1/128
+IP6.ADDRESS[2]:fe80::a00:27ff:fe1b:ff9a/64
 IP6.GATEWAY:fe80::201:5cff:e5d1:d155
 IP6.ROUTE[1]:dst = ::/0, nh = fe80::201:5cff:e5d1:d155, mt = 100
-IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/64, nh = ::, mt = 100
-IP6.ROUTE[3]:dst = 2001:db8:4860:4860::8888/64, nh = ::, mt = 100
-IP6.ROUTE[4]:dst = fda5:3d6f:2bc7:203d:1c52:4ac2:27ff:fe1b/64, nh = ::, mt = 100
-IP6.ROUTE[5]:dst = fe80::/64, nh = ::, mt = 100
+IP6.ROUTE[2]:dst = 2001:db8:871a:28c1::1/128, nh = ::, mt = 100
+IP6.ROUTE[3]:dst = fe80::/64, nh = ::, mt = 100
 DHCP6.OPTION[1]:dad_wait_time = 0
 DHCP6.OPTION[2]:dhcp6_client_id = 0:1:0:1:1e:b:5:36:ee:df:b9:71:ac:d8
 DHCP6.OPTION[3]:dhcp6_name_servers = 2001:db8:feed::1 2001:db8:feed::2

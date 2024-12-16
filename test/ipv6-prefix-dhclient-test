@@ -1,6 +1,7 @@
 #!/bin/bash
 # -*- mode: sh; sh-basic-offset: 2; indent-tabs-mode: t -*-
 # vim:set ft=sh sw=2 ts=2:
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Test suite for 08-ipv6-prefix
 #   - tests functions used by dhclient
@@ -11,409 +12,175 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
 { [[ -r ${NMG_XTEST} ]] && . "${NMG_XTEST}"; } ||
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
-xtest::group1::life() {
-  local var CUR_TIME base_time
-
-  shtest::title "Lifetime Function Tests (life group)"
-
-  # needed for a ip lifetime calc test
-  local -x DUMMY_MOCK_OUTPUT="date @ARGS@"
-  local NMDATE="${TEST_BIN}/dummy-mock"
-
-  base_time=$("$NMDATE" +%s) || shtest::fatal "${NMDATE} not available"
-  [[ ${base_time} == "date '+%s'" ]] || shtest::fatal "${NMDATE} failed"
-  base_time=1234567
-  DUMMY_MOCK_OUTPUT=${base_time}
-
-  var='bogus'
-  CUR_TIME=''
-  xwrap2 "0" ipv6_life_calc var "0" "${base_time}"
-  xtest S1 t "returns true"
-  vtest S1v "0" "sets retvar to 0"
-  ftest S1f "" "should not log"
-  [[ ${CUR_TIME} ]] && (( CUR_TIME > 0 ))
-  xtest S1g t "should set \$CUR_TIME"
-
-  xwrap2 "<max-int> 0" ipv6_life_calc var 4294967295 "0"
-  xtest S2 t "returns true"
-  vtest S2v "forever" "sets retvar to forever"
-
-  xwrap2 "0 <max-int>" ipv6_life_calc var "0" "4294967295"
-  xtest S3 1 "returns 1"
-  ftest S3f "" "should not log"
-
-  (( base_time = CUR_TIME - 100 )) || :
-
-  xwrap2 "300 <time-100>" ipv6_life_calc var "300" "${base_time}"
-  xtest S4 t "returns true"
-  vtest S4v "200" "should return 200"
-
-  xwrap2 "50 <time-100>" ipv6_life_calc var "50" "${base_time}"
-  xtest S5 t "returns true"
-  vtest S5v "0" "should return 0"
-
-  CUR_TIME=0
-  xwrap2 "<failed-time>" ipv6_life_calc var "0" "0"
-  xtest S6 1 "returns 1"
-  CUR_TIME=''
-
-  return 0
+xtest_settime() {
+  # <new-time>
+  EPOCHREALTIME=${1-}
 }
 
-xtest::group1::prefix() {
-
-  local aref=() Lans=() Reserved=() Assigned=() out var var2
-
-  shtest::title "Prefix Function Tests (life group)"
-
-  xwrap2 "0/64 0/64" ipv6_prefix_overlap 0 64 0/64
-  xtest P1 t "returns true"
-  xwrap2 "2/64 1/63" ipv6_prefix_overlap 2 64 1/63
-  xtest P2 t "returns true"
-  xwrap2 "1/64 1/64" ipv6_prefix_overlap 1 64 1/63
-  xtest P3 f "returns false"
-  xwrap2 "2/64 1/63" ipv6_prefix_overlap 2 64 1/63
-  xtest P4 t "returns true"
-  xwrap2 "4/64 1/62" ipv6_prefix_overlap 4 64 1/62
-  xtest P5 t "returns true"
-  xwrap2 "7/64 1/62" ipv6_prefix_overlap 7 64 1/62
-  xtest P6 t "returns true"
-  xwrap2 "7/64 4/62" ipv6_prefix_overlap 7 64 4/62
-  xtest P7 f "returns false"
-
-  xwrap2 "br0 56" ipv6_lan_node_load "br0" "56"
-  xtest P21 t "returns true"
-  ftest P21f "" "does not log"
-  aref=("br0 63 auto 0")
-  atest P21l Lans aref "sets Lans"
-  aref=("0/63")
-  atest P21r Reserved aref "sets Reserved"
-
-  xwrap2 "br1 56" ipv6_lan_node_load "br1" "56"
-  xtest P22 t "returns true"
-  ftest P22f "" "does not log"
-  aref=("br0 63 auto 0" "br1 64 auto auto")
-  atest P22l Lans aref "adds to Lans"
-  aref=("0/63")
-  atest P22r Reserved aref "doesn't add to Reserved"
-
-  Lans=() Reserved=()
-  xwrap2 "br0 64" ipv6_lan_node_load "br0" "64"
-  xtest P23 t "returns true"
-  ftest P23f "br0 not configured, LAN_PREFIX_LEN 63 < available 64" \
-        "log info"
-  aref=("br0")
-  atest P23l Lans aref "sets Lans"
-  aref=()
-  atest P23r Reserved aref "doesn't set Reserved"
-
-  # create temp config file
-  local LAN_CONFIG_PAT=${XFILE}
-  xrm "$XFILE"
-  echo "LAN_SITE=bogus" > "$XFILE"
-
-  Lans=() Reserved=()
-  xwrap2 "<bad-site>" ipv6_lan_node_load "brx" "64"
-  xtest P24 t "returns true"
-  xread_value out <<-EOF
-	ERR: nmg::2dec: invalid <value> '0xbogus'
-	ERR: brx config error, invalid LAN_SITE 'bogus'
-	EOF
-  ftest P24f "$out" "log error"
-  aref=("brx")
-  atest P24l Lans aref "sets Lans"
-  aref=()
-  atest P24r Reserved aref "doesn't set Reserved"
-
-  echo "LAN_PREFIX_LEN=0" > "$XFILE"
-  Lans=() Reserved=()
-
-  xwrap2 "<bad-plen>" ipv6_lan_node_load "brx" "64"
-  xtest P25 t "returns true"
-  ftest P25f "ERR: brx config error, invalid LAN_PREFIX_LEN '0'" "log error"
-  aref=("brx")
-  atest P25l Lans aref "sets Lans"
-  aref=()
-  atest P25r Reserved aref "doesn't set Reserved"
-
-  echo "LAN_PREFIX_LEN=128" > "$XFILE"
-  Lans=() Reserved=()
-
-  xwrap2 "<128 plen>" ipv6_lan_node_load "brx" "64"
-  xtest P26 t "returns true"
-  ftest P26f "" "does not log"
-  aref=("brx 128 auto 0")
-  atest P26l Lans aref "sets Lans"
-  aref=()
-  atest P26r Reserved aref "doesn't set Reserved"
-
-  echo "LAN_PREFIX_LEN=63"$'\n'"LAN_SITE=7" > "$XFILE"
-  Lans=() Reserved=()
-
-  xwrap2 "<site 7> 61" ipv6_lan_node_load "brx" "61"
-  xtest P27 t "returns true"
-  ftest P27f "" "does not log"
-  aref=("brx 63 auto 3")
-  atest P27l Lans aref "sets Lans (site 3)"
-  aref=("3/63")
-  atest P27r Reserved aref "sets Reserved"
-
-  Lans=() Reserved=()
-
-  xwrap2 "<site 7> 63" ipv6_lan_node_load "brx" "63"
-  xtest P28 t "returns true"
-  ftest P28f "" "does not log"
-  aref=("brx 63 auto 0")
-  atest P28l Lans aref "sets Lans (site 0)"
-  aref=("0/63")
-  atest P28r Reserved aref "sets Reserved"
-
-  var="bogus"
-  xwrap2 "64 64 0/64" ipv6_find_freesite var 64 64 "0/64"
-  xtest P31 f "returns false"
-  ftest P31f "" "does not log"
-  vtest P31v "bogus" "does not set retvar"
-
-  xwrap2 "64 64" ipv6_find_freesite var 64 64
-  xtest P32 t "returns true"
-  vtest P32v "0" "sets retvar 0"
-
-  xwrap2 "62 64 <2-63>" ipv6_find_freesite var 62 64 "0/63" "1/63"
-  xtest P33 f "returns false"
-
-  xwrap2 "62 64 <1 63>" ipv6_find_freesite var 62 64 "0/63"
-  xtest P34 t "returns true"
-  vtest P34v "2" "sets retvar 2"
-
-  xwrap2 "62 64 <'1' free>" ipv6_find_freesite var 62 64 "1/63" "0/64"
-  xtest P35 t "returns true"
-  vtest P35v "1" "sets retvar 1"
-
-  xwrap2 "62 64 <'3' free>" ipv6_find_freesite var 62 64 "0/63" "2/64"
-  xtest P36 t "returns true"
-  vtest P36v "3" "sets retvar 3"
-
-  xwrap2 "64 64 <empty>" ipv6_find_freesite var 64 64 "" ""
-  xtest P37 t "returns true"
-  vtest P37v "0" "sets retvar 0"
-
-  Assigned=() Reserved=("0/63")
-
-  xwrap2 "62 64 <0/63 reserved>" ipv6_find_autosite var 62 64
-  xtest P41 t "returns true"
-  vtest P41v "2" "sets retvar 2 (avoids reserved)"
-
-  Assigned=("0/63" "2/64") Reserved=("3/64")
-
-  xwrap2 "62 64 <0/63 2/64 used, 3/64 reserved>" ipv6_find_autosite var 62 64
-  xtest P42 t "returns true"
-  vtest P42v "3" "sets retvar 3 (uses reserved)"
-
-  Assigned=() Reserved=()
-
-  xwrap2 "62 63" ipv6_find_autosite var 62 63
-  xtest P43 t "returns true"
-  vtest P43v "0" "sets retvar 0"
-
-  Assigned=("0/63") Reserved=() var="bogus"
-
-  xwrap2 "63 64 <used 63>" ipv6_find_autosite var 63 64
-  xtest P44 f "returns false"
-  vtest P44v "bogus" "does not set retvar"
-  ftest P44f "" "does not log"
-
-  local new_ip6_prefix="2001:db8:33::/63"
-  Assigned=("2/64") Reserved=("0/63") var=""
-
-  xwrap2 "<reserved 0/63>" ipv6_lan_node_calc var var2 br0 63 auto 0
-  xtest P51 t "returns true"
-  vtest P51v "2001:db8:33:0:32fb:93c5:6555:845a/63" "sets address"
-  ltest P51s "var2" "0/63" "sets site 0/63"
-  ftest P51f "" "does not log"
-  aref=("2/64" "0/63")
-  atest P51a Assigned aref "appends to Assigned"
-
-  Assigned=("0/63" "2/64") Reserved=("0/63" "1/63") var='orig' var2='orig'
-
-  xwrap2 "<unavail pfx>" ipv6_lan_node_calc var var2 br0 63 auto 1
-  xtest P52 t "returns true"
-  vtest P52v "orig" "does not set address"
-  ltest P52s "var2" "orig" "does not set site"
-  ftest P52f "br0 cannot be configured, no /63 prefixes available" "logs info"
-
-  Assigned=("1/63") Reserved=("1/63" "2/64") var='' var2=''
-
-  xwrap2 "<unavail reserved 2/64>" ipv6_lan_node_calc var var2 br0 64 auto 2
-  xtest P53 t "returns true"
-  vtest P53v "2001:db8:33:0:32fb:93c5:6555:845a/64" "set address"
-  ltest P53s "var2" "0/64" "sets site 0/64"
-  ftest P53f "" "does not log"
-
-  new_ip6_prefix="2001:db8:33::/62"
-  Assigned=("0/63") Reserved=("0/63" "2/64") var='' var2=''
-
-  xwrap2 "<autosite>" ipv6_lan_node_calc var var2 br0 64 auto auto
-  xtest P54 t "returns true"
-  vtest P54v "2001:db8:33:3:32fb:93c5:6555:845a/64" "set address"
-  ltest P54s "var2" "3/64" "sets site 3/64"
-  ftest P54f "" "does not log"
-
-  Assigned=("0/63" "3/64") Reserved=("0/63" "2/64") var='' var2=''
-
-  xwrap2 "<autosite, only reserved>" ipv6_lan_node_calc var var2 br0 64 \
-	 auto auto
-  xtest P55 t "returns true"
-  vtest P55v "2001:db8:33:2:32fb:93c5:6555:845a/64" "set retvar to reserved"
-  ltest P55s "var2" "2/64" "sets site 2/64"
-  ftest P55f "" "does not log"
-
-  Assigned=("0/63" "3/64" "2/64") var="orig" var2="orig"
-
-  xwrap2 "<autosite, unavail>" ipv6_lan_node_calc var var2 br0 64 auto auto
-  xtest P56 t "returns true"
-  vtest P56v "orig" "does not set address"
-  ltest P56s "var2" "orig" "does not set site"
-  ftest P56f "br0 cannot be configured, no /64 prefixes available" "logs info"
-
-  ipv6_lan_reset_config
+# checks each environment <var> contains $RUNDIR
+xtest_check_statevars() {
+  # <test-id> <var>...
+  local id=$1 var
+  shift
+  for var in "$@"; do
+    [[ ${!var-} ]] || shtest::fatal "Test $id: variable $var missing value"
+    [[ ${!var} =~ $RUNDIR ]] ||
+      shtest::fatal "Test $id: variable $var missing \$RUNDIR"
+  done
+  xret "$id" t "checking STATE_PAT variables"
 }
 
-xtest::onexit::addr() {
-  [[ ${FORWARDING_PAT-} ]] || return 0
-  xrm "${FORWARDING_PAT/@NODE@/br0}"
+# init sysctls for specific dhcp client (avoid "resetting ipv6" logs)
+xtest_init_sysctls() {
+  # "" | dhclient | dhcpcd
+  local ra dir=${SYSCTL_PAT/@NODE@/${interface}}
+  [[ ${1-} ]] || {
+    [[ -d $dir ]] && {
+      xrm "$dir/accept_ra"
+      xrm "$dir/disable_ipv6"
+      command -p rmdir "$dir"
+    }
+    return 0
+  }
+  case $1 in
+    dhclient) ra=2 ;;
+    dhcpcd) ra=0 ;;
+    *) shtest::fatal "Usage: xtest_init_sysctls [ dhclient | dhcpcd ]" ;;
+  esac
+  command -p mkdir -p "$dir"
+  echo "$ra" > "$dir/accept_ra"
 }
 
-xtest::group2::addr() {
+xtest_dhcp_action() {
+  # <id> <reason> <desc>
+  local -x reason=$2
+  # dhcp clients don't set CONN_ID
+  local -x CONNECTION_UUID=''
+  shtest::prefix "$2 - "
+  xwrap ipv6_dhcp_action
+  xret "$1" t "$3"
+}
 
-  local out state state1 CUR_TIME='' Forwarding=1
-
-  shtest::title "LAN Address Tests (addr group)"
-
-  [[ ${FORWARDING_PAT-} ]]
-  xtest A0 t "checking FORWARDING_PAT"
-  shtest::last_check_ok || return 1
-
-  state1=${FORWARDING_PAT/@NODE@/br0}
-  xrm "$state1"
-  printf '' >>"$state1"
-
-  shtest::check_file A0c "$state1" "" "created forwarding test file"
-  shtest::last_check_ok || return 1
-
-  xwrap2 "<addr>" ipv6_lan_add_addr br0 "inet6:2001:db8:100::1/64"
-  xtest A1 t "returns true"
-  xread_value out <<-EOF
-	Adding 2001:db8:100::1/64 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100::1/64' 'dev' 'br0'
-	EOF
-  ftest A1f "$out" "adds address"
-  shtest::check_file A1w "$state1" "1" "writes 1 to forwarding file"
-
-  # cleanup
-  Forwarding=0
-  xrm "$state1"
-
-  CUR_TIME=3060
-
-  xread_value state <<-EOF
-	inet6:2001:db8:100::1/64
-	valid-life:240
-	pref-life:120
-	life-start:3000
-	EOF
-
-  xwrap2 "<addr> <lifetimes set>" ipv6_lan_add_addr br0 "$state"
-  xtest A2 t "returns true"
-  xread_value out <<-EOF
-	Adding 2001:db8:100::1/64 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add' '2001:db8:100::1/64' 'dev' 'br0'\
- 'valid_lft' '180' 'preferred_lft' '60'
-	EOF
-  ftest A2f "$out" "adds address with lifetimes"
-
-  CUR_TIME=3300
-
-  xwrap2 "<addr> <expired lifetimes>" ipv6_lan_add_addr br0 "$state"
-  xtest A3 t "returns true"
-  ftest A3f "" "does not add address"
-
-  xwrap2 "<addr>" ipv6_lan_del_addr br0 "fdc0:4455:b240::1/64"
-  xtest A11 t "returns true"
-  xread_value out <<-EOF
-	Removing fdc0:4455:b240::1/64 from br0
-	${NMG_IP} => ip '-6' 'addr' 'del' 'fdc0:4455:b240::1/64' 'dev' 'br0'
-	EOF
-  ftest A11f "$out" "removes address"
-
-  xwrap2 "br0" ipv6_lan_read_config br0
-  xtest A21 t "returns true"
-  ltest A21a "LAN_SITE" "ab80" "sets LAN_SITE"
-  ltest A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
-  ltest A21c "LAN_NODE" "auto" "uses defaults"
-
-  ipv6_lan_reset_config
-  xtest::onexit::addr
+# perform ipv6_nm_action <action> on <wan>
+xtest_nm_action() {
+  # <id> <action> <wan> <desc>
+  local -x NM_DISPATCHER_ACTION=$2 CONNECTION_UUID
+  shtest::prefix "$2($3) - "
+  # NM sets CONN_ID
+  case $3 in
+    eth0) CONNECTION_UUID="$office_uuid" ;;
+    wan0) CONNECTION_UUID="$isp_uuid" ;;
+    *) CONNECTION_UUID="00000000-0000-0000-0000-000000000000" ;;
+  esac
+  xwrap ipv6_nm_action "$3"
+  xret "$1" t "$4"
 }
 
 xtest::onexit::lan() {
-  [[ ${LAN_STATE_PAT-} ]] || return 0
-  local LAN_STATE_PAT="${LAN_STATE_PAT%-dhc}-dhc"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-8899-wan0}"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-1122-wan0}"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-8899-wan0}"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-1122-wan0}"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-8899-wan0}"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-1122-wan0}"
-  local LAN_DDNS_STATE_PAT="${LAN_DDNS_STATE_PAT%-dhc}-dhc"
-  xrm "${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan0-AAAA}"
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
 }
 
 xtest::group3::lan() {
 
-  local out CUR_TIME='' state1 state2 state3 state4 state5 state6 dstate1
+  shtest::title "dhclient Prefix Assignment Tests (lan group)"
 
-  shtest::title "LAN Prefix Assignment Tests (lan group)"
+  # init state
+  local init_cstate
+  xread_value init_cstate <<-EOF
+	conn-uuid:${isp_uuid}
+	EOF
+  echo >"$connstate2" "$init_cstate"
 
-  [[ ${LAN_STATE_PAT-} ]]
-  xtest L1 t "checking LAN_STATE_PAT"
-  shtest::last_check_ok || return 1
+  xtest_check_statevars L1 LAN_STATE_PAT LAN_DDNS_STATE_PAT WAN_PFXSTATE_PAT
 
+  # rename for easy cleanup
   local LAN_STATE_PAT="${LAN_STATE_PAT}-dhc"
   local LAN_DDNS_STATE_PAT="${LAN_DDNS_STATE_PAT}-dhc"
+  local WAN_PFXSTATE_PAT="${WAN_PFXSTATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
 
-  state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-8899-wan0}
-  state2=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-1122-wan0}
-  state3=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-8899-wan0}
-  state4=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-1122-wan0}
-  state5=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-8899-wan0}
-  state6=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-1122-wan0}
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/wan0}
+
+  # hashs used in generated filenames
+  local hash1 hash2
+  nmg::hash hash1 "2001:db8:100::/56"; hash1+="+8899-wan0"
+  nmg::hash hash2 "2001:db8:200::/56"; hash2+="+1122-wan0"
+
+  local state1 state2 state3 state4 state5 state6
+  local pstate1 pstate2 dstate1
+  state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-$hash1}
+  state2=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br0-from-$hash2}
+  state3=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-$hash1}
+  state4=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/br1-from-$hash2}
+  state5=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-$hash1}
+  state6=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/brx-from-$hash2}
+  pstate1=${WAN_PFXSTATE_PAT/@ID@-@WAN@/$hash1}
+  pstate2=${WAN_PFXSTATE_PAT/@ID@-@WAN@/$hash2}
   dstate1=${LAN_DDNS_STATE_PAT/@LAN@-from-@WAN@-@RREC@/br1-from-wan0-AAAA}
-  xrm "$state1" "$state2" "$state3" "$state4" "$state5" "$state6"
-  xrm "$dstate1"
 
-  WAN_LAN_INTFS="brx br0"
-  CUR_TIME=3060
+  # reset
+  xtest::onexit::lan
 
-  local new_ip6_prefix="2001:db8:100::/56" new_iaid="88:99"
-  local new_max_life=240 new_preferred_life=120 new_life_starts=3000
+  # test variables
+  local out
 
-  xwrap2 "<br0 brx, 88:99>" ipv6_dhc_bind
-  xtest L2 t "returns true"
+  # src_route_100 contains @EXPIRES@
+  local src_route_100
+  xread_value src_route_100 <<-EOF
+	Adding source-route for 2001:db8:100::/56 to wan0\
+ via fe80::faaa:dead:beef:8000
+	ip '-6' 'route' 'replace' 'default' 'from' '2001:db8:100::/56'\
+ 'via' 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'expires' '@EXPIRES@'\
+ 'metric' '404'
+	ip '-6' 'route' 'replace' 'unreachable' '2001:db8:100::/56'\
+ 'dev' 'lo' 'expires' '@EXPIRES@' 'metric' '2147483647'
+	EOF
+
+  # src_route_200 contains @EXPIRES@
+  local src_route_200
+  xread_value src_route_200 <<-EOF
+	Adding source-route for 2001:db8:200::/56 to wan0\
+ via fe80::faaa:dead:beef:8000
+	ip '-6' 'route' 'replace' 'default' 'from' '2001:db8:200::/56'\
+ 'via' 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'expires' '@EXPIRES@'\
+ 'metric' '404'
+	ip '-6' 'route' 'replace' 'unreachable' '2001:db8:200::/56'\
+ 'dev' 'lo' 'expires' '@EXPIRES@' 'metric' '2147483647'
+	EOF
+
+  #
+  # TEST: 88:99 iaid, 2 lans
+  #
+  xtest_settime 3060
+
+  local -x new_ip6_prefix="2001:db8:100::/56" new_iaid="88:99" new_rebind=100
+  local -x new_max_life=240 new_preferred_life=120 new_life_starts=3000
+
+  xcat > "$wconf" <<-EOF
+  	WAN_LAN_INTFS="brx br0"
+	EOF
+
+  xtest_dhcp_action L2 REBIND6 "brx br0 - 88:99"
   xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:100::/56
-	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180'\
- 'preferred_lft' '60'
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	Prefix REBIND6 on wan0: 2001:db8:100::/56
+	Changing 2001:db8:100::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:100::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '180' 'preferred_lft' '60'
+	${src_route_100//@EXPIRES@/180}
+	${xtest_dhcpmon/@TIMEOUT@/160}
+	radvd-trigger
 	EOF
   ftest L2f "$out" "adds address"
   xread_value out <<-EOF
-	inet6:2001:db8:100:0:32fb:93c5:6555:845a/63
+	inet6:2001:db8:100::32fb:93c5:6555:845a/63
 	site6:0/63
 	valid-life:240
 	pref-life:120
 	life-start:3000
+	iaid:8899
+	dad-state:ok
 	EOF
   shtest::check_file L2i "$state1" "$out" "creates br0 88:99 state file"
   xread_value out <<-EOF
@@ -422,107 +189,213 @@ xtest::group3::lan() {
 	valid-life:240
 	pref-life:120
 	life-start:3000
+	iaid:8899
 	EOF
-  shtest::check_file L2m "$state5" "$out" \
-		     "creates brx 88:99 state file (prefix)"
-
-  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22"
-
-  xwrap2 "<brx br0, 11:22>" ipv6_prefix_bind
-  xtest L3 t "returns true"
+  shtest::check_file L2m "$state5" "$out" "creates brx 88:99 state file (pfx)"
   xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:200::/56
-	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '180'\
- 'preferred_lft' '60'
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	valid-life:240
+	pref-life:120
+	life-start:3000
+	prefix6:2001:db8:100::/56
+	iaid:8899
+	rebind:100
+	EOF
+  shtest::check_file L2p "$pstate1" "$out" "creates 88:99 prefix state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3060
+	EOF
+  shtest::check_file L2c "$connstate2" "$out" "updates cstate"
+
+  #
+  # TEST: 11:22 iaid, same 2 lans
+  #
+  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_rebind=180
+  new_max_life=320 new_preferred_life=240 new_life_starts=3050
+
+  xtest_dhcp_action L3 REBIND6 "brx br0 - 11:22"
+  xread_value out <<-EOF
+	Prefix REBIND6 on wan0: 2001:db8:200::/56
+	Changing 2001:db8:200::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:200::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '310' 'preferred_lft' '230'
+	${src_route_100//@EXPIRES@/180}
+	${src_route_200//@EXPIRES@/310}
+	${xtest_dhcpmon/@TIMEOUT@/160}
+	radvd-trigger
 	EOF
   ftest L3f "$out" "adds address"
   xread_value out <<-EOF
-	inet6:2001:db8:200:0:32fb:93c5:6555:845a/63
+	inet6:2001:db8:200::32fb:93c5:6555:845a/63
 	site6:0/63
-	valid-life:240
-	pref-life:120
-	life-start:3000
+	valid-life:320
+	pref-life:240
+	life-start:3050
+	iaid:1122
+	dad-state:ok
 	EOF
-  shtest::check_file L3j "$state2" "$out" "creates state file"
+  shtest::check_file L3j "$state2" "$out" "creates br0 11:22 state file"
   xread_value out <<-EOF
 	inet6:2001:db8:200:2::/64
 	site6:2/64
-	valid-life:240
-	pref-life:120
-	life-start:3000
+	valid-life:320
+	pref-life:240
+	life-start:3050
+	iaid:1122
 	EOF
-  shtest::check_file L3n "$state6" "$out" \
-		     "creates brx 11:22 state file (prefix)"
-
-  # reverse lan order, check existing assignments are kept
-  WAN_LAN_INTFS="brx br1"
-  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
-
-  xwrap2 "<brx br1, 11:22>" ipv6_prefix_bind
-  xtest L4 t "returns true"
+  shtest::check_file L3n "$state6" "$out" "creates brx 11:22 state file (pfx)"
   xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:200::/56
-	Adding 2001:db8:200:0:32fb:93c5:555:1/64 to br1
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:200:0:32fb:93c5:555:1/64' 'dev' 'br1'
+	valid-life:320
+	pref-life:240
+	life-start:3050
+	prefix6:2001:db8:200::/56
+	iaid:1122
+	rebind:180
+	EOF
+  shtest::check_file L3p "$pstate2" "$out" "creates 11:22 prefix state file"
+
+  #
+  # TEST: 11:22 reverse lan order
+  #       swap br1 for br0
+  #       check existing assignments are kept
+  #       disable source-route
+  #
+  xcat > "$wconf" <<-EOF
+	WAN_LAN_INTFS="brx br1"
+	WAN_SADR_DISABLE=1
+	EOF
+  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22"  new_rebind=180
+  new_max_life=320 new_preferred_life=120 new_life_starts=3055
+
+  xtest_dhcp_action L4 REBIND6 "brx br1 - no-sadr"
+  xread_value out <<-EOF
+	Prefix REBIND6 on wan0: 2001:db8:200::/56
+	Adding 2001:db8:200::32fb:93c5:555:1/64 to br1
+	ip '-6' 'addr' 'replace' '2001:db8:200::32fb:93c5:555:1/64'\
+ 'dev' 'br1' 'valid_lft' '315' 'preferred_lft' '115'
 	Removing home.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete home.example.test AAAA
 	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	2001:db8:100::32fb:93c5:6555:845a/63 on br0 deprecated:\
+ Removed from wan0 WAN_LAN_INTFS
+	Changing 2001:db8:100::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:100::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '10' 'preferred_lft' '0'
+	2001:db8:200::32fb:93c5:6555:845a/63 on br0 deprecated:\
+ Removed from wan0 WAN_LAN_INTFS
+	Changing 2001:db8:200::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:200::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '10' 'preferred_lft' '0'
+	${xtest_dhcpmon/@TIMEOUT@/160}
+	radvd-trigger
 	EOF
-  ftest L4f "$out" "adds address"
-  [[ -e $state2 ]]
-  xtest L4j f "removes br0 11:22 state file"
+  ftest L4f "$out" "depr address, no routes, removes DNS"
   xread_value out <<-EOF
-	inet6:2001:db8:200:0:32fb:93c5:555:1/64
-	site6:0/64
+	inet6:2001:db8:100::32fb:93c5:6555:845a/63
+	site6:0/63
+	valid-life:10
+	pref-life:0
+	life-start:3060
+	iaid:8899
+	dad-state:ok
 	EOF
-  shtest::check_file L4l "$state4" "$out" "creates br1 11:22 state"
+  shtest::check_file L4i "$state1" "$out" "releases br0 88:99 state file"
+  xread_value out <<-EOF
+	inet6:2001:db8:200::32fb:93c5:6555:845a/63
+	site6:0/63
+	valid-life:10
+	pref-life:0
+	life-start:3060
+	iaid:1122
+	dad-state:ok
+	EOF
+  shtest::check_file L4j "$state2" "$out" "releases br0 11:22 state file"
+  xread_value out <<-EOF
+	inet6:2001:db8:200::32fb:93c5:555:1/64
+	site6:0/64
+	valid-life:320
+	pref-life:120
+	life-start:3055
+	iaid:1122
+	EOF
+  shtest::check_file L4l "$state4" "$out" "creates br1 11:22 state file"
   xread_value out <<-EOF
 	inet6:2001:db8:200:2::/64
 	site6:2/64
+	valid-life:320
+	pref-life:120
+	life-start:3055
+	iaid:1122
 	EOF
-  shtest::check_file L4n "$state6" "$out" "honors brx 11:22 assignment"
+  shtest::check_file L4n "$state6" "$out" "honors brx 11:22 assignment (pfx)"
+  xread_value out <<-EOF
+	valid-life:320
+	pref-life:120
+	life-start:3055
+	prefix6:2001:db8:200::/56
+	iaid:1122
+	rebind:180
+	EOF
+  shtest::check_file L4p "$pstate2" "$out" "updates 11:22 prefix state file"
+  [[ -e $dstate1 ]]
+  xtest L4d f "removes br1 ddns state file"
 
   # reset
   xtest::onexit::lan
 
-  WAN_LAN_INTFS="br1 br0"
+  #
+  # TEST: 11:22, 2 lans
+  #       infinite life
+  #       route-metric
+  #
 
-  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
+  xtest_settime 5000
 
-  xwrap2 "<br1>" ipv6_prefix_bind
-  xtest L5 t "returns true"
+  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_rebind=7200
+  new_preferred_life=4294967295 new_max_life=4294967295 new_life_starts=4000
+
+  xcat > "$wconf" <<-EOF
+	WAN_LAN_INTFS="br1 br0"
+	WAN_SADR_METRIC=100
+	EOF
+
+  local alt_src_route_200=${src_route_200/404/100}
+
+  xtest_dhcp_action L5 REBIND6 "br1 br0 - inf life, sadr metric"
   xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:200::/56
-	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace'\
- '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
+	Prefix REBIND6 on wan0: 2001:db8:200::/56
+	Changing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
+	ip '-6' 'addr' 'change' '2001:db8:200:2:32fb:93c5:555:1/64'\
+ 'dev' 'br1' 'valid_lft' 'forever' 'preferred_lft' 'forever'
+	Changing 2001:db8:200::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:200::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' 'forever' 'preferred_lft' 'forever'
+	${alt_src_route_200//"'expires' '@EXPIRES@' "/}
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete home.example.test AAAA
 	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
 	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	${xtest_dhcpmon/@TIMEOUT@/6320}
+	radvd-trigger
 	EOF
-  ftest L5f "${out}" "adds address, updates DNS"
+  ftest L5f "${out}" "adds address/routes w/ metric, updates DNS"
   [[ -e "$state1" ]]
   xtest L5i f "br0 88:99 state file should not exist"
   [[ -e "$state2" ]]
   xread_value out <<-EOF
-	inet6:2001:db8:200:0:32fb:93c5:6555:845a/63
+	inet6:2001:db8:200::32fb:93c5:6555:845a/63
 	site6:0/63
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	iaid:1122
+	dad-state:ok
 	EOF
   shtest::check_file L5j "$state2" "$out" "creates br0 11:22 state file"
   [[ -e "$state3" ]]
@@ -530,706 +403,1704 @@ xtest::group3::lan() {
   xread_value out <<-EOF
 	inet6:2001:db8:200:2:32fb:93c5:555:1/64
 	site6:2/64
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	iaid:1122
+	dad-state:ok
 	EOF
   shtest::check_file L5l "$state4" "$out" "creates br1 11:22 state file"
+  xread_value out <<-EOF
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	prefix6:2001:db8:200::/56
+	iaid:1122
+	rebind:7200
+	EOF
+  shtest::check_file L5p "$pstate2" "$out" "creates 11:22 prefix state file"
   shtest::check_file \
-    L5d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" "create ddns state file"
-  xrm "$state1" "$state2" "$state3" "$state4" "$dstate1"
+    L5d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" \
+    "create br1 ddns state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:5000
+	EOF
+  shtest::check_file L5c "$connstate2" "$out" "updates cstate"
 
-  local old_ip6_prefix="2001:db8:100::/56" old_iaid="88:99"
-  echo "inet6:2001:db8:100:2:32fb:93c5:555:1/64" > "$state3"
-  new_ip6_prefix="2001:db8:200::/56" new_iaid="11:22" new_preferred_life=''
+  # reset
+  xtest::onexit::lan
+  unset new_ip6_prefix new_iaid new_rebind
+  unset new_max_life new_preferred_life new_life_starts
 
-  xwrap2 "<br1-with-old>" ipv6_prefix_bind
-  xtest L6 t "returns true"
-  xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:200::/56 (old: 2001:db8:100::/56)
-	Removing 2001:db8:100:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del'\
- '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Replacing 2001:db8:200:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace'\
- '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Adding 2001:db8:200:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:200:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
-	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
-	server 127.0.0.1
-	zone example.test
-	update delete home.example.test AAAA
-	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
-	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
-	EOF
-  ftest L6f "${out}" "removes old, adds new, updates DNS"
-  [[ -e "$state1" ]]
-  xtest L6i f "br0 88:99 state file should not exist"
-  [[ -e "$state2" ]]
-  xread_value out <<-EOF
-	inet6:2001:db8:200:0:32fb:93c5:6555:845a/63
-	site6:0/63
-	EOF
-  shtest::check_file \
-    L6j "$state2" "$out" "creates br0 11:22 state file"
-  [[ -e "$state3" ]]
-  xtest L6k f "br1 88:99 state file should not exist"
-  xread_value out <<-EOF
-	inet6:2001:db8:200:2:32fb:93c5:555:1/64
-	site6:2/64
-	EOF
-  shtest::check_file \
-    L6l "$state4" "$out" "creates br1 11:22 state file"
-  shtest::check_file \
-    L6d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" "create ddns state file"
+  #
+  # TEST: DEPREF 88:99, 3 lans
+  #
+  local -x cur_ip6_prefix="2001:db8:100::/56" cur_iaid="88:99" cur_rebind=1200
+  local -x cur_max_life=180 cur_life_starts=5000
 
-  unset old_ip6_prefix old_iaid
-
-  new_ip6_prefix="2001:db8:100::/56" new_iaid="88:99"
-
-  xwrap2 "<br1>" ipv6_prefix_bind
-  xtest L7 t "returns true"
-  xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:100::/56
-	Replacing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'replace'\
- '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'add'\
- '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0'
-	Setting home.example.test AAAA to\
- 2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
-	server 127.0.0.1
-	zone example.test
-	update delete home.example.test AAAA
-	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
-	update add home.example.test 600 AAAA 2001:db8:100:2:32fb:93c5:555:1
-	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
-	EOF
-  ftest L7f "${out}" "adds address, updates DNS"
-  xread_value out <<-EOF
-	inet6:2001:db8:100:0:32fb:93c5:6555:845a/63
-	site6:0/63
-	EOF
-  shtest::check_file L7i "$state1" "$out" "creates br0 88:99 state file"
-  xread_value out <<-EOF
-	inet6:2001:db8:200:0:32fb:93c5:6555:845a/63
-	site6:0/63
-	EOF
-  shtest::check_file L7j "$state2" "$out" "br0 11:22 state file remains"
-  xread_value out <<-EOF
+  # no prefix assigned on br0 88:99
+  # prefix on br1 88:99
+  xcat > "$state3" <<-EOF
 	inet6:2001:db8:100:2:32fb:93c5:555:1/64
 	site6:2/64
+	valid-life:320
+	pref-life:120
+	life-start:4010
+	iaid:8899
 	EOF
-  shtest::check_file L7k "$state3" "$out" "creates br1 88:99 state file"
-  xread_value out <<-EOF
-	inet6:2001:db8:200:2:32fb:93c5:555:1/64
-	site6:2/64
-	EOF
-  shtest::check_file L7l "$state4" "$out" "br1 11:22 state file remains"
-  shtest::check_file \
-    L7d "$dstate1" \
-    "2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1" \
-    "updates ddns state file"
-
-  unset new_ip6_prefix new_iaid
-
-  local cur_ip6_prefix="2001:db8:100::/56" cur_iaid="88:99" cur_max_life=180
-  local cur_life_starts=3000
-
-  # prefix on br1 88:99 (eg br1 down when prefix assigned)
-  xcat > "$state3" <<-EOF
-	inet6:2001:db8:100:2::/64
-	site6:2/64
-	EOF
-  # prefix on brx 88:99
+  # prefix on brx 88:99 but brx was down
   xcat > "$state5" <<-EOF
 	inet6:2001:db8:100:fe::/63
-	site6:fe/63
+	site6:254/64
+	valid-life:320
+	pref-life:120
+	life-start:4010
+	iaid:8899
 	EOF
 
-  WAN_LAN_INTFS="br0 brx br1"
+  xcat > "$wconf" <<-EOF
+	WAN_LAN_INTFS="br0 brx br1"
+	EOF
 
-  xwrap2 "<88:99>" ipv6_dhc_depref
-  xtest L11 t "returns true"
+  xtest_dhcp_action L11 DEPREF6 "br0 brx br1 - 88:99"
   xread_value out <<-EOF
-	Prefix devalued on wan0: 2001:db8:100::/56
-	Adding 2001:db8:100:0:32fb:93c5:6555:845a/63 to br0
-	${NMG_IP} => ip '-6' 'addr' 'replace'\
- '2001:db8:100:0:32fb:93c5:6555:845a/63' 'dev' 'br0' 'valid_lft' '120'\
- 'preferred_lft' '0'
+	Prefix DEPREF6 on wan0: 2001:db8:100::/56
+	Changing 2001:db8:100::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:100::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '180' 'preferred_lft' '0'
 	Changing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'change'\
- '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120'\
- 'preferred_lft' '0'
-	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	ip '-6' 'addr' 'change' '2001:db8:100:2:32fb:93c5:555:1/64'\
+ 'dev' 'br1' 'valid_lft' '180' 'preferred_lft' '0'
+	${src_route_100//@EXPIRES@/180}
+	Removing home.example.test AAAA
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete home.example.test AAAA
-	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
 	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	${xtest_dhcpmon/@TIMEOUT@/1320}
+	radvd-trigger
 	EOF
   ftest L11f "$out" "sets address lifetime 0, removes from dns"
   xread_value out <<-EOF
-	inet6:2001:db8:100:0:32fb:93c5:6555:845a/63
+	inet6:2001:db8:100::32fb:93c5:6555:845a/63
 	site6:0/63
 	valid-life:180
 	pref-life:0
-	life-start:3000
+	life-start:5000
+	iaid:8899
+	dad-state:ok
 	EOF
-  shtest::check_file L11i "$state1" "$out" "updates br0 88:99 state file"
+  shtest::check_file L11i "$state1" "$out" "creates br0 88:99 state file"
   xread_value out <<-EOF
 	inet6:2001:db8:100:2:32fb:93c5:555:1/64
 	site6:2/64
 	valid-life:180
 	pref-life:0
-	life-start:3000
+	life-start:5000
+	iaid:8899
+	dad-state:ok
 	EOF
-  shtest::check_file L11k "$state3" "$out" \
-		     "updates br1 88:99 state file with address"
+  shtest::check_file L11k "$state3" "$out" "updates br1 88:99 state file"
   xread_value out <<-EOF
 	inet6:2001:db8:100:fe::/63
-	site6:fe/63
+	site6:254/64
 	valid-life:180
 	pref-life:0
-	life-start:3000
+	life-start:5000
+	iaid:8899
 	EOF
-  shtest::check_file L11m "$state5" "$out" \
-		     "updates brx 88:99 state file (prefix)"
-  shtest::check_file \
-    L11d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" \
-    "updates ddns state file"
-
-  WAN_LAN_INTFS="br1"
-
-  xwrap2 "<br1, 88:99>" ipv6_prefix_depref
-  xtest L12 t "returns true"
+  shtest::check_file L11m "$state5" "$out" "updates brx 88:99 state file (pfx)"
   xread_value out <<-EOF
-	Prefix devalued on wan0: 2001:db8:100::/56
+	valid-life:180
+	pref-life:0
+	life-start:5000
+	prefix6:2001:db8:100::/56
+	iaid:8899
+	rebind:1200
+	EOF
+  shtest::check_file L11p "$pstate1" "$out" "creates 88:99 prefix state file"
+  [[ -e $dstate1 ]]
+  xtest L11d f "removes br1 ddns state file"
+
+  unset cur_ip6_prefix cur_iaid cur_rebind cur_max_life cur_life_starts
+
+  #
+  # TEST: RELEASE 88:99, 3 lans
+  #
+
+  # create one 11:22 assignment for ddns
+  xcat > "$state4" out <<-EOF
+	inet6:2001:db8:200:2:32fb:93c5:555:1/64
+	site6:2/64
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	iaid:1122
+	dad-state:ok
+	EOF
+
+  local -x old_ip6_prefix="2001:db8:100::/56" old_iaid="88:99"
+
+  xtest_dhcp_action L21 RELEASE6 "br0 brx br1 - 88:99"
+  xread_value out <<-EOF
+	Prefix RELEASE6 on wan0: 2001:db8:100::/56
+	2001:db8:100::32fb:93c5:6555:845a/63 on br0 deprecated:\
+ DHCP prefix delegation 2001:db8:100::/56 released
+	Changing 2001:db8:100::32fb:93c5:6555:845a/63 on br0
+	ip '-6' 'addr' 'change' '2001:db8:100::32fb:93c5:6555:845a/63'\
+ 'dev' 'br0' 'valid_lft' '10' 'preferred_lft' '0'
+	2001:db8:100:2:32fb:93c5:555:1/64 on br1 deprecated:\
+ DHCP prefix delegation 2001:db8:100::/56 released
 	Changing 2001:db8:100:2:32fb:93c5:555:1/64 on br1
-	${NMG_IP} => ip '-6' 'addr' 'change'\
- '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1' 'valid_lft' '120'\
- 'preferred_lft' '0'
+	ip '-6' 'addr' 'change' '2001:db8:100:2:32fb:93c5:555:1/64'\
+ 'dev' 'br1' 'valid_lft' '10' 'preferred_lft' '0'
+	ip '-6' 'route' 'del' 'default' 'from' '2001:db8:100::/56' 'dev' 'wan0'
+	ip '-6' 'route' 'del' 'unreachable' '2001:db8:100::/56' 'dev' 'lo'
 	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete home.example.test AAAA
 	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
 	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	radvd-trigger
 	EOF
-  ftest L12f "$out" "sets lifetime 0, removes dead addr"
-  [[ -e $state1 ]]
-  xtest L12i f "removes br0 88:99 state file"
+  ftest L21f "$out" "removes address"
+  xread_value out <<-EOF
+	inet6:2001:db8:100::32fb:93c5:6555:845a/63
+	site6:0/63
+	valid-life:10
+	pref-life:0
+	life-start:5000
+	iaid:8899
+	dad-state:ok
+	EOF
+  shtest::check_file L21i "$state1" "$out" "updates br0 88:99 state file"
   xread_value out <<-EOF
 	inet6:2001:db8:100:2:32fb:93c5:555:1/64
 	site6:2/64
-	valid-life:180
+	valid-life:10
 	pref-life:0
-	life-start:3000
+	life-start:5000
+	iaid:8899
+	dad-state:ok
 	EOF
-  shtest::check_file L12k "$state3" "$out" "updates br1 88:99 state file"
+  shtest::check_file L21k "$state3" "$out" "updates br1 88:99 state file"
   [[ -e $state5 ]]
-  xtest L12m f "removes brx 88:99 state file"
-
-  unset cur_ip6_prefix cur_iaid
-
-  old_ip6_prefix="2001:db8:100::/56" old_iaid="88:99"
-
-  xwrap2 "<88:99>" ipv6_dhc_release
-  xtest L21 t "returns true"
-  xread_value out <<-EOF
-	Prefix removed from wan0 - 2001:db8:100::/56
-	Removing 2001:db8:100:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del'\
- '2001:db8:100:2:32fb:93c5:555:1/64' 'dev' 'br1'
-	Setting home.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
-	server 127.0.0.1
-	zone example.test
-	update delete home.example.test AAAA
-	update add home.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
-	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
-	EOF
-  ftest L21f "$out" "removes address"
-  [[ -e $state3 ]]
-  xtest L21k f "br1 88:99 state file removed"
+  xtest L21m f "removes brx 88:99 state file"
+  [[ -e $pstate1 ]]
+  xtest L21p f "removes 88:99 prefix state file"
   shtest::check_file \
     L21d "$dstate1" "2001:db8:200:2:32fb:93c5:555:1" \
-    "updates ddns state file"
+    "updates br1 ddns state file"
 
-  unset old_ip6_prefix old_iaid
+  #
+  # TEST: EXPIRE 11:22, 3 lans
+  #
 
-  xwrap2 "" ipv6_prefix_flush
-  xtest L31 t "returns true"
+  # create prefix file for route tests
+  xcat > "$pstate2" <<-EOF
+	valid-life:320
+	pref-life:120
+	life-start:3055
+	prefix6:2001:db8:200::/56
+	iaid:1122
+	rebind:180
+	EOF
+
+  old_ip6_prefix="2001:db8:200::/56" old_iaid="11:22"
+
+  xtest_dhcp_action L31 EXPIRE6 "br0 brx br1 - 11:22"
   xread_value out <<-EOF
+	Prefix EXPIRE6 on wan0: 2001:db8:200::/56
+	2001:db8:200:2:32fb:93c5:555:1/64 on br1 expired
 	Removing 2001:db8:200:2:32fb:93c5:555:1/64 from br1
-	${NMG_IP} => ip '-6' 'addr' 'del'\
- '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	ip '-6' 'addr' 'del' '2001:db8:200:2:32fb:93c5:555:1/64' 'dev' 'br1'
+	ip '-6' 'route' 'del' 'default' 'from' '2001:db8:200::/56' 'dev' 'wan0'
+	ip '-6' 'route' 'del' 'unreachable' '2001:db8:200::/56' 'dev' 'lo'
 	Removing home.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete home.example.test AAAA
 	send
-	${NMG_RADVD_TRIGGER} => radvd triggered
+	radvd-trigger
 	EOF
   ftest L31f "$out" "removes address and dns"
-  [[ -e $state2 ]]
-  xtest L31i f "br0 11:22 state file removed"
   [[ -e $state4 ]]
-  xtest L31k f "br1 11:22 state file removed"
-  [[ -e $state6 ]]
-  xtest L31m f "brx 11:22 state file removed"
+  xtest L31k f "removes br1 11:22 state file"
+  [[ -e $pstate2 ]]
+  xtest L31q f "removes 11:22 prefix state file"
   [[ -e $dstate1 ]]
-  xtest L31d f "ddns state file removed"
+  xtest L31d f "removes br1 ddns state file"
 
   # cleanup
-  ipv6_lan_reset_config
+  ipv6_lan_clear_config
+  ipv6_wan_clear_config
   nmddns_reset_config
   xtest::onexit::lan
 }
 
 xtest::onexit::lan_dad() {
-  [[ ${LAN_STATE_PAT-} ]] || return 0
-  local LAN_STATE_PAT="${LAN_STATE_PAT%-dhc}-dhc"
-  xrm "${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/eth3-from-aabb-wan0=aabb}"
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
 }
 
 xtest::group3::lan_dad() {
 
-  local state1 out
+  shtest::title "dhclient Prefix DAD Failure Tests (lan_dad group)"
 
+  echo >"$connstate2" "conn-uuid:${isp_uuid}"
+
+  xtest_check_statevars F0 LAN_STATE_PAT WAN_PFXSTATE_PAT
+
+  # rename for easy cleanup
   local LAN_STATE_PAT="${LAN_STATE_PAT}-dhc"
-  state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/eth3-from-aabb-wan0=aabb}
-  xrm "$state1"
+  local WAN_PFXSTATE_PAT="${WAN_PFXSTATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
 
-  shtest::title "LAN Prefix DAD Failure Tests (lan_dad group)"
+  local state1 pstate1 hash1
+  nmg::hash hash1 "2001:db8:5::/56"; hash1+="+aabb-wan0"
+  state1=${LAN_STATE_PAT/@LAN@-from-@ID@-@WAN@/eth3-from-$hash1}
+  pstate1=${WAN_PFXSTATE_PAT/@ID@-@WAN@/$hash1}
 
-  # Call ipv6_dhc_bind with prefix assignment that fails DAD on LAN
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/wan0}
 
-  # check DAD failed
-  WAN_LAN_INTFS="eth3"
+  # test variables
+  local out
 
-  local new_ip6_prefix="2001:db8:5::/56" new_iaid="aa:bb"
+  #
+  # TEST: prefix assignment that fails DAD on LAN
+  #       replacement address created
+  #
 
-  xwrap2 F1"<eth3, aa:bb>" ipv6_dhc_bind
-  xtest F1 t "returns true"
-  xread_value out <<-EOF
-	Prefix on wan0: 2001:db8:5::/56
-	Replacing 2001:db8:5:0::1/64 on eth3
-	${NMG_IP} => ip '-6' 'addr' 'replace' '2001:db8:5:0::1/64' 'dev' 'eth3'
-	ERR: Address 2001:db8:5:0::1/64 has conflict on eth3
-	Removing 2001:db8:5:0::1/64 from eth3
-	${NMG_IP} => ip '-6' 'addr' 'del' '2001:db8:5:0::1/64' 'dev' 'eth3'
-	${NMG_RADVD_TRIGGER} => radvd triggered
+  xtest_settime 6050
+
+  local -x new_ip6_prefix="2001:db8:5::/56" new_iaid="aa:bb" new_rebind=600
+  local -x new_preferred_life=7200 new_max_life=3600 new_life_starts=6000
+
+  xcat > "$wconf" <<-EOF
+	WAN_LAN_INTFS="eth3"
 	EOF
-  ftest F1f "$out" "adds/removes ip"
-  [[ -e $state1 ]]
-  xtest F1s f "should not create state file"
 
-  ipv6_lan_reset_config
+  xtest_dhcp_action F1 REBIND6 "eth3 - aa:bb LAN DAD failure"
+  xread_value out <<-EOF
+	Prefix REBIND6 on wan0: 2001:db8:5::/56
+	Changing 2001:db8:5::1/64 on eth3
+	ip '-6' 'addr' 'change' '2001:db8:5::1/64' 'dev' 'eth3'\
+ 'valid_lft' '3550' 'preferred_lft' '7150'
+	ERR: Address 2001:db8:5::1/64 has conflict on eth3\
+ (trying new address)
+	Adding 2001:db8:5::0/64 to eth3
+	ip '-6' 'addr' 'replace' '2001:db8:5::0/64' 'dev' 'eth3'\
+ 'valid_lft' '3550' 'preferred_lft' '7150'
+	Adding source-route for 2001:db8:5::/56 to wan0 via\
+ fe80::faaa:dead:beef:8000
+	ip '-6' 'route' 'replace' 'default' 'from' '2001:db8:5::/56'\
+ 'via' 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'expires' '3550' 'metric' '404'
+	ip '-6' 'route' 'replace' 'unreachable' '2001:db8:5::/56'\
+ 'dev' 'lo' 'expires' '3550' 'metric' '2147483647'
+	${xtest_dhcpmon/@TIMEOUT@/670}
+	radvd-trigger
+	EOF
+  ftest F1f "$out" "creates alt addr, adds ip/routes"
+  xread_value out <<-EOF
+	inet6:2001:db8:5::1/64
+	site6:0/64
+	valid-life:3600
+	pref-life:7200
+	life-start:6000
+	iaid:aabb
+	EOF
+  shtest::check_file F1s "$state1" "$out" "creates eth3 aa:bb state file"
+  xread_value out <<-EOF
+	valid-life:3600
+	pref-life:7200
+	life-start:6000
+	prefix6:2001:db8:5::/56
+	iaid:aabb
+	rebind:600
+	EOF
+  shtest::check_file F1p "$pstate1" "$out" "creates aa:bb prefix state file"
+
+  ipv6_lan_clear_config
+  ipv6_wan_clear_config
   xtest::onexit::lan_dad
 }
 
-xtest::onexit::wan_start() {
-  [[ ${WAN_STATE_PAT-} ]] || return 0
-  local file="${WAN_STATE_PAT%-dhc}-dhc"
-  file="${file/@WAN@/wan0}"
-  xrm "${file/@ID@/abc}"
-  xrm "${file/@ID@/cde}"
+xtest::onexit::wan() {
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
 }
 
-xtest::group3::wan_start() {
+xtest::group3::wan() {
 
-  local CUR_TIME='' out state1 state2
-  local CONNECTION_UUID=''
+  shtest::title "WAN dhclient with method ignore (wan group)"
 
-  shtest::title "WAN Address Assignment Tests (wan_start group)"
+  local -x NMCLI_MOCK_FORCE_ipv6_method=ignore
 
-  [[ ${WAN_STATE_PAT-} ]]
-  xtest W0 t "checking WAN_STATE_PAT"
-  shtest::last_check_ok || return 1
+  # init state
+  local init_cstate
+  xread_value init_cstate <<-EOF
+	conn-uuid:${isp_uuid}
+	method:ignore
+	never-default:no
+	ignore-auto-dns:no
+	client:started
+	EOF
+  echo >"$connstate2" "$init_cstate"
+  xtest_init_sysctls dhclient
 
-  local WAN_STATE_PAT="${WAN_STATE_PAT}-dhc"
-  # @WAN@ replaced on load
-  state1=${WAN_STATE_PAT/@WAN@/${interface}}
-  state2=${state1/@ID@/cde}
-  state1=${state1/@ID@/abc}
-  xrm "$state1" "$state2"
+  xtest_check_statevars W0 WAN_ADDR_STATE_PAT
 
-  # interface is wan0
-  xwrap2 "" ipv6_check_nm
-  xtest W1 t "returns true"
+  # rename for easy cleanup
+  local WAN_ADDR_STATE_PAT="${WAN_ADDR_STATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
+
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/wan0}
+
+  # hashs used for generated filenames
+  local hash1 hash2 hash3
+  nmg::hash hash1 "2001:db8:800::2/128"; hash1+="+abc"
+  nmg::hash hash2 "2001:db8:aaa::1/128"; hash2+="+cde"
+  nmg::hash hash3 "2001:db8:aaa::2/128"; hash3+="+cde"
+
+  local wstate state1 state2 state3
+  wstate=${WAN_ADDR_STATE_PAT/@WAN@/wan0}
+  state1=${wstate/@ID@/$hash1}
+  state2=${wstate/@ID@/$hash2}
+  state3=${wstate/@ID@/$hash3}
+
+  # test variables
+  local out var
+
+  # reset
+  xtest::onexit::wan
+
+  #
+  # TEST: check_nm up to init connstate
+  #
+  printf "" > "$wconf"
+
+  xwrap2 "up" ipv6_check_nm up
+  xret W1 t "returns true"
   ftest W1f "" "does not log"
   [[ $NMCLI ]]
-  xtest W1n t "NMCLI is set"
+  xtest W1a t "NMCLI is set"
+  [[ $CONNECTION_UUID == "$isp_uuid" ]]
+  xtest W1u t "CONNECTION_UUID correctly set"
+  [[ $DCDFLAG == 0 ]]
+  xtest W1d t "DCDFLAG=0"
+  [[ $NM_CONFIG ]]
+  xtest W1n t "NM_CONFIG is set"
 
-  local new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=64 new_iaid='a:b:c'
+  # DCDFLAG not set by dhclient
+  DCDFLAG=''
 
-  xwrap2 "<exiting addr>" ipv6_dhc_bind
-  xtest W11 t "returns true"
-  ftest W11f "Address on wan0: 2001:db8:800::2/64" "does nothing"
-  shtest::check_file W11s "$state1" "inet6:2001:db8:800::2/64" \
-                     "creates state file"
+  #
+  # TEST: existing address
+  #
+  xtest_settime 3500
 
-  local new_max_life=3600 new_life_starts=3000 new_preferred_life=1800
-  CUR_TIME=3000
+  local -x new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=128
+  local -x new_iaid='a:b:c' new_rebind=600
+  local -x new_max_life=4100 new_preferred_life=2100 new_life_starts=3400
 
-  xwrap2 "<new lifetimes>" ipv6_addr_bind
-  xtest W12 t "returns true"
+  xtest_dhcp_action W11 REBIND6 "existing addr - a:b:c"
   xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
- 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
+	REBIND6 on wan0: 2001:db8:800::2
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '4000' 'preferred_lft' '2000'
+	${xtest_dhcpmon/@TIMEOUT@/620}
+	EOF
+  ftest W11f "$out" "updates addr"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:abc
+	valid-life:4100
+	pref-life:2100
+	life-start:3400
+	rebind:600
+	dad-state:ok
+	EOF
+  shtest::check_file W11s "$state1" "$out" "creates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3500
+	EOF
+  shtest::check_file W11c "$connstate2" "$out" "updates cstate"
+
+  #
+  # TEST: existing address updated lifetimes
+  #
+  xtest_settime 3550
+
+  new_max_life=3600 new_preferred_life=1800 new_life_starts=3500
+
+  xtest_dhcp_action W12 REBIND6 "update lifetimes - a:b:c"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:800::2
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3550' 'preferred_lft' '1750'
+	${xtest_dhcpmon/@TIMEOUT@/670}
 	EOF
   ftest W12f "$out" "updates lifetimes"
   xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
+	inet6:2001:db8:800::2/128
+	iaid:abc
 	valid-life:3600
 	pref-life:1800
-	life-start:3000
+	life-start:3500
+	rebind:600
+	dad-state:ok
 	EOF
-  shtest::check_file W12s "$state1" "$out" "creates state file"
-
-  local old_ip6_address='2001:db8:800::2' old_ip6_prefixlen=64 old_iaid='a:b:c'
-  new_ip6_address='2001:db8:aaa::2' new_ip6_prefixlen=64 new_iaid='c:d:e'
-  xrm "$state2"
-
-  xwrap2 "<moving addr>" ipv6_addr_bind
-  xtest W13 t "returns true"
+  shtest::check_file W12s "$state1" "$out" "updates state file"
   xread_value out <<-EOF
-	Address on wan0: 2001:db8:aaa::2/64 (old: 2001:db8:800::2/64)
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:aaa::2/64'\
- 'ipv6.dns' '' 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	ERR: DAD timeout for 2001:db8:aaa::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
- 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
+	$init_cstate
+	boot:3550
+	EOF
+  shtest::check_file W12c "$connstate2" "$out" "updates cstate"
+
+  #
+  # TEST: new address fails DAD
+  #
+  new_ip6_address='2001:db8:aaa::2' new_ip6_prefixlen=128 new_iaid='c:d:e'
+
+  shtest::prefix "REBIND6 - addr DAD fail"
+  var=0
+  (
+    # shellcheck disable=SC2030,SC2031
+    local -x reason=REBIND6
+    xwrap ipv6_dhcp_action
+    echo "not reached"
+  ) || var=$?
+  vtest W13 3 ": exits 3"
+  shtest::prefix " - "
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::2
+	Changing 2001:db8:aaa::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3550' 'preferred_lft' '1750'
+	Address 2001:db8:aaa::2/128 has conflict on wan0
+	Removing 2001:db8:aaa::2/128 from wan0
+	ip '-6' 'addr' 'del' '2001:db8:aaa::2/128' 'dev' 'wan0'
 	EOF
   ftest W13f "${out}" "adds, then removes new addr"
-  [[ -e ${state1} ]]
-  shtest::check_result W13o f "removes old state"
-  [[ -e ${state2} ]]
-  shtest::check_result W13n f "does not create new state"
+  [[ -e ${state3} ]]
+  shtest::check_result W13s f "does not create new state"
 
-  unset old_ip6_address old_ip6_prefixlen old_iaid
-  new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=64 new_iaid='c:d:e'
-  unset new_max_life new_life_starts new_preferred_life
-  local WAN_STATIC_IP6='2001:db8:55::1/64, 2001:db8:100::1/64'
-  local WAN_STATIC_DNS6='2001:db8:aaaa::1, 2001:db8:bbbb::1'
-  local WAN_STATIC_DNS6_SEARCH='home.lan, office.lan'
-  xrm "$state2"
+  #
+  # TEST: new address with dhcp dns
+  #       1 dns routed
+  #
+  new_ip6_address='2001:db8:aaa::1' new_ip6_prefixlen=128
+  new_iaid='c:d:e' new_rebind=0
+  new_max_life=600 new_preferred_life=300 new_life_starts=3500
+  local -x new_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  local -x new_dhcp6_domain_search='dns-search.lan dns-search2.lan'
 
-  xwrap2 "<static dns>" ipv6_addr_bind
-  xtest W14 t "returns true"
+  xtest_dhcp_action W14 REBIND6 "new addr/dns - c:d:e, 1 dns routed"
   xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses'\
- '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64'\
- 'ipv6.dns' '2001:db8:aaaa::1,2001:db8:bbbb::1'\
- 'ipv6.dns-search' 'home.lan,office.lan'
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
+	REBIND6 on wan0: 2001:db8:aaa::1
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '550' 'preferred_lft' '250'
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	Updating DNS settings on wan0
+	resolvectl 'dns' 'wan0' '2001:db8:aaa::100' '2001:db8:222::1'
+	resolvectl 'domain' 'wan0' 'dns-search.lan' 'dns-search2.lan'
+	resolvectl 'default-route' 'wan0' 'yes'
+	${xtest_dhcpmon/@TIMEOUT@/320}
 	EOF
-  ftest W14f "${out}" "adds static/dhcp addrs, static dns"
-  shtest::check_file W14s "$state2" "inet6:2001:db8:800::2/64" \
-                     "creates state file"
-
-  local new_dhcp6_name_servers='2001:db8:111::1 2001:db8:222::1'
-  local new_dhcp6_domain_search='dns-search.lan dns-search2.lan'
-  xrm "$state2"
-
-  xwrap2 "<static/dhcp dns>" ipv6_addr_bind
-  xtest W15 t "returns true"
+  ftest W14f "${out}" "adds 1 addr, 1 dns route, updates resolver"
   xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses'\
- '2001:db8:55::1/64,2001:db8:100::1/64,2001:db8:800::2/64' 'ipv6.dns'\
- '2001:db8:aaaa::1,2001:db8:bbbb::1,2001:db8:111::1,2001:db8:222::1'\
- 'ipv6.dns-search' 'home.lan,office.lan,dns-search.lan,dns-search2.lan'
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:600
+	pref-life:300
+	life-start:3500
+	rebind:0
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:dns-search.lan,dns-search2.lan
+	dad-state:ok
 	EOF
-  ftest W15f "${out}" "adds static/dhcp addrs/dns"
+  shtest::check_file W14s "$state2" "$out" "creates state file"
   xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
-	dns:2001:db8:111::1,2001:db8:222::1
+	$init_cstate
+	boot:3550
+	dns:2001:db8:aaa::100,2001:db8:222::1
 	dns-search:dns-search.lan,dns-search2.lan
 	EOF
-  shtest::check_file W15s "$state2" "$out" "creates state file"
+  shtest::check_file W14c "$connstate2" "$out" "updates cstate dns"
 
-  WAN_STATIC_IP6='2001:db8:55::1/64'
-  WAN_STATIC_DNS6='2001:db8:aaaa::1'
-  WAN_STATIC_DNS6_SEARCH='home.lan'
+  #
+  # Just a test to confirm dev reapply works with new settings
+  #
+  xtest_nm_action W14r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '550' 'preferred_lft' '250'
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3550' 'preferred_lft' '1750'
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	EOF
+  ftest W14x "${out}" "adds 2 addrs, 1 dns route"
+
+  #
+  # TEST: new address with dhcp+static dns
+  #       2 dns routed
+  #
+  local -x new_dhcp6_name_servers='2001:db8:333::1'
+  local -x new_dhcp6_domain_search='new-search.lan'
+
+  xcat > "$wconf" <<-EOF
+	WAN_STATIC_DNS6="2001:db8:444::1,2001:db8:aaa::200"
+	WAN_STATIC_DNS6_SEARCH="static1.lan,static2.lan"
+	EOF
+
+  xtest_dhcp_action W15 REBIND6 "dhcp+static dns"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::1
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '550' 'preferred_lft' '250'
+	ip '-6' 'route' 'replace' '2001:db8:444::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	ip '-6' 'route' 'replace' '2001:db8:333::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	Updating DNS settings on wan0
+	resolvectl 'dns' 'wan0' '2001:db8:444::1' '2001:db8:aaa::200'\
+ '2001:db8:333::1'
+	resolvectl 'domain' 'wan0' 'static1.lan' 'static2.lan' 'new-search.lan'
+	resolvectl 'default-route' 'wan0' 'yes'
+	${xtest_dhcpmon/@TIMEOUT@/320}
+	EOF
+  ftest W15f "${out}" "adds static/dhcp addrs/dns, 2 dns, routes, updates resolver"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:600
+	pref-life:300
+	life-start:3500
+	rebind:0
+	dns:2001:db8:333::1
+	dns-search:new-search.lan
+	dad-state:ok
+	EOF
+  shtest::check_file W15s "$state2" "$out" "updates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3550
+	dns:2001:db8:444::1,2001:db8:aaa::200,2001:db8:333::1
+	dns-search:static1.lan,static2.lan,new-search.lan
+	EOF
+  shtest::check_file W15c "$connstate2" "$out" "updates cstate dns"
+
+  #
+  # Just a test to confirm dev reapply works with new settings
+  #
+  xtest_nm_action W15r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '550' 'preferred_lft' '250'
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3550' 'preferred_lft' '1750'
+	ip '-6' 'route' 'replace' '2001:db8:444::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	ip '-6' 'route' 'replace' '2001:db8:333::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	EOF
+  ftest W15x "${out}" "adds 2 addrs, 2 dns routes"
+
+  #
+  # TEST: new address with dhcp+static dns and ignore-auto-dns
+  #       1 dns routed
+  #       use resolvconf for resolver config
+  #
   local -x NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns=yes
-  xrm "$state2"
+  # disable resolvectl to use resolvconf
+  local RESOLVECTL=''
 
-  xwrap2 "<no-auto-dns>" ipv6_addr_bind
-  xtest W16 t "returns true"
-  xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses'\
- '2001:db8:55::1/64,2001:db8:800::2/64' 'ipv6.dns' '2001:db8:aaaa::1'\
- 'ipv6.dns-search' 'home.lan'
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	EOF
-  ftest W16f "${out}" "adds static/dhcp addrs, static dns"
-  xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
-	dns:2001:db8:111::1,2001:db8:222::1
-	dns-search:dns-search.lan,dns-search2.lan
-	EOF
-  shtest::check_file W16s "$state2" "$out" "creates state file (with dns)"
+  xtest_settime 3810
+  new_rebind=800
+  new_max_life=1200 new_preferred_life=1000 new_life_starts=3800
 
-  unset WAN_STATIC_IP6 WAN_STATIC_DNS6 WAN_STATIC_DNS6_SEARCH
+  xtest_dhcp_action W16 REBIND6 "ignore-auto-dns=yes"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::1
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '1190' 'preferred_lft' '990'
+	${xtest_dhcpmon/@TIMEOUT@/410}
+	EOF
+  ftest W16f "${out}" "updates addrs, ignores dns change"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:1200
+	pref-life:1000
+	life-start:3800
+	rebind:800
+	dns:2001:db8:333::1
+	dns-search:new-search.lan
+	dad-state:ok
+	EOF
+  shtest::check_file W16s "$state2" "$out" "updates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:444::1,2001:db8:aaa::200,2001:db8:333::1
+	dns-search:static1.lan,static2.lan,new-search.lan
+	EOF
+  shtest::check_file W16c "$connstate2" "$out" "updates cstate, dns unchanged"
+
+  #
+  # dev reapply updates no-auto-dns...
+  #
+  xtest_nm_action W16r reapply wan0 "applies ignore-auto-dns"
+  xread_value out <<-EOF
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '1190' 'preferred_lft' '990'
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3290' 'preferred_lft' '1490'
+	ip '-6' 'route' 'replace' '2001:db8:444::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	Updating DNS settings on wan0
+	resolvconf '-f' '-a' 'wan0'
+	nameserver 2001:db8:444::1
+	nameserver 2001:db8:aaa::200
+	search static1.lan static2.lan
+	EOF
+  ftest W16x "$out" "adds 2 addrs, 1 dns route, updates resolver"
+  xread_value var <<-EOF
+	${init_cstate/ignore-auto-dns:no/ignore-auto-dns:yes}
+	boot:3810
+	dns:2001:db8:444::1,2001:db8:aaa::200
+	dns-search:static1.lan,static2.lan
+	EOF
+  shtest::check_file W16y "$connstate2" "$var" "updates cstate dns"
+
+  # revert ignore-auto-dns
   unset NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns
-  xrm "$state2"
+  echo "${var/ignore-auto-dns:yes/ignore-auto-dns:no}" >"$connstate2"
 
-  xwrap2 "<dhcp only dns>" ipv6_addr_bind
-  xtest W17 t "returns true"
-  xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
- 'ipv6.dns' '2001:db8:111::1,2001:db8:222::1'\
- 'ipv6.dns-search' 'dns-search.lan,dns-search2.lan'
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	EOF
-  ftest W17f "${out}" "adds dhcp addrs/dns"
-  xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
-	dns:2001:db8:111::1,2001:db8:222::1
-	dns-search:dns-search.lan,dns-search2.lan
-	EOF
-  shtest::check_file W17s "$state2" "$out" "creates state file"
+  #
+  # TEST: new address with dhcp dns, remove static dns, route metric
+  #
+  local -x NMCLI_MOCK_FORCE_ipv6_route_metric=555
 
-  unset new_dhcp6_name_servers new_dhcp6_domain_search
-  local -x NMCLI_MOCK_FORCE_ipv6_addresses='2001:db8:100::2/64'
-  new_max_life=3600 new_life_starts=3000 new_preferred_life=1800
-  CUR_TIME=3000
-  xrm "$state2"
+  xtest_settime 3810
+  new_rebind=800
+  new_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  new_dhcp6_domain_search='new-search.lan dhcp2.lan'
 
-  xwrap2 "<new ip/lifetimes>" ipv6_addr_bind
-  xtest W18 t "returns true"
-  xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
- 'ipv6.dns' '' 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
- 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
-	EOF
-  ftest W18f "$out" "updates lifetimes"
-  xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
-	valid-life:3600
-	pref-life:1800
-	life-start:3000
-	EOF
-  shtest::check_file W18s "$state2" "$out" "creates state file"
+  printf "" > "$wconf"
 
-  unset new_max_life new_life_starts new_preferred_life
-  new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=64 new_iaid='a:b:c'
-
-  xwrap2 "<2nd ip>" ipv6_addr_bind
-  xtest W19 t "returns true"
+  xtest_dhcp_action W17 REBIND6 "dhcp dns, route-metric=555"
   xread_value out <<-EOF
-	Address on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses'\
- '2001:db8:800::2/64,2001:db8:800::2/64' 'ipv6.dns' '' 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
- 'dev' 'wan0' 'valid_lft' '3600' 'preferred_lft' '1800'
+	REBIND6 on wan0: 2001:db8:aaa::1
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '1190' 'preferred_lft' '990'
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	Updating DNS settings on wan0
+	resolvconf '-f' '-a' 'wan0'
+	nameserver 2001:db8:aaa::100
+	nameserver 2001:db8:222::1
+	search new-search.lan dhcp2.lan
+	${xtest_dhcpmon/@TIMEOUT@/410}
 	EOF
-  ftest W19f "$out" "updated NM, lifetimes"
-  shtest::check_file W19s "$state1" "inet6:2001:db8:800::2/64" "creates abc state file"
+  ftest W17f "${out}" "adds addrs/dns, 1 dns route ignoring metric"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:1200
+	pref-life:1000
+	life-start:3800
+	rebind:800
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	dad-state:ok
+	EOF
+  shtest::check_file W17s "$state2" "$out" "updates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	EOF
+  shtest::check_file W17c "$connstate2" "$out" "updates cstate"
+
+  #
+  # Just a test to confirm dev reapply works with new settings
+  #
+  xtest_settime 3900
+
+  xtest_nm_action W17r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	Changing 2001:db8:aaa::1/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:aaa::1/128' 'dev' 'wan0'\
+ 'valid_lft' '1100' 'preferred_lft' '900'
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '3200' 'preferred_lft' '1400'
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'metric' '555'
+	EOF
+  ftest W17x "${out}" "adds 1 addr, 1 dns route w/ metric"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	route-metric:555
+	EOF
+  shtest::check_file W17y "$connstate2" "$out" "updates cstate metric"
+
+  #
+  # TEST: release address
+  #
+  xtest_settime 4000
+
+  local -x old_ip6_address='2001:db8:800::2' old_ip6_prefixlen=128
+  local -x old_iaid='a:b:c' old_rebind=600
+  local -x old_max_life=3600 old_preferred_life=1800 old_life_starts=3500
+  local -x old_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  local -x old_dhcp6_domain_search='new-search.lan dhcp2.lan'
+
+  xtest_dhcp_action W20 RELEASE6 "release a:b:c addr"
+  xread_value out <<-EOF
+	RELEASE6 on wan0: 2001:db8:800::2
+	EOF
+  ftest W20f "${out}" "removes addr"
+  [[ -e $state1 ]]
+  xtest W20j f "removes a:b:c state"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	route-metric:555
+	EOF
+  shtest::check_file W20c "$connstate2" "$out" "cstate unchanged"
+
+  #
+  # TEST: expire address
+  #
+  old_ip6_address='2001:db8:aaa::1' old_ip6_prefixlen=128
+  old_iaid='c:d:e' old_rebind=800
+  old_max_life=600 old_preferred_life=300 old_life_starts=3500
+  old_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  old_dhcp6_domain_search='new-search.lan dhcp2.lan'
+
+  xtest_dhcp_action W30 EXPIRE6 "release c:d:e addr"
+  xread_value out <<-EOF
+	EXPIRE6 on wan0: 2001:db8:aaa::1
+	Updating DNS settings on wan0
+	resolvconf '-f' '-d' 'wan0'
+	EOF
+  ftest W30f "${out}" "removes addr"
+  [[ -e $state2 ]]
+  xtest W30j f "removes c:d:e state"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3810
+	route-metric:555
+	EOF
+  shtest::check_file W30c "$connstate2" "$out" "cstate unchanged"
 
   nmddns_reset_config
-  xtest::onexit::wan_start
+  ipv6_wan_clear_config
+  xtest_init_sysctls
+  xtest::onexit::wan
 }
 
 xtest::onexit::wan_depref() {
-  [[ ${WAN_STATE_PAT-} ]] || return 0
-  local file="${WAN_STATE_PAT%-dhc}-dhc"
-  file="${file/@WAN@/wan0}"
-  xrm "${file/@ID@/123}"
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
 }
 
 xtest::group3::wan_depref() {
 
-  local out CUR_TIME=3100 state1
-  local CONNECTION_UUID=''
+  shtest::title "WAN dhclient depref (wan_depref group)"
 
-  shtest::title "WAN Address Depref Tests (wan_depref group)"
-
-  [[ ${WAN_STATE_PAT-} ]]
-  xtest E0 t "checking WAN_STATE_PAT"
-  shtest::last_check_ok || return 1
-
-  local WAN_STATE_PAT="${WAN_STATE_PAT}-dhc"
-  state1=${WAN_STATE_PAT/@WAN@/${interface}}
-  state1=${state1/@ID@/123}
-  xrm "$state1"
-
-  local -x NMCLI_MOCK_FORCE_ipv6_addresses='2001:db8:100::2/64'
-  local cur_ip6_address='2001:db8:800::2' cur_ip6_prefixlen=64 cur_iaid='1:2:3'
-  local cur_max_life=1800 cur_life_starts=3000
-
-  xwrap2 "<depref new>" ipv6_dhc_depref
-  xtest E1 t "returns true"
-  xread_value out <<-EOF
-	Address devalued on wan0: 2001:db8:800::2/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/64'\
- 'ipv6.dns' '' 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'wan0'
-	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
- 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
+  # init state
+  local init_cstate
+  xread_value init_cstate <<-EOF
+	conn-uuid:${isp_uuid}
+	method:manual
+	never-default:no
+	ignore-auto-dns:no
+	link-local:fe80::0a44:e1f0:d471:03b5/64
+	client:started
 	EOF
-  ftest E1f "$out" "updates lifetimes"
+  echo >"$connstate2" "$init_cstate"
+  xtest_init_sysctls dhclient
+
+  xtest_check_statevars E0 WAN_ADDR_STATE_PAT
+
+  # rename for easy cleanup
+  local WAN_ADDR_STATE_PAT="${WAN_ADDR_STATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
+  local -x NMCLI_MOCK_SAVE="$RUNDIR/nmcli-save-dhc"
+
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/wan0}
+
+  # hashs used for generated filenames
+  local hash1
+  nmg::hash hash1 "2001:db8:800::2/128"; hash1+="+123"
+
+  local wstate state1
+  wstate=${WAN_ADDR_STATE_PAT/@WAN@/wan0}
+  state1=${wstate/@ID@/$hash1}
+
+  # test variables
+  local out var
+
+  # reset
+  xtest::onexit::wan_depref
+
+  #
+  # TEST: deprecate address not in NM
+  #
+  printf "" > "$wconf"
+
+  xtest_settime 3100
+
+  # override current address on connection
+  local -x NMCLI_MOCK_FORCE_ipv6_addresses='2001:db8:100::2/64'
+
+  local -x cur_ip6_address='2001:db8:800::2' cur_ip6_prefixlen=128
+  local -x cur_iaid='1:2:3' cur_rebind=600
+  local -x cur_max_life=1800 new_preferred_life=100 cur_life_starts=3000
+
+  xtest_dhcp_action E1 DEPREF6 "depref new - 1:2:3 method=manual"
   xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
+	DEPREF6 on wan0: 2001:db8:800::2
+	nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:800::2/128'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
+	nmcli 'device' 'reapply' 'wan0'
+	${xtest_dhcpmon/@TIMEOUT@/620}
+	EOF
+  ftest E1f "$out" "adds addr in NM, reapplies"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:123
 	valid-life:1800
 	pref-life:0
 	life-start:3000
+	rebind:600
+	dad-state:ok
 	EOF
   shtest::check_file E1s "$state1" "$out" "creates state file"
-
-  unset NMCLI_MOCK_FORCE_ipv6_addresses
-  xrm "$state1"
-
-  xwrap2 "<depref exist>" ipv6_addr_depref
-  xtest E2 t "returns true"
-  xread_value out <<-EOF
-	Address devalued on wan0: 2001:db8:800::2/64
-	Changing 2001:db8:800::2/64 on wan0
-	${NMG_IP} => ip '-6' 'addr' 'change' '2001:db8:800::2/64'\
- 'dev' 'wan0' 'valid_lft' '1700' 'preferred_lft' '0'
+  xread_value var <<-EOF
+	$init_cstate
+	reapply:yes
+	boot:3100
 	EOF
-  ftest E2f "$out" "updates lifetimes"
+  shtest::check_file E1c "$connstate2" "$var" "updates cstate"
+
+  xtest_nm_action E1r reapply wan0 "succeeds"
+  ftest E1x "" "no action"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file E1y "$connstate2" "$var" "clears cstate reapply"
+
+  # reset
+  xtest::onexit::wan_depref
+  unset NMCLI_MOCK_FORCE_ipv6_addresses
+
+  #
+  # TEST: deprecate address in NM
+  #
+  printf "" > "$wconf"
+
+  xtest_dhcp_action E2 DEPREF6 "depref existing"
   xread_value out <<-EOF
-	inet6:2001:db8:800::2/64
+	DEPREF6 on wan0: 2001:db8:800::2
+	${xtest_dhcpmon/@TIMEOUT@/620}
+	EOF
+  ftest E2f "$out" "no action"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:123
 	valid-life:1800
 	pref-life:0
 	life-start:3000
+	rebind:600
+	dad-state:ok
 	EOF
   shtest::check_file E2s "$state1" "$out" "creates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3100
+	EOF
+  shtest::check_file E2c "$connstate2" "$out" "updates cstate"
+
+  # reset
+  xtest::onexit::wan_depref
+
+  #
+  # tests that follow are ipv6.method = ignore
+  #
+  local -x NMCLI_MOCK_FORCE_ipv6_method=ignore
+  init_cstate=${init_cstate/method:manual/method:ignore}
+  echo >"$connstate2" "$init_cstate"
+
+  #
+  # TEST: deprecate address
+  #
+  printf "" > "$wconf"
+
+  local -x cur_ip6_address='2001:db8:800::2' cur_ip6_prefixlen=128
+  local -x cur_iaid='1:2:3' cur_rebind=600
+  local -x cur_max_life=1800 new_preferred_life=100 cur_life_starts=3000
+
+  xtest_dhcp_action E11 DEPREF6 "depref addr method=ignore"
+  xread_value out <<-EOF
+	DEPREF6 on wan0: 2001:db8:800::2
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '1700' 'preferred_lft' '0'
+	${xtest_dhcpmon/@TIMEOUT@/620}
+	EOF
+  ftest E11f "$out" "deprefs addr"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:123
+	valid-life:1800
+	pref-life:0
+	life-start:3000
+	rebind:600
+	dad-state:ok
+	EOF
+  shtest::check_file E11s "$state1" "$out" "creates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3100
+	EOF
+  shtest::check_file E11c "$connstate2" "$var" "updates cstate"
+
+  #
+  # TEST: reapply behavior
+  #
+  xtest_nm_action E11r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	Changing 2001:db8:800::2/128 on wan0
+	ip '-6' 'addr' 'change' '2001:db8:800::2/128' 'dev' 'wan0'\
+ 'valid_lft' '1700' 'preferred_lft' '0'
+	EOF
+  ftest E11x "$out" "depr address"
+  shtest::check_file E11y "$connstate2" "$var" "cstate unchanged"
 
   nmddns_reset_config
+  ipv6_wan_clear_config
+  xtest_init_sysctls dhclient
   xtest::onexit::wan_depref
 }
 
-xtest::onexit::wan_ddns() {
-  [[ ${WAN_STATE_PAT-} ]] || return 0
-  local file="${WAN_STATE_PAT%-dhc}-dhc"
-  file=${file/@WAN@/eth0}
-  xrm "${file/@ID@/1a1a}"
-  xrm "${file/@ID@/2b2b}"
+xtest::onexit::wan_nm() {
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
 }
 
-xtest::group3::wan_ddns() {
+xtest::group3::wan_nm() {
 
-  local out state1 state2 interface=eth0
-  local CONNECTION_UUID=''
+  # these are the same as wan group but method != ignore
+  shtest::title "WAN dhclient with method != ignore (wan_nm group)"
 
-  shtest::title "WAN Address DDNS Tests (wan_ddns group)"
+  # init state
+  local init_cstate
+  xread_value init_cstate <<-EOF
+	conn-uuid:${isp_uuid}
+	method:manual
+	never-default:no
+	ignore-auto-dns:no
+	client:started
+	EOF
+  echo >"$connstate2" "$init_cstate"
+  xtest_init_sysctls dhclient
 
-  local WAN_STATE_PAT="${WAN_STATE_PAT}-dhc"
-  xtest D0 t "checking WAN_STATE_PAT"
-  shtest::last_check_ok || return 1
-  state1=${WAN_STATE_PAT/@WAN@/${interface}}
-  state2=${state1/@ID@/2b2b}
-  state1=${state1/@ID@/1a1a}
-  xrm "$state1"
+  xtest_check_statevars N0 WAN_ADDR_STATE_PAT
 
-  local new_ip6_address='2001:db8:871a:28c1::1' new_ip6_prefixlen=64 new_iaid='1a:1a'
-  local -x NMCLI_MOCK_FORCE_ipv6_method="manual"
-  local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64"
-  local -x IP_MOCK_OUTPUT
-  xread_value IP_MOCK_OUTPUT <<-EOF
-	inet6 2001:db8:871a:28c1::1/64 scope global
-	valid_lft forever preferred_lft forever
+  # rename for easy cleanup
+  local WAN_ADDR_STATE_PAT="${WAN_ADDR_STATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
+  local -x NMCLI_MOCK_SAVE="$RUNDIR/nmcli-save-dhc"
+
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/wan0}
+
+  # hashs used for generated filenames
+  local hash1 hash2 hash3
+  nmg::hash hash1 "2001:db8:800::2/128"; hash1+="+abc"
+  nmg::hash hash2 "2001:db8:aaa::1/128"; hash2+="+cde"
+  nmg::hash hash3 "2001:db8:aaa::2/128"; hash3+="+cde"
+
+  # test variables
+  local out var
+
+  local wstate state1 state2 state3
+  wstate=${WAN_ADDR_STATE_PAT/@WAN@/wan0}
+  state1=${wstate/@ID@/$hash1}
+  state2=${wstate/@ID@/$hash2}
+  state3=${wstate/@ID@/$hash3}
+
+  # reset
+  xtest::onexit::wan_nm
+
+  #
+  # TEST: check_nm up to init connstate
+  #
+  printf "" > "$wconf"
+
+  xwrap2 "up" ipv6_check_nm up
+  xret N1 t "returns true"
+  ftest N1f "" "does not log"
+  [[ $NMCLI ]]
+  xtest N1a t "NMCLI is set"
+  [[ $CONNECTION_UUID == "$isp_uuid" ]]
+  xtest N1u t "CONNECTION_UUID correctly set"
+  [[ $DCDFLAG == 0 ]]
+  xtest N1d t "DCDFLAG=0"
+  [[ $NM_CONFIG ]]
+  xtest N1n t "NM_CONFIG is set"
+
+  # DCDFLAG not set by dhclient
+  DCDFLAG=''
+
+  #
+  # TEST: existing address in NM
+  #
+  xtest_settime 3500
+
+  local -x new_ip6_address='2001:db8:800::2' new_ip6_prefixlen=128
+  local -x new_iaid='a:b:c' new_rebind=600
+  local -x new_max_life=4100 new_preferred_life=2100 new_life_starts=3400
+
+  xtest_dhcp_action N11 REBIND6 "existing addr - a:b:c"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:800::2
+	${xtest_dhcpmon/@TIMEOUT@/620}
+	EOF
+  ftest N11f "$out" "does nothing"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:abc
+	valid-life:4100
+	pref-life:2100
+	life-start:3400
+	rebind:600
+	dad-state:ok
+	EOF
+  shtest::check_file N11s "$state1" "$out" "creates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3500
+	EOF
+  shtest::check_file N11c "$connstate2" "$out" "updates cstate"
+
+  #
+  # TEST: existing address updated lifetimes
+  #
+  xtest_settime 3550
+
+  new_max_life=3600 new_preferred_life=1800 new_life_starts=3500
+
+  xtest_dhcp_action N12 REBIND6 "update lifetimes - a:b:c"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:800::2
+	${xtest_dhcpmon/@TIMEOUT@/670}
+	EOF
+  ftest N12f "$out" "updates lifetimes"
+  xread_value out <<-EOF
+	inet6:2001:db8:800::2/128
+	iaid:abc
+	valid-life:3600
+	pref-life:1800
+	life-start:3500
+	rebind:600
+	dad-state:ok
+	EOF
+  shtest::check_file N12s "$state1" "$out" "creates state file"
+  xread_value out <<-EOF
+	$init_cstate
+	boot:3550
+	EOF
+  shtest::check_file N12c "$connstate2" "$out" "updates cstate"
+
+  #
+  # TEST: new address fails DAD
+  #
+  new_ip6_address='2001:db8:aaa::2' new_ip6_prefixlen=128 new_iaid='c:d:e'
+
+  shtest::prefix "REBIND6 - addr DAD fail"
+  var=0
+  (
+    # shellcheck disable=SC2030,SC2031
+    local -x reason=REBIND6
+    xwrap ipv6_dhcp_action
+    echo "not reached"
+  ) || var=$?
+  vtest N13 3 ": exits 3"
+  shtest::prefix " - "
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::2
+	Address 2001:db8:aaa::2/128 has conflict on wan0
+	Removing 2001:db8:aaa::2/128 from wan0
+	ip '-6' 'addr' 'del' '2001:db8:aaa::2/128' 'dev' 'wan0'
+	EOF
+  ftest N13f "${out}" "adds, then removes new addr"
+  [[ -e ${state3} ]]
+  shtest::check_result N13s f "does not create new state"
+
+  #
+  # TEST: new address with dhcp dns
+  #       1 dns routed
+  #
+  new_ip6_address='2001:db8:aaa::1' new_ip6_prefixlen=128
+  new_iaid='c:d:e' new_rebind=0
+  new_max_life=600 new_preferred_life=300 new_life_starts=3500
+  local -x new_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  local -x new_dhcp6_domain_search='dns-search.lan dns-search2.lan'
+
+  xtest_dhcp_action N14 REBIND6 "new addr/dns - c:d:e, 1 dns routed"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::1
+	nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:800::2/128,2001:db8:aaa::1/128'\
+ 'ipv6.dns' '2001:db8:aaa::100,2001:db8:222::1' 'ipv6.dns-search'\
+ 'dns-search.lan,dns-search2.lan'
+	nmcli 'device' 'reapply' 'wan0'
+	${xtest_dhcpmon/@TIMEOUT@/320}
+	EOF
+  ftest N14f "${out}" "adds addrs/dns, reapplies"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:600
+	pref-life:300
+	life-start:3500
+	rebind:0
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:dns-search.lan,dns-search2.lan
+	dad-state:ok
+	EOF
+  shtest::check_file N14s "$state2" "$out" "creates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3550
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:dns-search.lan,dns-search2.lan
+	reapply:yes
+	EOF
+  shtest::check_file N14c "$connstate2" "$var" "updates cstate dns"
+
+  xtest_nm_action N14r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	EOF
+  ftest N14x "${out}" "adds 1 dns route"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file N14y "$connstate2" "$var" "clears cstate reapply"
+
+  #
+  # TEST: new address with dhcp+static dns
+  #       2 dns routed
+  #
+  local -x new_dhcp6_name_servers='2001:db8:333::1'
+  local -x new_dhcp6_domain_search='new-search.lan'
+
+  xcat > "$wconf" <<-EOF
+	WAN_STATIC_DNS6="2001:db8:444::1,2001:db8:aaa::200"
+	WAN_STATIC_DNS6_SEARCH="static1.lan,static2.lan"
 	EOF
 
-  xwrap2 "<exiting addr>" ipv6_addr_bind
-  xtest D1 t "returns true"
+  xtest_dhcp_action N15 REBIND6 "dhcp+static dns"
   xread_value out <<-EOF
-	Address on eth0: 2001:db8:871a:28c1::1/64
+	REBIND6 on wan0: 2001:db8:aaa::1
+	nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:aaa::1/128,2001:db8:800::2/128'\
+ 'ipv6.dns' '2001:db8:444::1,2001:db8:aaa::200,2001:db8:333::1'\
+ 'ipv6.dns-search' 'static1.lan,static2.lan,new-search.lan'
+	nmcli 'device' 'reapply' 'wan0'
+	${xtest_dhcpmon/@TIMEOUT@/320}
+	EOF
+  ftest N15f "${out}" "adds addr, dhcp+static dns, reapplies"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:600
+	pref-life:300
+	life-start:3500
+	rebind:0
+	dns:2001:db8:333::1
+	dns-search:new-search.lan
+	dad-state:ok
+	EOF
+  shtest::check_file N15s "$state2" "$out" "updates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3550
+	dns:2001:db8:444::1,2001:db8:aaa::200,2001:db8:333::1
+	dns-search:static1.lan,static2.lan,new-search.lan
+	reapply:yes
+	EOF
+  shtest::check_file N15c "$connstate2" "$var" "updates cstate dns"
+
+  xtest_nm_action N15r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:444::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	ip '-6' 'route' 'replace' '2001:db8:333::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	EOF
+  ftest N15x "${out}" "adds 2 dns routes"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file N15y "$connstate2" "$var" "clears cstate reapply"
+
+  #
+  # TEST: existing address with dhcp+static dns and ignore-auto-dns
+  #       1 dns routed
+  #
+  local -x NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns=yes
+
+  xtest_settime 3810
+  new_rebind=800
+  new_max_life=1200 new_preferred_life=1000 new_life_starts=3800
+
+  xtest_dhcp_action N16 REBIND6 "ignore-auto-dns=yes"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::1
+	${xtest_dhcpmon/@TIMEOUT@/410}
+	EOF
+  ftest N16f "${out}" "ignores dns change"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:1200
+	pref-life:1000
+	life-start:3800
+	rebind:800
+	dns:2001:db8:333::1
+	dns-search:new-search.lan
+	dad-state:ok
+	EOF
+  shtest::check_file N16s "$state2" "$out" "updates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:444::1,2001:db8:aaa::200,2001:db8:333::1
+	dns-search:static1.lan,static2.lan,new-search.lan
+	EOF
+  shtest::check_file N16c "$connstate2" "$var" "updates cstate, dns unchanged"
+
+  xtest_nm_action N16r reapply wan0 "applies ignore-auto-dns"
+  xread_value out <<-EOF
+	nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:aaa::1/128,2001:db8:800::2/128' 'ipv6.dns'\
+ '2001:db8:444::1,2001:db8:aaa::200' 'ipv6.dns-search'\
+ 'static1.lan,static2.lan'
+	nmcli 'device' 'reapply' 'wan0'
+	EOF
+  ftest N16x "${out}" "reapplies"
+  xread_value var <<-EOF
+	${init_cstate/ignore-auto-dns:no/ignore-auto-dns:yes}
+	boot:3810
+	dns:2001:db8:444::1,2001:db8:aaa::200
+	dns-search:static1.lan,static2.lan
+	reapply:yes
+	EOF
+  shtest::check_file N16y "$connstate2" "$var" "updates cstate dns"
+
+  xtest_nm_action N16g reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:444::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0'
+	EOF
+  ftest N16h "$out" "adds 1 dns route"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file N16i "$connstate2" "$var" "clears cstate reapply"
+
+  # revert ignore-auto-dns
+  unset NMCLI_MOCK_FORCE_ipv6_ignore_auto_dns
+  echo "${var/ignore-auto-dns:yes/ignore-auto-dns:no}" >"$connstate2"
+
+  #
+  # TEST: existing address with dhcp dns, remove static dns, set route metric
+  #
+  local -x NMCLI_MOCK_FORCE_ipv6_route_metric=555
+
+  xtest_settime 3810
+  new_rebind=800
+  new_max_life=1200 new_preferred_life=1000 new_life_starts=3800
+  new_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  new_dhcp6_domain_search='new-search.lan dhcp2.lan'
+
+  printf "" > "$wconf"
+
+  xtest_dhcp_action N17 REBIND6 "dhcp dns w/ route metric"
+  xread_value out <<-EOF
+	REBIND6 on wan0: 2001:db8:aaa::1
+	nmcli 'conn' 'modify' '--temporary' '${isp_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:aaa::1/128,2001:db8:800::2/128'\
+ 'ipv6.dns' '2001:db8:aaa::100,2001:db8:222::1'\
+ 'ipv6.dns-search' 'new-search.lan,dhcp2.lan'
+	nmcli 'device' 'reapply' 'wan0'
+	${xtest_dhcpmon/@TIMEOUT@/410}
+	EOF
+  ftest N17f "${out}" "sets dhcp dns, reapplies"
+  xread_value out <<-EOF
+	inet6:2001:db8:aaa::1/128
+	iaid:cde
+	valid-life:1200
+	pref-life:1000
+	life-start:3800
+	rebind:800
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	dad-state:ok
+	EOF
+  shtest::check_file N17s "$state2" "$out" "updates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	reapply:yes
+	EOF
+  shtest::check_file N17c "$connstate2" "$var" "updates cstate dns"
+
+  xtest_nm_action N17r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'metric' '555'
+	EOF
+  ftest N17x "${out}" "adds 1 dns route w/ metric"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	route-metric:555
+	EOF
+  shtest::check_file N17y "$connstate2" "$var" \
+		     "updates cstate metric, clears reapply"
+
+  #
+  # TEST: release address
+  #
+  xtest_settime 4000
+
+  local -x old_ip6_address='2001:db8:800::2' old_ip6_prefixlen=128
+  local -x old_iaid='a:b:c' old_rebind=600
+  local -x old_max_life=3600 old_preferred_life=1800 old_life_starts=3500
+  local -x old_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  local -x old_dhcp6_domain_search='new-search.lan dhcp2.lan'
+
+  xtest_dhcp_action N20 RELEASE6 "release a:b:c addr"
+  xread_value out <<-EOF
+	RELEASE6 on wan0: 2001:db8:800::2
+	nmcli 'conn' 'modify' '--temporary' '$isp_uuid'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:aaa::1/128'\
+ 'ipv6.dns' '2001:db8:aaa::100,2001:db8:222::1' 'ipv6.dns-search'\
+ 'new-search.lan,dhcp2.lan'
+	nmcli 'device' 'reapply' 'wan0'
+	EOF
+  ftest N20f "${out}" "removes addr"
+  [[ -e $state1 ]]
+  xtest N20j f "removes a:b:c state"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3810
+	dns:2001:db8:aaa::100,2001:db8:222::1
+	dns-search:new-search.lan,dhcp2.lan
+	route-metric:555
+	reapply:yes
+	EOF
+  shtest::check_file N20c "$connstate2" "$var" "cstate unchanged"
+
+  xtest_nm_action N20r reapply wan0 "succeeds"
+  xread_value out <<-EOF
+	ip '-6' 'route' 'replace' '2001:db8:222::1' 'via'\
+ 'fe80::faaa:dead:beef:8000' 'dev' 'wan0' 'metric' '555'
+	EOF
+  ftest N20x "$out" "adds 1 dns route"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file N20y "$connstate2" "$var" "clears cstate reapply"
+
+  #
+  # TEST: expire address
+  #
+  old_ip6_address='2001:db8:aaa::1' old_ip6_prefixlen=128
+  old_iaid='c:d:e' old_rebind=800
+  old_max_life=600 old_preferred_life=300 old_life_starts=3500
+  old_dhcp6_name_servers='2001:db8:aaa::100 2001:db8:222::1'
+  old_dhcp6_domain_search='new-search.lan dhcp2.lan'
+
+  xtest_dhcp_action N30 EXPIRE6 "release c:d:e addr"
+  xread_value out <<-EOF
+	EXPIRE6 on wan0: 2001:db8:aaa::1
+	nmcli 'conn' 'modify' '--temporary' '$isp_uuid'\
+ 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
+ 'ipv6.dns-search' ''
+	nmcli 'device' 'reapply' 'wan0'
+	EOF
+  ftest N30f "${out}" "removes addr"
+  [[ -e $state2 ]]
+  xtest N30j f "removes c:d:e state"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:3810
+	route-metric:555
+	reapply:yes
+	EOF
+  shtest::check_file N30c "$connstate2" "$var" "cstate unchanged"
+
+  xtest_nm_action N30r reapply wan0 "succeeds"
+  ftest N30x "" "does nothing"
+  var=${var/$'\n'reapply:yes/}
+  var=${var/method:manual/method:link-local}
+  shtest::check_file N30y "$connstate2" "$var" \
+		     "clears cstate reapply, sets method"
+
+  nmddns_reset_config
+  ipv6_wan_clear_config
+  xtest_init_sysctls
+  xtest::onexit::wan_nm
+}
+
+xtest::onexit::wan_ddns() {
+  [[ -d $RUNDIR ]] || return 0
+  command -p rm -f "$RUNDIR/"*"-dhc"
+}
+
+xtest::group4::wan_ddns() {
+
+  shtest::title "WAN DDNS Tests (wan_ddns group)"
+
+  # init state
+  local -x interface=eth0
+  local -x xtest_dhcpmon=${xtest_dhcpmon//wan0/eth0}
+  local init_cstate
+  xread_value init_cstate <<-EOF
+	conn-uuid:${office_uuid}
+	method:manual
+	never-default:no
+	ignore-auto-dns:no
+	client:started
+	EOF
+  echo >"$connstate1" "$init_cstate"
+  xtest_init_sysctls dhclient
+
+  xtest_check_statevars D0 WAN_ADDR_STATE_PAT
+
+  # rename for easy cleanup
+  local WAN_ADDR_STATE_PAT="${WAN_ADDR_STATE_PAT}-dhc"
+  local NMDDNS_STATE_PAT="${NMDDNS_STATE_PAT}-dhc"
+  local WAN_CONFIG_PAT="$RUNDIR/ipv6-prefix-@WAN@.conf-dhc"
+  local -x NMCLI_MOCK_SAVE="$RUNDIR/nmcli-save-dhc"
+
+  # override for tests
+  local wconf=${WAN_CONFIG_PAT/@WAN@/eth0}
+
+  local hash1 hash2
+  nmg::hash hash1 "2001:db8:871a:28c1::1/128"; hash1+="+1a1a"
+  nmg::hash hash2 "2001:db8:4860:4860::8888/128"; hash2+="+2b2b"
+
+  local wstate state1 state2
+  wstate=${WAN_ADDR_STATE_PAT/@WAN@/eth0}
+  state1=${wstate/@ID@/$hash1}
+  state2=${wstate/@ID@/$hash2}
+
+  # test variables
+  local out var
+  local -x DIG_MOCK_OUTPUT
+
+  # reset
+  xtest::onexit::wan_ddns
+
+  #
+  # TEST: add address to DDNS
+  #
+  printf "" > "$wconf"
+
+  xtest_settime 4000
+
+  local -x new_ip6_address='2001:db8:871a:28c1::1' new_ip6_prefixlen=128
+  local -x new_iaid='1a:1a' new_rebind=1200
+  local -x new_preferred_life=4294967295 new_max_life=4294967295
+  local -x new_life_starts=4000
+
+  xtest_dhcp_action D1 REBIND6 "addr to ddns"
+  xread_value out <<-EOF
+	REBIND6 on eth0: 2001:db8:871a:28c1::1
 	Setting eth0.example.test AAAA to 2001:db8:871a:28c1::1
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete eth0.example.test AAAA
 	update add eth0.example.test 600 AAAA 2001:db8:871a:28c1::1
 	send
+	${xtest_dhcpmon/@TIMEOUT@/1320}
 	EOF
-  ftest D1f "$out" "adds DNS"
-  shtest::check_file D1y "$state1" "inet6:2001:db8:871a:28c1::1/64" \
-                     "creates state file"
-
-  local new_ip6_address='2001:db8:4860:4860::8888'
-  local new_ip6_prefixlen=64 new_iaid='2b:2b'
-  local -x NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:871a:28c1::1/64,\
- 2001:db8:4860:4860::8888/64"
-  xread_value IP_MOCK_OUTPUT <<-EOF
-	inet6 2001:db8:871a:28c1::1/64 scope global
-	valid_lft forever preferred_lft forever
-	inet6 2001:db8:4860:4860::8888/64 scope global
-	valid_lft forever preferred_lft forever
-	EOF
-
-  xwrap2 "<2nd addr>" ipv6_addr_bind
-  xtest D2 t "returns true"
+  ftest D1f "$out" "updates DNS"
   xread_value out <<-EOF
-	Address on eth0: 2001:db8:4860:4860::8888/64
+	inet6:2001:db8:871a:28c1::1/128
+	iaid:1a1a
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	rebind:1200
+	dad-state:ok
+	EOF
+  shtest::check_file D1i "$state1" "$out" "creates state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:4000
+	EOF
+  shtest::check_file D1c "$connstate1" "$var" "updates cstate"
+
+  DIG_MOCK_OUTPUT="2001:db8:871a:28c1::1"
+
+  #
+  # TEST: add 2nd address to DNS
+  #
+  new_ip6_address='2001:db8:4860:4860::8888' new_iaid='2b:2b'
+
+  xtest_dhcp_action D2 REBIND6 "2nd addr to DNS"
+  xread_value out <<-EOF
+	REBIND6 on eth0: 2001:db8:4860:4860::8888
+	nmcli 'conn' 'modify' '--temporary' '$office_uuid'\
+ 'ipv6.method' 'manual' 'ipv6.addresses'\
+ '2001:db8:871a:28c1::1/128,2001:db8:4860:4860::8888/128'\
+ 'ipv6.dns' '' 'ipv6.dns-search' ''
+	nmcli 'device' 'reapply' 'eth0'
 	Setting eth0.example.test AAAA to\
  2001:db8:871a:28c1::1,2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete eth0.example.test AAAA
 	update add eth0.example.test 600 AAAA 2001:db8:871a:28c1::1
 	update add eth0.example.test 600 AAAA 2001:db8:4860:4860::8888
 	send
+	${xtest_dhcpmon/@TIMEOUT@/1320}
 	EOF
   ftest D2f "$out" "adds DNS"
-  shtest::check_file D2y "$state1" "inet6:2001:db8:871a:28c1::1/64" \
-                     "creates 1a1a state file"
-  shtest::check_file D2z "$state2" "inet6:2001:db8:4860:4860::8888/64" \
-                     "creates 2b2b state file"
-
-  unset new_ip6_address new_ip6_prefixlen new_iaid
-  local old_ip6_address='2001:db8:871a:28c1::1'
-  local old_ip6_prefixlen=64 old_iaid='1a:1a'
-  local -x DIG_MOCK_OUTPUT="2001:db8:871a:28c1::1,2001:db8:4860:4860::8888"
-
-  xwrap2 "<1/2 removed>" ipv6_dhc_release
-  xtest D11 t "returns true"
   xread_value out <<-EOF
-	Address removed from eth0: 2001:db8:871a:28c1::1/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
- 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:4860:4860::8888/64'\
+	inet6:2001:db8:4860:4860::8888/128
+	iaid:2b2b
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	rebind:1200
+	dad-state:ok
+	EOF
+  shtest::check_file D2j "$state2" "$out" "creates 2b2b state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:4000
+	reapply:yes
+	EOF
+  shtest::check_file D2c "$connstate1" "$var" "updates cstate"
+
+  xtest_nm_action D2r reapply eth0 "succeeds"
+  ftest D2x "" "no action"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file D2y "$connstate1" "$var" "clears cstate reapply"
+
+  xread_value DIG_MOCK_OUTPUT <<-EOF
+	2001:db8:4860:4860::8888
+	2001:db8:871a:28c1::1
+	EOF
+
+  #
+  # TEST: deprecate 2nd address, removed from DNS
+  #
+  local -x cur_ip6_address='2001:db8:4860:4860::8888' cur_ip6_prefixlen=128
+  local -x cur_iaid='2b:2b' cur_rebind=1200
+  local -x cur_preferred_life=0 cur_max_life=7200
+  local -x cur_life_starts=4000
+
+  xtest_dhcp_action D3 DEPREF6 "2nd addr to DNS"
+  xread_value out <<-EOF
+	DEPREF6 on eth0: 2001:db8:4860:4860::8888
+	Setting eth0.example.test AAAA to 2001:db8:871a:28c1::1
+	nsupdate '-t' '2'
+	server 127.0.0.1
+	zone example.test
+	update delete eth0.example.test AAAA
+	update add eth0.example.test 600 AAAA 2001:db8:871a:28c1::1
+	send
+	${xtest_dhcpmon/@TIMEOUT@/1320}
+	EOF
+  ftest D3f "$out" "adds DNS"
+  xread_value out <<-EOF
+	inet6:2001:db8:4860:4860::8888/128
+	iaid:2b2b
+	valid-life:7200
+	pref-life:0
+	life-start:4000
+	rebind:1200
+	dad-state:ok
+	EOF
+  shtest::check_file D3j "$state2" "$out" "creates 2b2b state file"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:4000
+	EOF
+  shtest::check_file D3c "$connstate1" "$var" "updates cstate"
+
+  # reverse the depref
+  xcat >"$state2" <<-EOF
+	inet6:2001:db8:4860:4860::8888/128
+	iaid:2b2b
+	valid-life:4294967295
+	pref-life:4294967295
+	life-start:4000
+	rebind:1200
+	dad-state:ok
+	EOF
+
+  #
+  # TEST: release address to DNS
+  #
+  unset new_ip6_address new_ip6_prefixlen new_iaid new_rebind
+  unset new_preferred_life new_max_life new_life_starts
+  local -x old_ip6_address='2001:db8:871a:28c1::1' old_ip6_prefixlen=128
+  local -x old_iaid='1a:1a' old_rebind=1800
+
+  xtest_dhcp_action D11 RELEASE6 "remove 1 addr"
+  xread_value out <<-EOF
+	RELEASE6 on eth0: 2001:db8:871a:28c1::1
+	nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
+ 'ipv6.method' 'manual' 'ipv6.addresses' '2001:db8:4860:4860::8888/128'\
  'ipv6.dns' '' 'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
+	nmcli 'device' 'reapply' 'eth0'
 	Setting eth0.example.test AAAA to 2001:db8:4860:4860::8888
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete eth0.example.test AAAA
@@ -1238,92 +2109,119 @@ xtest::group3::wan_ddns() {
 	EOF
   ftest D11f "$out" "removes 1a1a from NM/DNS"
   [[ -e "$state1" ]]
-  xtest D11y f "1a1a state file removed"
+  xtest D11i f "1a1a state file removed"
   [[ -e "$state2" ]]
-  xtest D11z t "2b2b state file remains"
+  xtest D11j t "2b2b state file remains"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:4000
+	reapply:yes
+	EOF
+  shtest::check_file D11c "$connstate1" "$var" "updates cstate"
 
-  old_ip6_address='2001:db8:4860:4860::8888'
-  old_ip6_prefixlen=64 old_iaid='2b:2b'
-  NMCLI_MOCK_FORCE_ipv6_addresses="2001:db8:4860:4860::8888/64"
-  DIG_MOCK_OUTPUT="2001:db8:4860:4860::8888"
+  xtest_nm_action D11r reapply eth0 "succeeds"
+  ftest D11x "" "no action"
+  var=${var/$'\n'reapply:yes/}
+  shtest::check_file D11y "$connstate1" "$var" "clears cstate reapply"
 
-  xwrap2 "<2nd removed>" ipv6_addr_release
-  xtest D12 t "returns true"
+  #
+  # TEST: release 2nd address to DNS
+  #
+  old_ip6_address='2001:db8:4860:4860::8888' old_ip6_prefixlen=128
+  old_iaid='2b:2b'
+  local -x DIG_MOCK_OUTPUT="2001:db8:4860:4860::8888"
+
+  xtest_dhcp_action D12 RELEASE6 "remove 2nd addr"
   xread_value out <<-EOF
-	Address removed from eth0: 2001:db8:4860:4860::8888/64
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
+	RELEASE6 on eth0: 2001:db8:4860:4860::8888
+	nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
  'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
  'ipv6.dns-search' ''
-	${NMCLI} => nmcli 'device' 'reapply' 'eth0'
+	nmcli 'device' 'reapply' 'eth0'
 	Removing eth0.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
+	nsupdate '-t' '2'
 	server 127.0.0.1
 	zone example.test
 	update delete eth0.example.test AAAA
 	send
 	EOF
   ftest D12f "$out" "removes 2b2b from NM/DNS"
+
   [[ -e "$state2" ]]
-  xtest D12z f "2b2b state file removed"
-
-  # restore state files
-  echo "inet6:2001:db8:871a:28c1::1/64" >"$state1"
-  echo "inet6:2001:db8:4860:4860::8888/64" >"$state2"
-
-  xwrap2 "" ipv6_addrs_flush
-  xtest D21 t "returns true"
-  xread_value out <<-EOF
-	${NMCLI} => nmcli 'conn' 'modify' '--temporary' '${office_uuid}'\
- 'ipv6.method' 'link-local' 'ipv6.addresses' '' 'ipv6.dns' ''\
- 'ipv6.dns-search' ''
-	Removing eth0.example.test AAAA
-	${NMDDNS_NSUPDATE} => nsupdate '-t' '2'
-	server 127.0.0.1
-	zone example.test
-	update delete eth0.example.test AAAA
-	send
+  xtest D12j f "2b2b state file removed"
+  xread_value var <<-EOF
+	$init_cstate
+	boot:4000
+	reapply:yes
 	EOF
-  ftest D21f "$out" "removes 1a1a/2b2b from NM/DNS (no apply)"
-  [[ -e "$state1" ]]
-  xtest D21y f "1a1a state file removed"
-  [[ -e "$state2" ]]
-  xtest D21z f "2b2b state file removed"
+  shtest::check_file D12c "$connstate1" "$var" "updates cstate"
+
+  xtest_nm_action D12r reapply eth0 "succeeds"
+  ftest D12x "" "no action"
+  var=${var/$'\n'reapply:yes/}
+  var=${var/method:manual/method:link-local}
+  shtest::check_file D12y "$connstate1" "$var" "clears cstate reapply"
 
   nmddns_reset_config
+  ipv6_wan_clear_config
+  xtest_init_sysctls
   xtest::onexit::wan_ddns
 }
 
 xtest::onexit() {
   [[ ${WAN_CONNSTATE_PAT-} ]] && {
-    local WAN_CONNSTATE_PAT="${WAN_CONNSTATE_PAT%-dhc}-dhc"
+    local WAN_CONNSTATE_PAT="${WAN_CONNSTATE_PAT%-dhx}-dhx"
     xrm "${WAN_CONNSTATE_PAT/@WAN@/wan0}"
     xrm "${WAN_CONNSTATE_PAT/@WAN@/eth0}"
   }
-  xrm "${XFILE-}"
+  interface=wan0 xtest_init_sysctls
+  interface=eth0 xtest_init_sysctls
 }
 
 xmain() {
-  local XFILE="$TEST_OUT/prefix-script file" WAN_LAN_INTFS=''
-  local TEST_RADVD_TRIGGER="$TEST_BIN/dummy-mock"
-  local -x DUMMY_MOCK_OUTPUT="radvd triggered"
-
-  # set so wan config is loaded (dhclient mode)
-  local -x interface=wan0 reason=TEST
+  local SYSCTL_PAT="$RUNDIR/sysctls-@NODE@"
+  local NMG_RADVD_TRIGGER="$TEST_BIN/radvd-trigger"
 
   # disable helper so we get nsupdate results
   local TEST_DDNS_HELPER=''
 
-  xload_script "${SRC_ROOT}/etc/NetworkManager/dispatcher.d/08-ipv6-prefix"
+  # don't mimic cmdline
+  unset LOGNAME
 
-  [[ ${WAN_LAN_INTFS-} && ${WAN_CONNSTATE_PAT-} ]] ||
-    xtest::fail "Config file failed to load"
+  local TEST_FILE="${TEST_NMDIR}/08-ipv6-prefix"
+  xload_script "${TEST_FILE}"
+
+  # make systemctl is-active fail so dhcpmon started
+  local -x DUMMY_MOCK_FAIL_systemctl_mock=1
+  local -x DUMMY_MOCK_FAIL_ARGS_systemctl_mock="'(is-active|is-failed)'"
+
+  # xtest_dhcpmon contains @TIMEOUT@
+  local xtest_dhcpmon
+  xread_value xtest_dhcpmon <<-EOF
+	systemctl '-q' 'is-active' 'dhcpmon-wan0.timer'
+	systemctl '-q' 'is-active' 'dhcpmon-wan0'
+	systemctl '-q' 'is-failed' 'dhcpmon-wan0'
+	systemd-run '-u' 'dhcpmon-wan0' '--description'\
+ 'DHCP monitor on wan0' '--service-type=exec'\
+ '--property=BindsTo=sys-subsystem-net-devices-wan0.device'\
+ '--property=After=sys-subsystem-net-devices-wan0.device'\
+ '--property=RestartSec=5' '--property=Restart=on-failure'\
+ '--on-active=@TIMEOUT@'\
+ '${TEST_FILE}' 'dhcp-monitor' 'wan0'
+	EOF
 
   # create state file created when dhclient spawned
-  local WAN_CONNSTATE_PAT="${WAN_CONNSTATE_PAT}-dhc"
+  local WAN_CONNSTATE_PAT="${WAN_CONNSTATE_PAT}-dhx"
+
+  local connstate1=${WAN_CONNSTATE_PAT/@WAN@/eth0}
   local office_uuid="fd8bc2bb-9f55-47d6-a394-174f4ee4fe69"
-  echo "conn-uuid:${office_uuid}" >"${WAN_CONNSTATE_PAT/@WAN@/eth0}"
+  local connstate2=${WAN_CONNSTATE_PAT/@WAN@/wan0}
   local isp_uuid="9613d84e-2555-4e7f-a6c2-2a7da5f4d07b"
-  echo "conn-uuid:${isp_uuid}" >"${WAN_CONNSTATE_PAT/@WAN@/wan0}"
+
+  # load wan config (dhcp client mode)
+  local interface=wan0
+  # force use of dhclient
+  local -x DHCPCD=''
 
   xtest::run_tests "ipv6-prefix-dhclient-test Summary" "$@"
   local rc=$?
