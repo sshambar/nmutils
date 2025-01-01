@@ -7,6 +7,10 @@ Overview of changes in nmutils-20241216
 Overview of changes in nmutils-20241215
 =======================================
 
+BREAKING CHANGE:
+ - package installs now look for config in /etc/nmutils by default
+   (/etc/nmutils/conf still used for 'make install' installs)
+
 - Rewrite of `08-ipv6-prefix` adding:
   - `dhcpcd` dhcp client support
     - adds RFC6603 prefix exclude support
