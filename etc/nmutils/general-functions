@@ -2,7 +2,7 @@
 # vim:set ft=sh et sw=2 ts=2:
 # SPDX-License-Identifier: LGPL-3.0-or-later
 #
-# Copyright (C) 2014-2024 Scott Shambarger
+# Copyright (C) 2014-2025 Scott Shambarger
 #
 # NMG - Some useful functions NetworkManager scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
@@ -381,6 +381,28 @@
 #
 #     Sets <retvar> to seconds since Epoch (1970-01-01 00:00 UTC)
 #
+#   nmg::unset_env <env>...
+#
+#     Unsets each environment variable <env>
+#
+#   nmg::print_env <retvar> <fmt> <env>[=<def>]...
+#
+#     Sets <retvar> using 'printf <fmt> <env> <env-value>' for each <env>.
+#     Optional <def> string (as printed) is used as default value.
+#     Unset <env> or with <env-value>=<def> are not displayed unless <fmt>
+#     starts with '%-'.  Default <fmt> (excluding %-) is '%s=%s\n'.
+#     NOTE: assoc-array multi-value defaults not reliably handled
+#
+#   nmg::get_config <retvar> <fmt>
+#
+#     Set <retvar> to config using <fmt> with nmg::print_env
+#
+#   nmg::load_comment <file> <retvar> <start-regex> <end-regex>
+#
+#     Loads commented part of <file> into <retvar> bounded by <start-regex>
+#     and <end-regex> inclusive.  Leading "# " are removed, but "VAR=val"
+#     are included (indented).
+#
 # NetworkManager Property Functions
 #
 #   nmg::prop_get_value <retvar> <props> <name>
@@ -445,7 +467,7 @@
 #
 # shellcheck shell=bash disable=SC1090,SC1091
 
-[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.7.0"
+[[ ${NMG_VERSION-} ]] || declare -r NMG_VERSION="1.8.0"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -1963,6 +1985,82 @@ nmg::prop_match_values() {
   nmg::array_match_values varr larr || return
 }
 
+# shellcheck disable=SC2059
+nmg::print_env() { # <retvar> [%-]<fmt> <env>...
+  local _v=${1-} _a=${2-} _d _f _e _i _t _x _o=''; _f=${_a#%-}
+  [[ $_a == "$_f" ]] && _a=''
+  [[ $_f ]] || _f='%s=%s\n'
+  nmg::_reqarg "$_v" "retvar" || return
+  nmg::_clearvar "$_v" "" || return
+  printf &>/dev/null "$_f" || {
+    nmg::_perr "invalid <fmt> '$_f'"; return 3; }
+  shift 2 || return 0
+  for _e in "$@"; do
+    # get default if provided
+    _d=''; [[ $_e =~ = ]] && { _d=${_e#*=}; _e=${_e%%=*}; }
+    _i=$(declare 2>/dev/null -p -a "$_e" || :);
+    [[ $_i || $_a ]] || continue
+    # default for arrays
+    [[ $_d ]] || { [[ $_i =~ ^"declare -"[b-zB-Z]*[aA] ]] && _d='()'; }
+    # _t is display value
+    _t=${_i#* "$_e"}; _t=${_t#=}; _t=${_t#\'}; _t=${_t%\'}
+    [[ $_t ]] || _t=${_d:-\"\"} # unset, show default
+    # skip defaults unless all requested
+    [[ $_a ]] || [[ ( $_t != "${_d:-\"\"}" ) ]] || continue
+    printf -v _x "$_f" "$_e" "$_t"; _o+=$_x
+  done
+  printf -v "$_v" %s "$_o"
+}
+
+nmg::unset_env() { # <env>...
+  local _e _rc=0
+  for _e in "$@"; do
+    [[ $_e ]] || continue
+    [[ $_e =~ = ]] && _e=${_e%%=*}
+    printf 2>/dev/null -v "$_e" %s "" ||
+      { nmg::_perr "invalid <env> '$_e'"; _rc=3; continue; }
+    unset "$_e"
+  done
+  return $_rc
+}
+
+_nmg_conf_env=(
+  nmg_show_debug nmg_log_stderr NMG_TAG 'NMUTILS="/etc/nmutils"'
+  'NMCONF="/etc/nmutils/conf"' NMG_RADVD_TRIGGER NMG_RADVD_TRIGGER_ARGS
+  'NMG_RADVD="radvd"' 'NMG_RADVD_PID="/run/radvd/radvd.pid"' NMG_LOGGER_USEID
+  'NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.procs"'
+)
+
+nmg::get_config() { # <retvar> <fmt>
+  nmg::_reqarg "${1-}" "retvar" || return
+  nmg::print_env "$1" "${2-}" "${_nmg_conf_env[@]}"
+}
+
+nmg::load_comment() { # <file> <retvar> <start-regex> <end-regex>
+  local f=${1-} r=${2-} s=${3-} e=${4-} p=1 l t=''
+  nmg::_reqarg "$f" "file" || return
+  nmg::_reqarg "$r" "retvar" || return
+  nmg::_reqarg "$s" "start-regex" || return
+  nmg::_reqarg "$e" "end-regex" || return
+  [[ -r $f ]] || { nmg::_perr "Unable to locate $f"; return 2; }
+  while read -r l; do
+    [[ $s && $l =~ $s ]] && { p=''; s=''; }
+    [[ $p ]] && continue
+    [[ $l =~ $e ]] && { e=''; break; }
+    if [[ $l =~ ^# ]]; then
+      [[ $l =~ shellcheck ]] && continue
+      l=${l#"#"}; t+="${l# }"$'\n'
+    else
+      [[ $l =~ ^([^=]+=)[$]{[^-]+-(.*)}$ ]] &&
+        l="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+      t+="  $l"$'\n'
+    fi
+  done < "$f"
+  [[ $s ]] && { nmg::_perr "start-regex '$s' not found in $f"; return 1; }
+  [[ $e ]] && { nmg::_perr "end-regex '$e' not found in $f"; return 1; }
+  printf -v "$r" %s "$t"
+}
+
 # private
 nmg::_loaded() {
 
@@ -1971,6 +2069,7 @@ nmg::_loaded() {
     nmg_err "${BASH_SOURCE[0]}: NMG_VERSION=${NMG_VERSION} < NMG_REQUIRED=${NMG_REQUIRED}"
     return 1
   fi
+  [[ ${_NMG_IGNORE_PROGS-} ]] && return
   # test required programs
   nmg_need_progs_env NMG_PGREP NMG_RM NMG_DATE NMG_IP || return
 }

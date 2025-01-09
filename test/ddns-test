@@ -12,9 +12,9 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMDDNS_REQUIRED="1.5.3"
+NMDDNS_REQUIRED="1.6.0"
 
-xtest::group2::addr() {
+xtest::group1::addr() {
 
   local avar=() aref=() anull=()
 
@@ -80,6 +80,101 @@ xtest::group2::addr() {
   nmddns_reset_config
 }
 
+xtest::onexit::config() {
+  [[ ${TEST_OUT-} ]] || return 0
+  xrm "$TEST_OUT/test.conf"
+}
+
+xtest::group2::config() {
+
+  shtest::title "Config Tests (config group)"
+
+  xwrap2 "<no args>" nmddns_read_config
+  xret C1 f "returns false"
+  ftest C1f "" "does not log"
+
+  xrm "$XNOFILE"
+
+  xwrap2 "<no conf>" nmddns_read_config "$XNOFILE"
+  xret C2 f "returns false"
+  ftest C2f "" "does not log"
+
+  local cnf="$TEST_OUT/test.conf"
+  printf "" >>"$cnf"
+
+  xwrap2 "<empty conf>" nmddns_read_config "$cnf"
+  xret C3 2 "returns 2"
+  ftest C3f "" "does not log"
+
+  xwrap2 "<empty conf>" nmddns_read_config "${NMDDNS_CONFIG_PAT/@MATCH@/eth1}"
+  xret C4 t "returns true"
+  ftest C4f "" "does not log"
+  ltest C4x DDNS_ZONE "home.test" "DDNS_ZONE set"
+  ltest C4y DDNS_RREC_A_NAME "gateway.home.test" "DDNS_RREC_A_NAME set"
+
+  shtest::prefix "nmg_reset_config - "
+  xwrap nmddns_reset_config
+  xret C5 t "returns true"
+  [[ ${DDNS_ZONE-unset} == "unset" ]]
+  xtest C5x t "DDNS_ZONE unset"
+  [[ ${DDNS_RREC_A_NAME-unset} == "unset" ]]
+  xtest C5y t "DDNS_RREC_A_NAME unset"
+
+  xwrap2 "<no args>" nmddns_get_globals
+  xret C10 3 "returns 3"
+  ftest C10f "ERR: nmddns_get_globals: missing <retvar>" "logs error"
+
+  local var=xx out
+  xwrap2 "var" nmddns_get_globals var
+  xret C11 t "returns true"
+  xread_value2 out <<-EOF
+	DDNS_GLOBAL_DIG_OPTIONS="+time=1 +retry=2"
+	EOF
+  vtest C11v "$out" "sets var"
+
+  unset DDNS_GLOBAL_NSUPDATE_TIMEOUT DDNS_GLOBAL_NSUPDATE_OPTIONS
+
+  xwrap2 "var <fmt>" nmddns_get_globals var "%-%s:%s\n"
+  xret C12 t "returns true"
+  xread_value2 out <<-EOF
+	DDNS_GLOBAL_LOCKFILE:""
+	DDNS_GLOBAL_FLOCK_TIMEOUT:"15"
+	DDNS_GLOBAL_DIG_TIMEOUT:"3"
+	DDNS_GLOBAL_DIG_RETRIES:"2"
+	DDNS_GLOBAL_DIG_OPTIONS:"+time=1 +retry=2"
+	DDNS_GLOBAL_NSUPDATE_TIMEOUT:"10"
+	DDNS_GLOBAL_NSUPDATE_OPTIONS:""
+	EOF
+  vtest C12v "$out" "sets var <fmt> w/o unset"
+
+  xwrap2 "<no args>" nmddns_get_config
+  xret C20 3 "returns 3"
+  ftest C20f "ERR: nmddns_get_config: missing <retvar>" "logs error"
+
+  DDNS_ZONE="example.com" DDNS_RREC_AAAA_NAME="host.example.com"
+
+  var=xx
+  xwrap2 "var" nmddns_get_config var
+  xret C21 t "returns true"
+  xread_value2 out <<-EOF
+	DDNS_ZONE="example.com"
+	DDNS_RREC_AAAA_NAME="host.example.com"
+	EOF
+  vtest C21v "$out" "sets var with defaults"
+
+  xwrap2 "var <fmt>" nmddns_get_config var "%-%s=%s,"
+  xret C22 t "returns true"
+  out='DDNS_ZONE="example.com",DDNS_SERVER="",DDNS_TTL="",'
+  out+='DDNS_FLOCK_TIMEOUT="15",DDNS_DIG_TIMEOUT="3",DDNS_DIG_RETRIES="2",'
+  out+='DDNS_DIG_OPTIONS="+time=1 +retry=2",DDNS_NSUPDATE_TIMEOUT="10",'
+  out+='DDNS_NSUPDATE_OPTIONS="",DDNS_LOCKFILE="",'
+  out+='DDNS_RREC_AAAA_NAME="host.example.com",'
+  vtest C22v "$out" "sets var with config using <fmt>"
+
+  nmddns_reset_config
+  xtest::onexit::config
+}
+
 xtest::onexit::ddns() {
   # remove ddns tmpfiles
   [[ ${TEST_OUT-} ]] || return 0
@@ -89,14 +184,14 @@ xtest::onexit::ddns() {
   xrm "$TEST_OUT/ddns-test.sh"
 }
 
-xtest::group4::ddns() {
+xtest::group3::ddns() {
   local out xpat xstate cnf
 
   # don't use helper until we're ready
   local NMDDNS_DHELPER
   unset NMDDNS_DHELPER
 
-  shtest::title "nmddns tests"
+  shtest::title "nmddns tests (ddns group)"
 
   # Call nmddns_update directly with various RRECs, A/AAAA are
   # validated for format (not against interface)
@@ -513,11 +608,11 @@ xtest::onexit::helper() {
   xrm "$TEST_OUT/ddnsh-state TXT"
 }
 
-xtest::group5::helper() {
+xtest::group4::helper() {
 
   local out
 
-  shtest::title "09-ddns helper tests"
+  shtest::title "09-ddns helper tests (helper group)"
 
   # Spawns real helper in various modes
 

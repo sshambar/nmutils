@@ -12,7 +12,7 @@ NMG_XTEST=${NMG_XTEST:-conf/nmg_xtest}
   { echo >&2 "Unable to load ${NMG_XTEST}"; exit 2; }
 
 # min-version for tests
-NMG_REQUIRED="1.7.0"
+NMG_REQUIRED="1.8.0"
 
 xtest::group1::log() {
   local nmg_show_debug=''
@@ -1586,7 +1586,7 @@ xtest::group3::file() {
 }
 
 xtest::group3::misc() {
-  local var=''
+  local var='' out
 
   shtest::title "Misc Tests (misc group)"
 
@@ -1698,6 +1698,171 @@ xtest::group3::misc() {
   xret M64 t "returns true"
   vtest M64v "155" "returns date"
 
+  #
+  # Testing print_env
+  #
+
+  xwrap2 "<no args>" nmg::print_env
+  xret M70 3 "returns 3"
+  ftest M70f "ERR: nmg::print_env: missing <retvar>" "logs err"
+
+  xwrap2 "<bad retvar>" nmg::print_env 123
+  xret M71 3 "returns 3"
+  ftest M71f "ERR: nmg::print_env: invalid <retvar> '123'" "logs err"
+
+  var=xx
+  xwrap2 "<no env>" nmg::print_env var
+  xret M72 t "returns true"
+  ftest M72f "" "does not log"
+  vtest M72v "" "clears retvar"
+
+  unset var1 var2 var3
+  local var1=xx var2=yy
+
+  xwrap2 "<def fmt>" nmg::print_env var "" var1 var2 var3
+  xret M73 t "returns true"
+  ftest M73f "" "does not log"
+  xread_value2 out <<- EOF
+	var1="xx"
+	var2="yy"
+	EOF
+  vtest M73v "$out" "sets retvar"
+
+  xwrap2 "<all fmt> <bad+unset names>" nmg::print_env var \
+	 "%-%s=%s," var1 123 var2 var3
+  xret M74 t "returns true"
+  ftest M74f "" "does not log"
+  vtest M74v 'var1="xx",123="",var2="yy",var3="",' "sets retvar"
+
+  var=xx var2=yy
+
+  xwrap2 "<bad fmt>" nmg::print_env var "%-%-" var2
+  xret M75 3 "returns 3"
+  ftest M75f "ERR: nmg::print_env: invalid <fmt> '%-'" "logs error"
+  vtest M75v "" "clears var"
+
+  unset var3 var4
+  local var3=([0]=first [1]=second) var4=()
+
+  xwrap2 "<array>" nmg::print_env var "%-" var3 var4
+  xret M76 t "returns true"
+  ftest M76f "" "does not log"
+  xread_value2 out <<-EOF
+	var3=([0]="first" [1]="second")
+	var4=()
+	EOF
+  vtest M76x "$out" "sets retvar"
+
+  if (( BASH_VERSINFO[0] >= 4 )); then
+
+    unset var4
+    declare -l -A var4=([first]=value)
+
+    xwrap2 "<assoc array> <array>" nmg::print_env var "" var3 var4
+    xret M77 t "returns true"
+    ftest M77f "" "does not log"
+    xread_value2 out <<-EOF
+	var3=([0]="first" [1]="second")
+	var4=([first]="value" )
+	EOF
+    vtest M77x "$out" "sets retvar"
+
+    declare -l -A var4=([first]=value [second]=other)
+
+    xwrap2 "<assoc array>" nmg::print_env var "%s=%s," var4
+    xret M78 t "returns true"
+    ftest M78f "" "does not log"
+    # handle random order
+    if [[ $var == 'var4=([first]="value" [second]="other" ),' ||
+	    $var == 'var4=([second]="other" [first]="value" ),' ]]; then
+      xtest M78x t "sets retvar"
+    else
+      vtest M78x 'var4=([first]="value" [second]="other" ),' "sets retvar"
+    fi
+  fi
+
+  unset var4
+  local var=xx var2=yy var5=''
+
+  xwrap2 "<no unset/empty>" nmg::print_env var "" var2 var4 var5
+  xret M79 t "returns true"
+  ftest M79f "" "does not log"
+  vtest M79v "var2=\"yy\""$'\n' "sets var"
+
+  unset var2 var3 var4 var5
+  local var=xx var2=yy var3=(a b) var5=()
+
+  xwrap2 "<with defaults>" nmg::print_env var "" var2=xx \
+	 'var3=([0]="a" [1]="b")' var4=zz var5
+  xret M7a t "returns true"
+  ftest M7af "" "does not log"
+  xread_value2 out <<-EOF
+	var2="yy"
+	EOF
+  vtest M7av "$out" "sets var"
+
+  xwrap2 "<all with defaults>" nmg::print_env var "%-" var2=xx \
+	 'var3=([0]="a" [1]="b")' var4=zz var5
+  xret M7b t "returns true"
+  ftest M7bf "" "does not log"
+  xread_value2 out <<-EOF
+	var2="yy"
+	var3=([0]="a" [1]="b")
+	var4=zz
+	var5=()
+	EOF
+  vtest M7bv "$out" "sets var"
+
+  #
+  # Testing unset_env
+  #
+
+  xwrap2 "<no args>" nmg::unset_env
+  xret M80 t "returns true"
+  ftest M80f "" "does not log"
+
+  local xx=yy
+
+  xwrap2 "<bad name>" nmg::unset_env 123 xx
+  xret M81 3 "returns 3"
+  ftest M81f "ERR: nmg::unset_env: invalid <env> '123'" "logs error"
+  [[ ${xx-unset} == "unset" ]]
+  xtest M81v t "unsets other vars"
+
+  unset xx
+  local var1=bogus
+
+  xwrap2 "<empty name> <unset var>" nmg::unset_env "" xx var1
+  xret M82 t "returns true"
+  ftest M82f "" "does not log"
+  [[ ${var1-unset} == "unset" ]]
+  xtest M82v t "unsets other vars"
+
+  xwrap2 "<no args>" nmg::get_config
+  xret M90 3 "returns 3"
+  ftest M90f "ERR: nmg::get_config: missing <retvar>" "logs error"
+
+  xwrap2 "var" nmg::get_config var
+  xret M91 t "returns true"
+  ftest M91f "" "no log"
+  xread_value2 out <<-EOF
+	nmg_log_stderr="4"
+	NMUTILS="../etc/nmutils"
+	NMCONF="./conf"
+	NMG_RADVD="radvd-missing"
+	EOF
+  vtest M91v "$out" "sets var"
+
+  xwrap2 "var <all-fmt>" nmg::get_config var "%-%s=%s,"
+  xret M92 t "returns true"
+  ftest M92f "" "no log"
+  out='nmg_show_debug="",nmg_log_stderr="4",'
+  out+='NMG_TAG="",NMUTILS="../etc/nmutils",NMCONF="./conf",'
+  out+='NMG_RADVD_TRIGGER="",NMG_RADVD_TRIGGER_ARGS="",'
+  out+='NMG_RADVD="radvd-missing",NMG_RADVD_PID="/run/radvd/radvd.pid",'
+  out+='NMG_LOGGER_USEID="",'
+  out+='NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.procs",'
+  vtest M92v "$out" "sets var"
 }
 
 xtest::group3::string() {

@@ -2,7 +2,7 @@
 # vim:set ft=sh et sw=2 ts=2:
 # SPDX-License-Identifier: LGPL-3.0-or-later
 #
-# Copyright (C) 2014-2024 Scott Shambarger
+# Copyright (C) 2014-2025 Scott Shambarger
 #
 # NMDDNS - Dynamic DNS functions scripts can include and use
 # Author: Scott Shambarger <devel@shambarger.net>
@@ -48,7 +48,7 @@
 #   nmddns_read_config <config-file>
 #
 #     Reset config setting (including for all resource records) and
-#     read <config-file>. Return 1 if not found or required elements missing.
+#     read <config-file>. Return 1 if not found, 2 if DDNS_ZONE not set.
 #
 #   nmddns_required_config <config-file>
 #
@@ -59,9 +59,17 @@
 #
 #     Unset all config environment
 #
+#   nmddns_get_config <retvar> [ <fmt> ]
+#
+#     Sets <retvar> with DDNS config using nmg::print_env
+#
 #   nmddns_cleanup
 #
 #     Unset all loaded environment
+#
+#   nmddns_get_globals <retvar> [ <fmt> ]
+#
+#     Sets <retvar> with global DDNS config using nmg::print_env
 #
 #   nmddns::get_A_addrs <retarr> <interface> [ <private-ok> ]
 #
@@ -204,7 +212,7 @@
 #
 # shellcheck shell=bash disable=SC1090
 
-[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.5.3"
+[[ ${NMDDNS_VERSION-} ]] || declare -r NMDDNS_VERSION="1.6.0"
 
 # set default paths if missing
 NMUTILS=${NMUTILS:-/etc/nmutils}
@@ -212,13 +220,6 @@ NMUTILS=${NMUTILS:-/etc/nmutils}
 ########## Global Defaults (customize in $NMCONF/general.conf)
 
 DDNS_STATE_DIR=${RUNDIR:-/run/nmutils}
-DDNS_GLOBAL_LOCKFILE=${DDNS_GLOBAL_LOCKFILE-}
-DDNS_GLOBAL_FLOCK_TIMEOUT=${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}
-DDNS_GLOBAL_DIG_TIMEOUT=${DDNS_GLOBAL_DIG_TIMEOUT:-3}
-DDNS_GLOBAL_DIG_RETRIES=${DDNS_GLOBAL_DIG_RETRIES:-2}
-DDNS_GLOBAL_DIG_OPTIONS=${DDNS_GLOBAL_DIG_OPTIONS-}
-DDNS_GLOBAL_NSUPDATE_TIMEOUT=${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}
-DDNS_GLOBAL_NSUPDATE_OPTIONS=${DDNS_GLOBAL_NSUPDATE_OPTIONS-}
 
 ########## Support Programs
 
@@ -235,7 +236,7 @@ NMDDNS_FLOCK=${NMDDNS_FLOCK:-flock}
 NMG=${NMG:-${NMUTILS}/general-functions}
 # save any existing NMG_REQUIRED (checked later)
 NMDDNS_NMG_REQ=${NMG_REQUIRED-}
-NMG_REQUIRED="1.7.0"
+NMG_REQUIRED="1.8.0"
 { [[ -r ${NMG} ]] && . "${NMG}"; } || {
   echo 1>&2 "Unable to load ${NMG}"; NMG=''; }
 
@@ -354,12 +355,19 @@ nmddns::_update() {
   return ${rc}
 }
 
+_nmddns_conf_env=(
+  DDNS_ZONE DDNS_SERVER DDNS_TTL
+  'DDNS_FLOCK_TIMEOUT="'"${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}"'"'
+  'DDNS_DIG_TIMEOUT="'"${DDNS_GLOBAL_DIG_TIMEOUT:-3}"'"'
+  'DDNS_DIG_RETRIES="'"${DDNS_GLOBAL_DIG_RETRIES:-2}"'"'
+  'DDNS_DIG_OPTIONS="'"${DDNS_GLOBAL_DIG_OPTIONS-}"'"'
+  'DDNS_NSUPDATE_TIMEOUT="'"${DDNS_GLOBAL_NSUPDATE_TIMEOUT:-10}"'"'
+  'DDNS_NSUPDATE_OPTIONS="'"${DDNS_GLOBAL_NSUPDATE_OPTIONS-}"'"'
+  'DDNS_LOCKFILE="'"${DDNS_GLOBAL_LOCKFILE-}"'"'
+)
+
 nmddns_reset_config() {
-  local name
-  for name in "${!DDNS_RREC_@}"; do unset "${name}"; done
-  unset DDNS_ZONE DDNS_SERVER DDNS_TTL DDNS_FLOCK_TIMEOUT
-  unset DDNS_DIG_TIMEOUT DDNS_DIG_RETRIES DDNS_DIG_OPTIONS
-  unset DDNS_NSUPDATE_TIMEOUT DDNS_NSUPDATE_OPTIONS DDNS_LOCKFILE
+  nmg::unset_env "${!DDNS_RREC_@}" "${_nmddns_conf_env[@]}"
 }
 
 nmddns_read_config() {
@@ -376,15 +384,29 @@ nmddns_read_config() {
   nmg_read_config "${config}" || return
 
   # check required elements
-  [[ ${DDNS_ZONE} ]] || return
+  [[ ${DDNS_ZONE-} ]] || return 2
 }
+
+_nmddns_gconf_env=(
+  DDNS_GLOBAL_LOCKFILE 'DDNS_GLOBAL_FLOCK_TIMEOUT="15"'
+  'DDNS_GLOBAL_DIG_TIMEOUT="3"' 'DDNS_GLOBAL_DIG_RETRIES="2"'
+  DDNS_GLOBAL_DIG_OPTIONS 'DDNS_GLOBAL_NSUPDATE_TIMEOUT="10"'
+  DDNS_GLOBAL_NSUPDATE_OPTIONS
+)
 
 nmddns_cleanup() {
   nmddns_reset_config
-  unset DDNS_GLOBAL_LOCKFILE DDNS_GLOBAL_FLOCK_TIMEOUT
-  unset DDNS_GLOBAL_DIG_TIMEOUT DDNS_GLOBAL_DIG_RETRIES
-  unset DDNS_GLOBAL_DIG_OPTIONS DDNS_GLOBAL_NSUPDATE_TIMEOUT
-  unset DDNS_GLOBAL_NSUPDATE_OPTIONS
+  nmg::unset_env "${_nmddns_gconf_env[@]}"
+}
+
+nmddns_get_config() { # <retvar> [ <fmt> ]
+  [[ ${1-} ]] || { nmg_err "nmddns_get_config: missing <retvar>"; return 3; }
+  nmg::print_env "$1" "${2-}" "${_nmddns_conf_env[@]}" "${!DDNS_RREC_@}"
+}
+
+nmddns_get_globals() { # <retvar> [ <fmt> ]
+  [[ ${1-} ]] || { nmg_err "nmddns_get_globals: missing <retvar>"; return 3; }
+  nmg::print_env "$1" "${2-}" "${_nmddns_gconf_env[@]}"
 }
 
 nmddns_required_config() {
@@ -535,7 +557,8 @@ nmddns_update() {
     name="DDNS_RREC_${rrec}_FALLBACK"; value=${!name-}
   fi
 
-  if [[ ${DDNS_LOCKFILE-} ]] && command &>/dev/null -v "${NMDDNS_FLOCK}"; then
+  if [[ -f ${DDNS_LOCKFILE-} ]] &&
+       command &>/dev/null -v "${NMDDNS_FLOCK}"; then
     timeout=${DDNS_FLOCK_TIMEOUT:-${DDNS_GLOBAL_FLOCK_TIMEOUT:-15}}
     ("${NMDDNS_FLOCK}" -w "${timeout}" 9 || {
        nmg_err "Timeout getting DDNS lock for ${rrec}"; exit 1; }

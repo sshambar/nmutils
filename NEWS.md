@@ -1,3 +1,11 @@
+Overview of changes in nmutils
+=======================================
+
+- general-functions 1.8.0 adds nmg::print_env, nmg::unset_env, 
+    nmg::get_config and nmg::load_comment
+- ddns-functions 1.6.0 adds nmddns_get_config and nmddns_get_globals
+- Added tests for new functions
+
 Overview of changes in nmutils-20241216
 =======================================
 
