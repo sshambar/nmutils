@@ -116,7 +116,7 @@ xtest::group3::action() {
   xtest::onexit::action
 }
 
-xtest::onexit::direct() {
+xtest::onexit::command() {
   # remove helper tmpfiles
   [[ ${NMDDNS_STATE_PAT-} ]] || return 0
   xrm "${NMDDNS_STATE_PAT/@MATCH@-@RREC@/eth0-A}"
@@ -124,16 +124,20 @@ xtest::onexit::direct() {
   xrm "${NMDDNS_STATE_PAT/@MATCH@-@RREC@/br1-from-xxx-AAAA}"
 }
 
-xtest::group5::direct() {
+xtest::group5::command() {
 
   local out state0 state1 state2
 
-  shtest::title "ddns_direct tests (direct group)"
+  shtest::title "ddns_command tests (command group)"
+
+  #
+  # direct command tests
+  #
 
   # Test running 09-ddns directly (as from boot script), and test
   # deferred dns updates using state files created by NM actions.
 
-  # config is nm-ddns-????.conf
+  # config is nm-ddns-XXXX.conf
 
   state0="${NMDDNS_STATE_PAT/@MATCH@-@RREC@/eth0-A}"
   state1="${NMDDNS_STATE_PAT/@MATCH@-@RREC@/eth0-AAAA}"
@@ -145,8 +149,8 @@ xtest::group5::direct() {
   echo "2001:db8:871a:28c1::1" > "$state1"
   echo "2001:db8:200:2:32fb:93c5:555:1,2001:db8:100:2:32fb:93c5:555:1" > "$state2"
 
-  xwrap2 "<new ip4, 2 curr ip6>" ddns_direct
-  xret D1 t "returns true"
+  xwrap2 "direct <new ip4, 2 curr ip6>" ddns_command direct
+  xret C1 t "returns true"
   xread_value out <<-EOF
 	Setting dns.example.test A to 192.168.66.4
 	nsupdate '-t' '10'
@@ -156,14 +160,14 @@ xtest::group5::direct() {
 	update add dns.example.test 600 A 192.168.66.4
 	send
 	EOF
-  ftest D1f "$out" "updates ip4"
+  ftest C1f "$out" "updates ip4"
 
   echo "198.51.100.2" > "$state0"
   echo "!eth0" > "$state1"
   echo "2001:db8:200:2:32fb:93c5:555:1" > "$state2"
 
-  xwrap2 "<stale ip4, selected ip6>" ddns_direct
-  xret D2 t "returns true"
+  xwrap2 "direct <stale ip4, selected ip6>" ddns_command direct
+  xret C2 t "returns true"
   xread_value out <<-EOF
 	Setting dns2.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	nsupdate '-t' '10'
@@ -188,12 +192,12 @@ xtest::group5::direct() {
 	update delete dns.example.test A
 	send
 	EOF
-  ftest D2f "$out" "sets 1 ddns2, removes ip4"
+  ftest C2f "$out" "sets 1 ddns2, removes ip4"
 
   xrm "$state0" "$state2"
 
-  xwrap2 "<eth0 only state>" ddns_direct
-  xret D3 t "returns true"
+  xwrap2 "direct <eth0 only state>" ddns_command direct
+  xret C3 t "returns true"
   xread_value out <<-EOF
 	Removing dns2.example.test AAAA
 	nsupdate '-t' '10'
@@ -217,14 +221,14 @@ xtest::group5::direct() {
 	update delete dns.example.test A
 	send
 	EOF
-  ftest D3f "$out" "updates ip4, removes ddns2"
+  ftest C3f "$out" "updates ip4, removes ddns2"
 
   echo "2001:db8:200:2:32fb:93c5:555:1" > "$state2"
 
   # Test direct for only a single interface
 
-  xwrap2 "br1" ddns_direct br1
-  xret D11 t "returns true"
+  xwrap2 "direct br1" ddns_command direct br1
+  xret C11 t "returns true"
   xread_value out <<-EOF
 	Setting dns2.example.test AAAA to 2001:db8:200:2:32fb:93c5:555:1
 	nsupdate '-t' '10'
@@ -234,10 +238,79 @@ xtest::group5::direct() {
 	update add dns2.example.test 600 AAAA 2001:db8:200:2:32fb:93c5:555:1
 	send
 	EOF
-  ftest D11f "$out" "updates ip4, removes ddns2"
+  ftest C11f "$out" "updates ip4, removes ddns2"
+
+  #
+  # config command tests
+  #
+
+  xwrap2 "<no args>" ddns_command config
+  xret C21 t "returns true"
+  xread_value out <<-EOF
+	Global config "${NMCONF}/general.conf"
+	  nmg_log_stderr="4"
+	  NMUTILS="${NMUTILS}"
+	  NMCONF="${NMCONF}"
+	  NMG_RADVD="radvd-missing"
+	  DDNS_GLOBAL_DIG_OPTIONS="+time=1 +retry=2"
+
+	Interface br1
+	  DDNS config "${NMCONF}/nm-ddns-br1-from-xxx.conf"
+	    DDNS_ZONE="example.test"
+	    DDNS_LOCKFILE="${NMCONF}/nm-ddns-br1-from-xxx.conf"
+	    DDNS_RREC_AAAA_NAME="dns2.example.test"
+
+	Interface eth0
+	  DDNS config "${NMCONF}/nm-ddns-eth0.conf"
+	    DDNS_ZONE="example.test"
+	    DDNS_LOCKFILE="${NMCONF}/nm-ddns-eth0.conf"
+	    DDNS_RREC_AAAA_NAME="dns.example.test"
+	    DDNS_RREC_A_NAME="dns.example.test"
+	    DDNS_RREC_A_PRIVATE="1"
+	EOF
+  ftest2 C21f "" "$out" "no log, displays config"
+
+  xwrap2 "-a br1" ddns_command config -a br1
+  xret C22 t "returns true"
+  xread_value out <<-EOF
+	Global config "${NMCONF}/general.conf"
+	  nmg_show_debug=""
+	  nmg_log_stderr="4"
+	  NMG_TAG=""
+	  NMUTILS="${NMUTILS}"
+	  NMCONF="${NMCONF}"
+	  NMG_RADVD_TRIGGER=""
+	  NMG_RADVD_TRIGGER_ARGS=""
+	  NMG_RADVD="radvd-missing"
+	  NMG_RADVD_PID="/run/radvd/radvd.pid"
+	  NMG_LOGGER_USEID=""
+	  NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.procs"
+	  DDNS_GLOBAL_LOCKFILE=""
+	  DDNS_GLOBAL_FLOCK_TIMEOUT="15"
+	  DDNS_GLOBAL_DIG_TIMEOUT="3"
+	  DDNS_GLOBAL_DIG_RETRIES="2"
+	  DDNS_GLOBAL_DIG_OPTIONS="+time=1 +retry=2"
+	  DDNS_GLOBAL_NSUPDATE_TIMEOUT="10"
+	  DDNS_GLOBAL_NSUPDATE_OPTIONS=""
+
+	Interface br1
+	  DDNS config "${NMCONF}/nm-ddns-br1-from-xxx.conf"
+	    DDNS_ZONE="example.test"
+	    DDNS_SERVER=""
+	    DDNS_TTL=""
+	    DDNS_FLOCK_TIMEOUT="15"
+	    DDNS_DIG_TIMEOUT="3"
+	    DDNS_DIG_RETRIES="2"
+	    DDNS_DIG_OPTIONS="+time=1 +retry=2"
+	    DDNS_NSUPDATE_TIMEOUT="10"
+	    DDNS_NSUPDATE_OPTIONS=""
+	    DDNS_LOCKFILE="${NMCONF}/nm-ddns-br1-from-xxx.conf"
+	    DDNS_RREC_AAAA_NAME="dns2.example.test"
+	EOF
+  ftest2 C22f "" "$out" "no log, displays config with defaults for br1"
 
   nmddns_reset_config
-  xtest::onexit::direct
+  xtest::onexit::command
 }
 
 xmain() {

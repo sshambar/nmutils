@@ -619,6 +619,143 @@ xtest::group3::lan() {
   xtest::onexit::lan
 }
 
+xtest::group4::command() {
+  shtest::title "Dispatcher Command Tests (command group)"
+
+  # test variables
+  local out interface=''
+
+  #
+  # status command tests
+  #
+
+  xwrap2 "status <no args>" ipv6_command status
+  xret C1 t "succeeds"
+  xread_value out <<-EOF
+	WAN wan1 (DOWN)
+	  DEPRECATED: wan1 down
+	  Default gateway: <none>
+	  LAN br1 (UP)
+	WAN wan2 (DOWN)
+	  DEPRECATED: wan2 down
+	  Default gateway: <none>
+	  LAN br1 (UP)
+	EOF
+  ftest2 C1f "" "$out" "shows status"
+
+  # FIXME add more detailed status tests?
+
+  #
+  # config command tests
+  #
+
+  xwrap2 "config <no args>" ipv6_command config
+  xret C10 t "succeeds"
+  xread_value out <<-EOF
+	Global config "${NMCONF}/general.conf"
+	  nmg_log_stderr="4"
+	  NMUTILS="${NMUTILS}"
+	  NMCONF="${NMCONF}"
+	  NMG_RADVD_TRIGGER="./bin/radvd-trigger"
+	  NMG_RADVD="radvd-missing"
+	  DDNS_GLOBAL_DIG_OPTIONS="+time=1 +retry=2"
+
+	WAN interface wan1
+	  WAN config "${NMCONF}/ipv6-prefix-wan1.conf"
+	    WAN_LAN_INTFS="br1"
+
+	  DDNS config "${NMCONF}/ddns-wan1-from-wan1.conf" (not found)
+
+	  LAN interface br1
+	    LAN config "${NMCONF}/ipv6-prefix-br1-from-wan1.conf" (not found)
+
+	    DDNS config "${NMCONF}/ddns-br1-from-wan1.conf"
+	      DDNS_ZONE="example.test"
+	      DDNS_LOCKFILE="${NMCONF}/ddns-br1-from-wan1.conf"
+	      DDNS_RREC_AAAA_NAME="br1-w1.example.test"
+
+	WAN interface wan2
+	  WAN config "${NMCONF}/ipv6-prefix-wan2.conf"
+	    WAN_LAN_INTFS="br1"
+	    WAN_DHCPCD_ARGS=([0]="-E" [1]="-d")
+
+	  DDNS config "${NMCONF}/ddns-wan2-from-wan2.conf" (not found)
+
+	  LAN interface br1
+	    LAN config "${NMCONF}/ipv6-prefix-br1-from-wan2.conf" (not found)
+
+	    DDNS config "${NMCONF}/ddns-br1-from-wan2.conf" (not found)
+	EOF
+  ftest2 C10f "" "$out" "shows status"
+
+  xwrap2 "config -a wan1" ipv6_command config -a wan1
+  xret C11 t "succeeds"
+  xread_value out <<-EOF
+	Global config "${NMCONF}/general.conf"
+	  nmg_show_debug=""
+	  nmg_log_stderr="4"
+	  NMG_TAG=""
+	  NMUTILS="${NMUTILS}"
+	  NMCONF="${NMCONF}"
+	  NMG_RADVD_TRIGGER="./bin/radvd-trigger"
+	  NMG_RADVD_TRIGGER_ARGS=""
+	  NMG_RADVD="radvd-missing"
+	  NMG_RADVD_PID="/run/radvd/radvd.pid"
+	  NMG_LOGGER_USEID=""
+	  NMG_DAEMON_CGROUP="/sys/fs/cgroup/system.slice/NetworkManager.service/cgroup.procs"
+	  DDNS_GLOBAL_LOCKFILE=""
+	  DDNS_GLOBAL_FLOCK_TIMEOUT="15"
+	  DDNS_GLOBAL_DIG_TIMEOUT="3"
+	  DDNS_GLOBAL_DIG_RETRIES="2"
+	  DDNS_GLOBAL_DIG_OPTIONS="+time=1 +retry=2"
+	  DDNS_GLOBAL_NSUPDATE_TIMEOUT="10"
+	  DDNS_GLOBAL_NSUPDATE_OPTIONS=""
+
+	WAN interface wan1
+	  WAN config "${NMCONF}/ipv6-prefix-wan1.conf"
+	    WAN_LAN_INTFS="br1"
+	    WAN_REQUIRE_IP4=""
+	    WAN_PREFIXLEN_HINT=""
+	    WAN_SADR_DISABLE=""
+	    WAN_SADR_METRIC=""
+	    WAN_STATIC_IP6=""
+	    WAN_STATIC_DNS6=""
+	    WAN_STATIC_DNS6_SEARCH=""
+	    WAN_DHCLIENT_OPTIONS=""
+	    WAN_DHCLIENT_ARGS=()
+	    WAN_DHCLIENT_SCRIPT=""
+	    WAN_DHCPCD_ARGS=()
+	    WAN_DHCPCD_PRECONFIG=""
+	    WAN_DHCPCD_POSTCONFIG=""
+
+	  DDNS config "${NMCONF}/ddns-wan1-from-wan1.conf" (not found)
+
+	  LAN interface br1
+	    LAN config "${NMCONF}/ipv6-prefix-br1-from-wan1.conf" (not found)
+	      LAN_NODE="auto"
+	      LAN_PREFIX_LEN="64"
+	      LAN_SITE="auto"
+
+	    DDNS config "${NMCONF}/ddns-br1-from-wan1.conf"
+	      DDNS_ZONE="example.test"
+	      DDNS_SERVER=""
+	      DDNS_TTL=""
+	      DDNS_FLOCK_TIMEOUT="15"
+	      DDNS_DIG_TIMEOUT="3"
+	      DDNS_DIG_RETRIES="2"
+	      DDNS_DIG_OPTIONS="+time=1 +retry=2"
+	      DDNS_NSUPDATE_TIMEOUT="10"
+	      DDNS_NSUPDATE_OPTIONS=""
+	      DDNS_LOCKFILE="${NMCONF}/ddns-br1-from-wan1.conf"
+	      DDNS_RREC_AAAA_NAME="br1-w1.example.test"
+
+	EOF
+  ftest2 C11f "" "$out" "shows status"
+
+  ipv6_lan_clear_config
+  ipv6_wan_clear_config
+}
+
 xtest::onexit() {
   xrm "${XFILE-}"
   xtest_init_sysctls

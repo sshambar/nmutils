@@ -3,9 +3,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Copyright (C) 2014-2024 Scott Shambarger
+# Copyright (C) 2014-2025 Scott Shambarger
 #
-# 08-ipv6-prefix v2.0 - NetworkManager dispatch for ipv6 prefix delegation
+# 08-ipv6-prefix v2.1 - NetworkManager dispatch for ipv6 prefix delegation
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Instructions for use:
@@ -176,6 +176,9 @@
 #
 #   status [ <INTERFACE> ] - show status (of <INTERFACE>, if configured)
 #
+#   config [ -a ] [ <INTERFACE>... ] - show configuration (of <INTERFACE>...)
+#     If "-a" supplied, unset/empty variables with defaults are displayed.
+#
 #   deprecate <WAN> <WHO> [ <REASON> ]
 #
 #     <WHO> is a short tag (max 5 chars: a-z0-9) unique among actors
@@ -233,36 +236,6 @@ DHCP_REBIND_TIMEOUT=120
 
 ########## SCRIPT START
 
-ipv6_help() {
-  local file=${BASH_SOURCE[0]} p=1 l t=''
-  [[ -r ${file} ]] || { printf '%s\n' >&2 "Unable to locate ${file}"; exit 1; }
-  while read -r l; do
-    [[ $l =~ 08-ipv6-prefix ]] && p=''
-    [[ $p ]] && continue
-    [[ $l =~ SCRIPT\ START ]] && break
-    if [[ $l =~ ^# ]]; then
-      [[ $l =~ shellcheck ]] && continue
-      l=${l#"#"}; t+="${l# }"$'\n'
-    else
-      [[ $l =~ ^([^=]+=)[$]{[^-]+-(.*)}$ ]] &&
-        l="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
-      t+="  $l"$'\n'
-    fi
-  done < "${file}"
-  [[ ${PAGER} ]] || {
-    for PAGER in less more cat; do
-      command >/dev/null -v "${PAGER}" && break
-    done
-  }
-  if [[ ${PAGER} != cat ]]; then
-    printf %s "$t" | "${PAGER}"
-  else
-    printf %s "$t"
-  fi
-}
-
-[[ $1 =~ ^(help|-h)$ ]] && { ipv6_help; exit 0; }
-
 # Config overrides:
 NMDH6_IGNORE_METHOD_AUTO=${NMDH6_IGNORE_METHOD_AUTO-}
 NMDH6_DHCLIENT_ARGS=("-N")
@@ -282,13 +255,14 @@ elif [[ ${1-} ]]; then
   # run from shell, log to stderr
   # shellcheck disable=SC2034
   [[ ${LOGNAME-} ]] && nmg_log_stderr=1
+  [[ $1 =~ ^help|-h|config$ ]] && _NMG_IGNORE_PROGS=1
 elif [[ ${interface-} ]]; then
   # run from dhclient
   NMG_TAG=${NMG_TAG-ipv6-prefix-dhc}
 fi
 
-NMG_REQUIRED="1.7.0"
-NMDDNS_REQUIRED="1.5.3"
+NMG_REQUIRED="1.8.0"
+NMDDNS_REQUIRED="1.6.0"
 
 # load ddns- or general-functions
 NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
@@ -296,7 +270,7 @@ NMDDNS=${NMDDNS-${NMUTILS}/ddns-functions}
   # no DDNS, use general-functions
   NMDDNS='' NMG=${NMG:-${NMUTILS}/general-functions}
   { [[ -r ${NMG} ]] && . "${NMG}"; } || {
-    echo 1>&2 "Unable to load ${NMG}"; exit 2; }
+    echo 1>&2 "Unable to load ${NMG} (set \$NMUTILS to it's dir)"; exit 2; }
 }
 
 [[ ${NMG_VERSION} ]] || {
@@ -411,13 +385,15 @@ ipv6_check_radvd_trigger() {
   RADVD_TRIGGER=''
 }
 
-ipv6_wan_clear_config() {
+wan_conf_env=(
+  WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_PREFIXLEN_HINT WAN_SADR_DISABLE
+  WAN_SADR_METRIC WAN_STATIC_IP6 WAN_STATIC_DNS6 WAN_STATIC_DNS6_SEARCH
+  WAN_DHCLIENT_OPTIONS WAN_DHCLIENT_ARGS WAN_DHCLIENT_SCRIPT
+  WAN_DHCPCD_ARGS WAN_DHCPCD_PRECONFIG WAN_DHCPCD_POSTCONFIG
+)
 
-  unset WAN_LAN_INTFS WAN_REQUIRE_IP4 WAN_PREFIXLEN_HINT
-  unset WAN_SADR_DISABLE WAN_SADR_METRIC
-  unset WAN_STATIC_IP6 WAN_STATIC_DNS6 WAN_STATIC_DNS6_SEARCH
-  unset WAN_DHCLIENT_OPTIONS WAN_DHCLIENT_ARGS WAN_DHCLIENT_SCRIPT
-  unset WAN_DHCPCD_ARGS WAN_DHCPCD_PRECONFIG WAN_DHCPCD_POSTCONFIG
+ipv6_wan_clear_config() {
+  nmg::unset_env "${wan_conf_env[@]}"
 }
 
 ipv6_wan_read_config() { # return true if config read
@@ -1122,8 +1098,12 @@ ipv6_wait_dad() {
   nmg_write "${sfile}" "${!svar}" || :
 }
 
+lan_conf_env=(
+  'LAN_NODE="auto"' 'LAN_PREFIX_LEN="64"' 'LAN_SITE="auto"'
+)
+
 ipv6_lan_clear_config() { # returns 0
-  unset LAN_NODE LAN_PREFIX_LEN LAN_SITE
+  nmg::unset_env "${lan_conf_env[@]}"
 }
 
 ipv6_lan_read_config() { # returns 0
@@ -1132,16 +1112,8 @@ ipv6_lan_read_config() { # returns 0
   # clear config
   ipv6_lan_clear_config
 
-  # load LAN config (with defaults)
-  LAN_PREFIX_LEN=64 LAN_SITE=auto LAN_NODE=auto
-
   nmg_read_config \
     "${LAN_CONFIG_PAT/@LAN@-from-@WAN@/${1}-from-${interface}}" || :
-
-  # check values (node/site/plen can't be empty)
-  LAN_NODE=${LAN_NODE:-auto}
-  LAN_SITE=${LAN_SITE:-auto}
-  LAN_PREFIX_LEN=${LAN_PREFIX_LEN:-64}
 }
 
 # check DAD, and remove address if failed
@@ -1206,7 +1178,7 @@ ipv6_lan_up_from() { # returns 0
       nmg::is_ip6_prefix "${addr6}"; then
 
     # still need to calc address (interface was down)
-    ipv6_lan_calc_address addr6 "${interface}" "${addr6}" "${LAN_NODE}" && {
+    ipv6_lan_calc_address addr6 "${interface}" "${addr6}" "${LAN_NODE:-auto}" && {
       ipv6_state_set state "inet6" "${addr6}"
       nmg_write "${sfile}" "${state}" || :
     }
@@ -1329,7 +1301,9 @@ ipv6_lan_node_load_config() { # returns 0
 
   ipv6_lan_read_config "${lan}"
 
-  nmg::2dec plen "${LAN_PREFIX_LEN}" || plen=0
+  local node=${LAN_NODE:-auto}
+
+  nmg::2dec plen "${LAN_PREFIX_LEN:-64}" || plen=0
 
   (( plen <= 0 || plen > 128 )) && {
     nmg_err "${lan} config error, invalid LAN_PREFIX_LEN '${LAN_PREFIX_LEN}'"
@@ -1339,7 +1313,7 @@ ipv6_lan_node_load_config() { # returns 0
 
   (( plen > 64 )) && {
     # host address, use <host_site>
-    Lans+=("${lan} 128 ${LAN_NODE} ${host_site}")
+    Lans+=("${lan} 128 ${node} ${host_site}")
     return
   }
 
@@ -1349,8 +1323,8 @@ ipv6_lan_node_load_config() { # returns 0
     return
   }
 
-  [[ ${LAN_SITE} == auto ]] && {
-    Lans+=("${lan} ${plen} ${LAN_NODE} ${LAN_SITE}")
+  [[ ${LAN_SITE:-auto} == auto ]] && {
+    Lans+=("${lan} ${plen} ${node} auto")
     return
   }
 
@@ -1366,7 +1340,7 @@ ipv6_lan_node_load_config() { # returns 0
 
   # reserve prefix
   Reserved+=("${site}/${plen}")
-  Lans+=("${lan} ${plen} ${LAN_NODE} ${site}")
+  Lans+=("${lan} ${plen} ${node} ${site}")
 }
 
 # _ipv6_lan_node_calc for <prefix-len>=128
@@ -3356,7 +3330,7 @@ ipv6_wan_dhcp_monitor() {
     [[ ${boot} ]] || return 0
 
   # boot still set, restart...
-  nmg_info "dhcpcd on ${interface} failed to solicit/rebind, restarting..."
+  nmg_info "dhcp client on ${interface} failed to solicit/rebind, restarting..."
   ipv6_wan_stop
   nmg_qcmd "${NMCLI}" device reapply "${interface}" || :
 }
@@ -3484,7 +3458,7 @@ ipv6_rep_intf() {
 
 ipv6_status() {
   # [ <intf> ]
-  local intf=${1-} Report='' Found='' file=${WAN_CONFIG_PAT/@WAN@/$1}
+  local intf=${1-} Report='' Found='' file=${WAN_CONFIG_PAT/@WAN@/${1-}}
   # shellcheck disable=SC2034
   nmg_show_debug=''
 
@@ -3492,9 +3466,119 @@ ipv6_status() {
     ipv6_rep_intf "${file}" "${intf}"
   else
     nmg::foreach_filematch "${WAN_CONFIG_PAT}" "@WAN@" ipv6_rep_intf "${intf}"
-    [[ ${Found} ]] || ipv6_rep "Interface ${intf} not configured"
+    [[ ${Found} ]] || {
+      [[ ${intf} ]] && ipv6_rep "Interface ${intf} not configured"
+    }
   fi
   printf "%s" "${Report}"
+}
+
+ipv6_ddns_config() { # <file> <prefix>
+  local file=$1 pfx=$2 out
+  [[ ${NMDDNS} ]] || return 0
+  if nmddns_read_config "${file}"; then
+    # shellcheck disable=SC2059
+    ipv6_rep $'\n'"${pfx}DDNS config \"${file}\""
+    nmddns_get_config out "${Fmt}${pfx}  %s=%s\n"
+    Report+="${out}"
+  else
+    out="not found"
+    [[ -e ${file} ]] && out="invalid"
+    ipv6_rep $'\n'"${pfx}DDNS config \"${file}\" ($out)"
+  fi
+  nmddns_reset_config
+}
+
+ipv6_config_lan() {
+  # <lan> <wan>
+  local lan=$1 interface=$2 env def=''
+  ipv6_lan_read_config "${lan}"
+  local file=${LAN_CONFIG_PAT/@LAN@-from-@WAN@/${lan}-from-${interface}}
+  ipv6_rep $'\n'"  LAN interface ${lan}"
+  [[ -r ${file} ]] || def=" (not found)"
+  ipv6_rep "    LAN config \"${file}\"${def}"
+  nmg::print_env env "${Fmt}      %s=%s\n" "${lan_conf_env[@]}"
+  Report+="${env}"
+  [[ ${NMDDNS} ]] || return 0
+  ipv6_ddns_config \
+    "${LAN_DDNS_CONFIG_PAT//@LAN@-from-@WAN@/${lan}-from-${interface}}" "    "
+  nmddns_reset_config
+}
+
+ipv6_config_wan() {
+  # <wan>
+  local wan=$1 lan env
+  ipv6_rep $'\n'"WAN interface ${wan}"
+  ipv6_rep "  WAN config \"${WAN_CONFIG_PAT//@WAN@/${wan}}\""
+  nmg::print_env env "${Fmt}    %s=%s\n" "${wan_conf_env[@]}"
+  Report+="${env}"
+  ipv6_ddns_config "${WAN_DDNS_CONFIG_PAT//@WAN@/${wan}}"  "  "
+  # shellcheck disable=SC2086
+  for lan in ${WAN_LAN_INTFS-}; do ipv6_config_lan "${lan}" "${wan}"; done
+}
+
+ipv6_config_intf() {
+  # <file> <intf>[-from-<wan>] [ <lan> ]
+  local conf=$1 intf=$2 lan=${3-}
+  [[ ${intf} =~ -from-[^\.]+$ ]] && return 0
+  intf=${intf%-from-*}
+  ipv6_wan_read_config "${intf}" || return 0
+  if [[ ${lan} ]]; then
+    [[ ${WAN_LAN_INTFS-} =~ (^| )"${lan}"($| ) ]] || return 0
+    Found=1
+    ipv6_rep $'\n'"LAN interface ${lan} referenced in ${intf} WAN_LAN_INTFS"
+    ipv6_config_lan "${lan}" "${intf}"
+  else
+    Found=1
+    ipv6_config_wan "${intf}"
+  fi
+}
+
+ipv6_config() {
+  # [ -a ] [ <intf>... ]
+  local Report='' Found='' Fmt='' intf file out
+  # shellcheck disable=SC2034
+  nmg_show_debug=''
+
+  [[ ${1-} == "-a" ]] && { shift; Fmt="%-"; }
+  ipv6_rep "Global config \"${NMCONF}/general.conf\""
+  nmg::get_config "out" "${Fmt}  %s=%s\n"
+  Report+="${out}"
+  [[ ${NMDDNS} ]] && {
+    nmddns_get_globals "out" "${Fmt}  %s=%s\n"
+    Report+="${out}"
+  }
+
+  if [[ ${1-} ]]; then
+    for intf in "$@"; do
+      file=${WAN_CONFIG_PAT/@WAN@/${intf}} Found=''
+      if [[ -e ${file} ]]; then
+        ipv6_config_intf "${file}" "${intf}"
+      else
+        nmg::foreach_filematch "${WAN_CONFIG_PAT}" "@WAN@" \
+                               ipv6_config_intf "${intf}"
+        [[ $Found ]] || ipv6_rep $'\n'"Interface ${intf} not configured"
+      fi
+    done
+  else
+    nmg::foreach_filematch "${WAN_CONFIG_PAT}" "@WAN@" \
+                           ipv6_config_intf
+    [[ $Found ]] || ipv6_rep $'\n'"No interfaces configured"
+  fi
+  printf "%s" "${Report}"
+}
+
+ipv6_help() {
+  local out
+  nmg::load_comment "${BASH_SOURCE[0]}" out 08-ipv6-prefix "SCRIPT\\ START" ||
+    exit
+  [[ ${PAGER} ]] || {
+    for PAGER in less more cat; do
+      command >/dev/null -v "${PAGER}" && break
+    done
+  }
+  [[ ${PAGER} != cat ]] && { printf %s "${out}" | "${PAGER}"; return; }
+  printf %s "${out}"
 }
 
 # handle NetworkManager action
@@ -3546,24 +3630,35 @@ ipv6_command() {
   local interface=${2-}
 
   # run from service or command-line
-  nmg_debug "COMMAND: $1 INTERFACE: ${interface}"
-
   case $1 in
-    dhc-stop)
-      [[ ${interface} ]] && ipv6_dhc_stop
+    config)
+      shift
+      ipv6_config "$@"
       ;;
-    route-monitor)
-      [[ ${interface} ]] && ipv6_wan_route_monitor
-      ;;
-    deprecate)
-      ipv6_wan_deprecate "${3-}" "${4-}"
-      ipv6_check_radvd_trigger
-      ;;
-    dhcp-monitor)
-      ipv6_wan_dhcp_monitor
+    help|-h)
+      ipv6_help
       ;;
     status)
       ipv6_status "${interface}"
+      ;;
+    *)
+      nmg_debug "COMMAND: $1 INTERFACE: ${interface}"
+
+      case $1 in
+        dhc-stop)
+          [[ ${interface} ]] && ipv6_dhc_stop
+          ;;
+        route-monitor)
+          [[ ${interface} ]] && ipv6_wan_route_monitor
+          ;;
+        deprecate)
+          ipv6_wan_deprecate "${3-}" "${4-}"
+          ipv6_check_radvd_trigger
+          ;;
+        dhcp-monitor)
+          ipv6_wan_dhcp_monitor
+          ;;
+      esac
       ;;
   esac
 

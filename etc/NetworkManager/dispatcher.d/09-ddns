@@ -3,9 +3,9 @@
 # vim:set ft=sh et sw=2 ts=2:
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Copyright (C) 2014-2024 Scott Shambarger
+# Copyright (C) 2014-2025 Scott Shambarger
 #
-# 09-ddns v1.4.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
+# 09-ddns v1.5.0 - NetworkManager dispatch for ipv4 Dynamic DNS updates
 # Author: Scott Shambarger <devel@shambarger.net>
 #
 # Instructions for use:
@@ -26,6 +26,16 @@
 #   NMUTILS/ddns-functions - dynamic DNS functions
 #   NMUTILS/general-functions - shared functions
 #
+# External features:
+#
+#   This script may be used directly for a few key features.  The following
+#   parameters may be passed to the script to perform these features.
+#
+#   help - show these instructions and config variables docs in a pager
+#
+#   config [ -a ] [ <INTERFACE>... ] - show configuration (of <INTERFACE>...)
+#     If "-a" supplied, unset/empty variables with defaults are displayed.
+#
 # Config location:
 #
 #   NMCONF/ddns-<interface>.conf (see $NMUTILS/ddns-functions for settings)
@@ -36,26 +46,27 @@
 #
 # shellcheck disable=SC1090,SC2153
 
+########## SCRIPT START
+
 # for logging
 NMG_TAG=${NMG_TAG:-nmddns}
 [[ -z ${NM_DISPATCHER_ACTION-} && -z ${NMDDNSH_ACTION-} ]] && {
   # run from shell, log to stderr
   # shellcheck disable=SC2034
   [[ ${LOGNAME-} ]] && nmg_log_stderr=1
+  [[ $1 =~ ^help|-h|config$ ]] && _NMG_IGNORE_PROGS=1
 }
 
 # set NMUTILS early, and allow environment to override
 NMUTILS=${NMUTILS:-/etc/nmutils}
 
-########## SCRIPT START
-
 # shellcheck disable=SC2034
-NMDDNS_REQUIRED="1.5.3"
+NMDDNS_REQUIRED="1.6.0"
 
 # load ddns-functions
 NMDDNS=${NMDDNS:-${NMUTILS}/ddns-functions}
 { [[ -r ${NMDDNS} ]] && . "${NMDDNS}"; } || {
-  echo 1>&2 "Unable to load ${NMDDNS}" && exit 2; }
+  echo 1>&2 "Unable to load ${NMDDNS} (set \$NMUTILS to it's dir)" && exit 2; }
 
 [[ ${NMDDNS_VERSION} ]] || {
   nmg_err "${0##*/} requires NMDDNS v${NMDDNS_REQUIRED}+"; exit 2; }
@@ -182,6 +193,72 @@ function ddns_interface_rrec() {
   return ${rc}
 }
 
+ddns_rep() { Report+="$1"$'\n'; }
+
+ddns_config_intf() { # <file> <match> [ <interface> ]
+  local file=$1 match=$2 intf=${3-} out
+  match=${match%-from-*}
+  [[ ${match} ]] || return 0
+  shift 2
+  [[ ${intf} && ${intf} != "${match}" ]] && return 0
+  [[ ${match} != "${Intf}" ]] && {
+    Intf=${match}; ddns_rep $'\n'"Interface ${Intf}"
+  }
+  if nmddns_read_config "${file}"; then
+    # shellcheck disable=SC2059
+    ddns_rep "  DDNS config \"${file}\""
+    nmddns_get_config out "${Fmt}    %s=%s\n"
+    Report+="${out}"
+  else
+    out="not found"
+    [[ -e ${file} ]] && out="invalid"
+    ddns_rep "  DDNS config \"${file}\" ($out)"
+  fi
+  nmddns_reset_config
+}
+
+ddns_config() {
+  # [ -a ] [ <intf>... ]
+  local Report='' Fmt='' Intf='' out intf
+  # shellcheck disable=SC2034
+  nmg_show_debug=''
+
+  [[ ${1-} == "-a" ]] && { shift; Fmt="%-"; }
+  Report+="Global config \"${NMCONF}/general.conf\""$'\n'
+  nmg::get_config "out" "${Fmt}  %s=%s\n"
+  Report+="${out}"
+  nmddns_get_globals "out" "${Fmt}  %s=%s\n"
+  Report+="${out}"
+
+  if [[ ${1-} ]]; then
+    for intf in "$@"; do
+      nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" \
+                             ddns_config_intf "${intf}"
+      [[ ${intf} == "${Intf}" ]] ||
+        ddns_rep $'\n'"Interface ${intf} not configured"
+    done
+  else
+    nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" \
+                           ddns_config_intf
+  fi
+
+  printf "%s" "${Report}"
+}
+
+ddns_help() {
+  local out dout
+  nmg::load_comment "${BASH_SOURCE[0]}" out 09-ddns "^# State file" || exit
+  nmg::load_comment "${NMDDNS}" dout "^# Global Over" "NOTE:\\ exec" || exit
+  out+=${dout/, see nmddns_read_config() above/}
+  [[ ${PAGER} ]] || {
+    for PAGER in less more cat; do
+      command >/dev/null -v "${PAGER}" && break
+    done
+  }
+  [[ ${PAGER} != cat ]] && { printf %s "${out}" | "${PAGER}"; return; }
+  printf %s "${out}"
+}
+
 ddns_direct_cb() {
   # <file> <match> [ <interface> ]
   local config=$1 match=$2 intf=${3-} name rrec
@@ -205,18 +282,31 @@ ddns_direct_cb() {
   return 0
 }
 
-ddns_direct() {
-  # [ <interface> ]
-  nmg_debug "DIRECT: ${1-}"
+ddns_command() {
+  # [ <command> | <interface> ] [ <interface> ]
+  case $1 in
+    config)
+      shift
+      ddns_config "$@"
+      ;;
+    help|-h)
+      ddns_help
+      ;;
+    *)
+      [[ ${1-} == direct ]] && shift
+      nmg_debug "DIRECT: ${1-}"
 
-  nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" ddns_direct_cb "$@"
+      nmg::foreach_filematch "${NMDDNS_CONFIG_PAT}" "@MATCH@" \
+                             ddns_direct_cb "$@"
+      ;;
+  esac
 }
 
-if [[ ${1-} && ${2-} ]]; then
+if [[ ${1-} && ${NM_DISPATCHER_ACTION-} ]]; then
 
-  case $2 in
+  case ${NM_DISPATCHER_ACTION} in
     up|down|dhcp4-change|dhcp6-change)
-      ddns_nm_action "$1" "$2" || exit
+      ddns_nm_action "$1" "${NM_DISPATCHER_ACTION}" || exit
       ;;
   esac
 elif [[ ${NMDDNSH_ACTION-} ]]; then
@@ -226,7 +316,7 @@ elif [[ ${NMDDNSH_ACTION-} ]]; then
 
 elif [[ -z ${NM_DISPATCHER_ACTION-} ]]; then
 
-  # called from boot script
-  ddns_direct "${1-}"
+  # called from boot script/command-line
+  ddns_command "$@"
 fi
 : # for loading in tests

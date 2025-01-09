@@ -445,7 +445,8 @@ xtest::group2::addr() {
   xret A21 t "returns true"
   ltest A21a "LAN_SITE" "ab80" "sets LAN_SITE"
   ltest A21b "LAN_PREFIX_LEN" "63" "sets LAN_PREFIX_LEN"
-  ltest A21c "LAN_NODE" "auto" "uses defaults"
+  [[ ${LAN_NODE-unset} == unset ]]
+  xtest A21c t "LAN_NODE should be unset"
 
   ipv6_lan_clear_config
   xtest::onexit::addr

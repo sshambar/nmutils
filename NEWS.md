@@ -5,6 +5,8 @@ Overview of changes in nmutils
     nmg::get_config and nmg::load_comment
 - ddns-functions 1.6.0 adds nmddns_get_config and nmddns_get_globals
 - Added tests for new functions
+- `08-ipv6-prefix` now has config command
+- `09-ddns` now has help and config command
 
 Overview of changes in nmutils-20241216
 =======================================

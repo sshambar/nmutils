@@ -190,6 +190,10 @@ be run directly supporting a few additional features
 # display full documentation, explaining all config options
 $ ./08-ipv6-prefix help
 
+# prints configuration of all interfaces (or <interface>s if given)
+# "-a" includes unset/empty configuration with defaults
+$ ./08-ipv6-prefix config [ -a ] [ <interface>... ]
+
 # prints runtime status of all interfaces (or <interface> if given)
 $ ./08-ipv6-prefix status [ <interface> ]
 
@@ -233,6 +237,17 @@ $ systemctl enable ddns-onboot@<INTERFACE>.timer
 ```
 to perform late boot DDNS setup that may not have been possible during
 system boot.
+
+There are many additional configuraion options.  The script may
+be run directly supporting a few additional features
+```
+# display full documentation, explaining all config options
+$ ./09-ddns help
+
+# prints configuration of all interfaces (or <interface>s if given)
+# "-a" includes unset/empty configuration with defaults
+$ ./09-ddns config [ -a ] [ <interface>... ]
+```
 
 ### Examples
 
