@@ -1847,8 +1847,8 @@ xtest::group3::misc() {
   ftest M91f "" "no log"
   xread_value2 out <<-EOF
 	nmg_log_stderr="4"
-	NMUTILS="../etc/nmutils"
-	NMCONF="./conf"
+	NMUTILS="${NMUTILS}"
+	NMCONF="${NMCONF}"
 	NMG_RADVD="radvd-missing"
 	EOF
   vtest M91v "$out" "sets var"
@@ -1857,7 +1857,7 @@ xtest::group3::misc() {
   xret M92 t "returns true"
   ftest M92f "" "no log"
   out='nmg_show_debug="",nmg_log_stderr="4",'
-  out+='NMG_TAG="",NMUTILS="../etc/nmutils",NMCONF="./conf",'
+  out+='NMG_TAG="",NMUTILS="'"${NMUTILS}"'",NMCONF="'"${NMCONF}"'",'
   out+='NMG_RADVD_TRIGGER="",NMG_RADVD_TRIGGER_ARGS="",'
   out+='NMG_RADVD="radvd-missing",NMG_RADVD_PID="/run/radvd/radvd.pid",'
   out+='NMG_LOGGER_USEID="",'
