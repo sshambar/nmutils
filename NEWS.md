@@ -1,6 +1,7 @@
-Overview of changes in nmutils
+Overview of changes in nmutils-20250418
 =======================================
 
+- Added config command to 08-ipv6-prefix and 09-ddns with tests
 - general-functions 1.8.0 adds nmg::print_env, nmg::unset_env, 
     nmg::get_config and nmg::load_comment
 - ddns-functions 1.6.0 adds nmddns_get_config and nmddns_get_globals

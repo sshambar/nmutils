@@ -129,6 +129,10 @@ fi
 %endif
 
 %changelog
+* Fri Apr 18 2025 Scott Shambarger <devel at shambarger.net> 20250418-1
+- Added config command to 08-ipv6-prefix and 09-ddns with supporting
+  functions
+
 * Mon Dec 16 2024 Scott Shambarger <devel at shambarger.net> 20241216-1
 - Release 20241216
 

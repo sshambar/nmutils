@@ -3,7 +3,7 @@
 #meson setup --prefix=/usr -Dpkg=true build
 #meson install --destdir=destdir -C build
 
-project('nmutils', version: 'devel', license: 'GPL-3.0-or-later',
+project('nmutils', version: '20250418', license: 'GPL-3.0-or-later',
 	default_options: [ 'sysconfdir=/etc' ],
 	meson_version: '>=0.62.0') # test() verbose
 
